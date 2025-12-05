@@ -1,0 +1,139 @@
+###
+# Set default resource id path to device:oidIndex for rules where not specified
+# Note: You can only set a defult resource_id. Any other options must be set per rule.
+_default:
+  resource_id:
+    - type: field
+      format: short_hostname
+      path:
+        - tags
+        - device
+    - type: field
+      path:
+        - tags
+        - oidIndex
+##
+# Define rules for mapping telegraf metrics to resources. The key must match the "name" field in the telegraf metric.
+snmp_if:
+  resource_type: interface
+  resource_id:
+    - type: field
+      format: short_hostname
+      path:
+        - tags
+        - device
+    - type: field
+      lookup: ifindex_to_ifname
+      path:
+        - tags
+        - oidIndex
+  resource_ref: meta_interface
+  # skip_tags:
+  #   - date
+  #   - routing_tag
+  resource_lookup_tables:
+    - name: ifindex_to_ifname
+      key:
+        - type: field
+          format: short_hostname
+          path:
+            - tags
+            - device
+        - type: field
+          path:
+            - tags
+            - oidIndex
+      value:
+        type: field
+        path:
+          - fields
+          - SNMP_IF-MIB::ifName
+
+snmp_timetra_vrtr:
+  resource_type: interface
+  resource_id:
+    - type: field
+      format: short_hostname
+      path:
+        - tags
+        - device
+    - type: field
+      lookup: vrtrifindex_to_ifname
+      path:
+        - tags
+        - oidIndex
+  resource_ref: meta_interface
+  resource_lookup_tables:
+    - name: vrtrifindex_to_ifname
+      key:
+        - type: field
+          format: short_hostname
+          path:
+            - tags
+            - device
+        - type: field
+          path:
+            - tags
+            - oidIndex
+      value:
+        type: field
+        path:
+          - fields
+          - SNMP_TIMETRA-VRTR-MIB::vRtrIfName
+
+snmp_timetra_sap:
+  resource_type: interface
+  resource_id:
+    - type: field
+      format: short_hostname
+      path:
+        - tags
+        - device
+    - type: field
+      format: tmnxsapid
+      path:
+        - tags
+        - oidIndex
+  resource_ref: meta_interface
+
+snmp_timetra_port_queue:
+  resource_type: interface
+  resource_id:
+    - type: field
+      format: short_hostname
+      path:
+        - tags
+        - device
+    - type: field
+      format: regex
+      format_opts:
+        # note that "value" is special and will be assigned to this part of id
+        # any other named groups will be added to ext
+        pattern: '\d+\.(?P<value>\d+)\.(?P<queue_num>\d+)'
+      lookup: ifindex_to_ifname
+      path:
+        - tags
+        - oidIndex
+  resource_ref: meta_interface
+
+snmp_timetra_chassis:
+  resource_type: chassis_part
+
+snmp_juniper:
+  resource_type: chassis_part
+
+snmp_alpha:
+  resource_type: pdu_outlet
+    
+snmp_sentry4:
+  resource_type: pdu_outlet
+
+snmp:
+  resource_type: device
+  resource_id:
+    - type: field
+      format: short_hostname
+      path:
+        - tags
+        - device
+  resource_ref: meta_device

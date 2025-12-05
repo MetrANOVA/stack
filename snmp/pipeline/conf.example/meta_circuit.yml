@@ -1,0 +1,39 @@
+table: meta_circuit
+data:
+  # Parent circuit - high-level connection between Los Angeles and San Francisco
+  - id: losa-sfo-backbone-01
+    type: device_to_device
+    description: Los Angeles to San Francisco Backbone Circuit
+    state: active
+    endpoint_type: 
+      - device
+      - device
+    endpoint_id:
+      - losa-cr6
+      - sfo-cr1
+
+  # Main circuit connecting interfaces
+  - id: losa-sfo-1553
+    type: routed
+    description: Circuit Los Angeles SE-1553 to San Francisco,CA
+    state: active
+    endpoint_type:
+      - interface
+      - interface
+    endpoint_id:
+      - losa-cr6::losa_se-1553
+      - sfo-cr1::sfo_se-1553
+    parent_circuit_id: losa-sfo-backbone-01
+
+  # Child circuit - physical transport layer
+  - id: losa-sfo-transport-1553
+    type: transport
+    description: Physical Transport Circuit for 1553
+    state: active
+    endpoint_type:
+      - port
+      - port
+    endpoint_id:
+      - losa-cr6::ae1553
+      - sfo-cr1::ae1553
+    parent_circuit_id: losa-sfo-1553

@@ -1,0 +1,34 @@
+services:
+
+  data_snmp:
+    image: ghcr.io/metranova/pipeline:latest
+    env_file:
+      - conf/envs/base.env
+      - conf/envs/data_snmp.env
+    volumes:
+      - ./caches:/app/caches:ro
+      - ./conf:/app/conf:ro
+    restart: always
+    deploy:
+      mode: replicated
+      replicas: ${PIPELINE_REPLICAS:-1}
+  
+  metadata_caida_org_as:
+    image: ghcr.io/metranova/pipeline:latest
+    env_file:
+      - conf/envs/base.env
+      - conf/envs/metadata_caida_org_as.env
+    volumes:
+      - ./caches:/app/caches:rw
+      - ./conf:/app/conf:ro
+    restart: always
+  
+  metadata_file_export:
+    image: ghcr.io/metranova/pipeline:latest
+    env_file:
+      - conf/envs/base.env
+      - conf/envs/metadata_file_export.env
+    volumes:
+      - ./caches:/app/caches:rw
+      - ./conf:/app/conf:ro
+    restart: always
