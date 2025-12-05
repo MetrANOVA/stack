@@ -11,3 +11,6 @@ __pycache__/
 *.pyd
 .coverage
 conf/
+#anything in caches that isn't .placeholder
+*/pipeline/caches/*
+!*/pipeline/caches/.placeholder
