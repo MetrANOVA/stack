@@ -1,0 +1,12 @@
+.DS_Store
+.*.swn
+.*.swo
+.*.swp
+.vscode/
+.env*
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.coverage
