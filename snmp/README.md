@@ -1,13 +1,13 @@
 # MetrANOVA Stack - SNMP
 
-This is the stack to collect and process data polled from SNMP. It uses Telgraf as the collector that does SNMP polling
+This is the stack to collect and process data polled from SNMP. It uses Telegraf as the collector that does SNMP polling
 
 ## Collector
 TBD
 
 ## Pipeline
 
-### Pipeline Configurations 
+### Pipeline Configuration
 1. Change to the pipeline directory:
 ```bash
 cd pipeline/

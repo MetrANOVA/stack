@@ -1,0 +1,56 @@
+table: meta_device
+data:
+  - id: losa-cr6
+    type: router
+    loopback_ip:
+      - "2001:504:b:1::1"
+      - "192.168.1.1"
+    management_ip:
+      - "2001:504:b:100::6"
+      - "10.0.1.6"
+    hostname: losa-cr6.metranova.net
+    location_name: Los Angeles Colocation Facility
+    location_type:
+      - datacenter
+      - colocation
+    city_name: Los Angeles
+    continent_name: North America
+    country_name: United States
+    country_code: US
+    country_sub_name: California
+    country_sub_code: CA
+    latitude: 34.0522
+    longitude: -118.2437
+    manufacturer: Nokia
+    model: 7750SR
+    network: MetrANOVA Core
+    os: SROS
+    role: core
+    state: active
+  - id: sfo-cr1
+    type: router
+    loopback_ip:
+      - "2001:504:b:2::1"
+      - "192.168.2.1"
+    management_ip:
+      - "2001:504:b:200::6"
+      - "10.0.2.6"
+    hostname: sfo-cr1.metranova.net
+    location_name: San Francisco Colocation Facility
+    location_type:
+      - datacenter
+      - colocation
+    city_name: San Francisco
+    continent_name: North America
+    country_name: United States
+    country_code: US
+    country_sub_name: California
+    country_sub_code: CA
+    latitude: 34.0522
+    longitude: -118.2437
+    manufacturer: Nokia
+    model: 7750SR
+    network: MetrANOVA Core
+    os: SROS
+    role: core
+    state: active

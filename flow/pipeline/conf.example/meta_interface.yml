@@ -1,0 +1,73 @@
+table: meta_interface
+data:
+  - id: losa-cr6::losa_se-1553
+    type: service_l3vpn
+    description: Los Angeles SE-1553
+    device_id: losa-cr6
+    edge: true
+    flow_index: 12356
+    ipv4: 207.231.240.164
+    ipv6: 2001:504:b:20::164
+    name: losa_se-1553
+    speed: 1000
+    circuit_id: 
+      - losa-sfo-1553
+    peer_as_id: 67890
+    peer_interface_ipv4: 207.231.240.165
+    peer_interface_ipv6: 2001:504:b:20::165
+    port_interface_id: losa-cr6::ae1553
+    remote_interface_id: sfo-cr1::sfo_se-1553
+    remote_organization_id: ucla
+  - id: losa-cr6::ae1553
+    type: port
+    description: Los Angeles AE1553
+    device_id: losa-cr6
+    edge: true
+    flow_index: 12357
+    name: ae1553
+    speed: 1000
+  - id: sfo-cr1::sfo_se-1553
+    type: service_l3vpn
+    description: San Francisco SE-1553
+    device_id: sfo-cr1
+    edge: true
+    flow_index: 7
+    ipv4: 207.231.240.165
+    ipv6: 2001:504:b:20::165
+    name: sfo_se-1553
+    speed: 1000
+    circuit_id: 
+      - losa-sfo-1553
+    peer_as_id: 67890
+    peer_interface_ipv4: 207.231.240.165
+    peer_interface_ipv6: 2001:504:b:20::165
+    port_interface_id: sfo-cr1::lag1
+    remote_interface_id: losa-cr6::losa_se-1553
+  - id: sfo-cr1::lag1
+    type: lag
+    description: San Francisco Lag 1
+    device_id: sfo-cr1
+    edge: true
+    flow_index: 8
+    name: lab1
+    speed: 1000
+    lag_member_interface_id:
+      - sfo-cr1::port1
+      - sfo-cr1::port2
+  - id: sfo-cr1::port1
+    type: port
+    description: San Francisco Port 1
+    device_id: sfo-cr1
+    edge: true
+    flow_index: 9
+    name: port1
+    speed: 1000
+  - id: sfo-cr1::port2
+    type: port
+    description: San Francisco Port 2
+    device_id: sfo-cr1
+    edge: true
+    flow_index: 10
+    name: port2
+    speed: 1000
+
