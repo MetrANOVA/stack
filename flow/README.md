@@ -38,14 +38,15 @@ docker compose run --rm -e CAIDA_ORG_AS_CONSUMER_UPDATE_INTERVAL=-1 metadata_cai
 curl -o caches/GeoLite2-ASN-CSV.zip -L -u YOUR_ACCOUNT_ID:YOUR_LICENSE_KEY \
 'https://download.maxmind.com/geoip/databases/GeoLite2-ASN-CSV/download?suffix=zip'
 unzip caches/GeoLite2-ASN-CSV.zip -d caches/GeoLite2-ASN-CSV
-cp caches/GeoLite2-ASN-CSV/GeoLite2-ASN-CSV_20251031/GeoLite2-ASN-Blocks-IPv4.csv caches/GeoLite2-ASN-Blocks-IPv4.csv
-cp caches/GeoLite2-ASN-CSV/GeoLite2-ASN-CSV_20251031/GeoLite2-ASN-Blocks-IPv6.csv caches/GeoLite2-ASN-Blocks-IPv6.csv
+cp caches/GeoLite2-ASN-CSV/GeoLite2-ASN-CSV_*/GeoLite2-ASN-Blocks-IPv4.csv caches/GeoLite2-ASN-Blocks-IPv4.csv
+cp caches/GeoLite2-ASN-CSV/GeoLite2-ASN-CSV_*/GeoLite2-ASN-Blocks-IPv6.csv caches/GeoLite2-ASN-Blocks-IPv6.csv
 rm -rf caches/GeoLite2-ASN-CSV
 curl -o caches/GeoLite2-City-CSV.zip -L -u YOUR_ACCOUNT_ID:YOUR_LICENSE_KEY \
 'https://download.maxmind.com/geoip/databases/GeoLite2-City-CSV/download?suffix=zip'
 unzip caches/GeoLite2-City-CSV.zip -d caches/GeoLite2-City-CSV
-cp caches/GeoLite2-City-CSV/GeoLite2-City-CSV_20251028/GeoLite2-City-Blocks-IPv6.csv caches/GeoLite2-City-Blocks-IPv6.csv
-cp caches/GeoLite2-City-CSV/GeoLite2-City-CSV_20251028/GeoLite2-City-Locations-en.csv caches/GeoLite2-City-Locations-en.csv
+cp caches/GeoLite2-City-CSV/GeoLite2-City-CSV_*/GeoLite2-City-Blocks-IPv4.csv caches/GeoLite2-City-Blocks-IPv4.csv
+cp caches/GeoLite2-City-CSV/GeoLite2-City-CSV_*/GeoLite2-City-Blocks-IPv6.csv caches/GeoLite2-City-Blocks-IPv6.csv
+cp caches/GeoLite2-City-CSV/GeoLite2-City-CSV_*/GeoLite2-City-Locations-en.csv caches/GeoLite2-City-Locations-en.csv
 rm -rf caches/GeoLite2-City-CSV
 ```
 
@@ -54,14 +55,14 @@ rm -rf caches/GeoLite2-City-CSV
 docker compose run --rm -e IP_GEO_CSV_CONSUMER_UPDATE_INTERVAL=-1 metadata_ip_geo
 ```
 
-9. Build local cache of IP references:
-```bash
-docker compose run --rm -e CLICKHOUSE_CONSUMER_UPDATE_INTERVAL=-1 cache_ip_trie
-```
-
-10. Bootstrap ClickHouse with Science Registry data:
+9. Bootstrap ClickHouse with Science Registry data:
 ```bash
 docker compose run --rm -e SCIREG_HTTP_CONSUMER_UPDATE_INTERVAL=-1 metadata_scireg
+```
+
+10. Build local cache of IP references:
+```bash
+docker compose run --rm -e CLICKHOUSE_CONSUMER_UPDATE_INTERVAL=-1 cache_ip_trie
 ```
 
 11. Update `meta_device.yml` and `meta_interface.yml` with your site specific metadata. You can optionally also add circuit info to `meta_circuit.yml`, but this is not required.
