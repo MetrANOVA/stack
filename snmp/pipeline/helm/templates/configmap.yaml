@@ -18,4 +18,15 @@ data:
   meta_circuit.yml: |
     {{- .Values.configFiles.metaCircuit | nindent 4 }}
   {{- end }}
-{{- end }}
+  {{- if .Values.configFiles.telegrafMappings }}
+  telegraf_mappings.yml: |
+    {{- .Values.configFiles.telegrafMappings | nindent 4 }}
+  {{- end }}
+  {{- if .Values.configFiles.customASAdditions }}
+   custom_as_additions.yml: |
+    {{- .Values.configFiles.customASAdditions | nindent 4 }}
+  {{- end }}
+  {{- if .Values.configFiles.customOrgAdditions }}
+  custom_org_additions.yml: |
+    {{- .Values.configFiles.customOrgAdditions | nindent 4 }}
+  {{- end }}

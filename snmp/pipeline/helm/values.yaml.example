@@ -153,6 +153,9 @@ configFiles:
   metaInterface: ""
   metaDevice: ""
   metaCircuit: ""
+  telegrafMappings: ""
+  customASAdditions: ""
+  customOrgAdditions: ""
 
 # Service account
 serviceAccount:
