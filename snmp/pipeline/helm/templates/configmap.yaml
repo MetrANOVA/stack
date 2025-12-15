@@ -23,10 +23,11 @@ data:
     {{- .Values.configFiles.telegrafMappings | nindent 4 }}
   {{- end }}
   {{- if .Values.configFiles.customASAdditions }}
-   custom_as_additions.yml: |
+  custom_as_additions.yml: |
     {{- .Values.configFiles.customASAdditions | nindent 4 }}
   {{- end }}
   {{- if .Values.configFiles.customOrgAdditions }}
   custom_org_additions.yml: |
     {{- .Values.configFiles.customOrgAdditions | nindent 4 }}
   {{- end }}
+{{- end }}
