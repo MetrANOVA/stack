@@ -11,6 +11,8 @@ __pycache__/
 *.pyd
 .coverage
 conf/
+# Ignore Helm values file
+**/helm/values.yaml
 #anything in caches that isn't .placeholder
 */pipeline/caches/*
 !*/pipeline/caches/.placeholder

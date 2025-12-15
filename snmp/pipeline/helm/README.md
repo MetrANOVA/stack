@@ -18,6 +18,14 @@ This chart deploys three main components:
 
 ## Installing the Chart
 
+### Copy values.yaml File
+
+Fist copy the example values.yaml file
+
+```bash
+cp helm/values.yaml.example helm/values.yaml
+```
+
 ### Basic Installation
 
 ```bash
