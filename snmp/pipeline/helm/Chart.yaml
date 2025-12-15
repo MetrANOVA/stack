@@ -1,0 +1,13 @@
+apiVersion: v2
+name: metranova-snmp-pipeline
+description: A Helm chart for MetrANOVA SNMP Pipeline
+type: application
+version: 0.1.0
+appVersion: "latest"
+keywords:
+  - metranova
+  - snmp
+  - pipeline
+  - monitoring
+maintainers:
+  - name: MetrANOVA Team

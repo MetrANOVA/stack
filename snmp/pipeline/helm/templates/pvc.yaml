@@ -1,0 +1,17 @@
+{{- if not .Values.caches.existingPvc }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "metranova-snmp-pipeline.fullname" . }}-caches
+  labels:
+    {{- include "metranova-snmp-pipeline.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteMany
+  {{- if .Values.caches.storageClassName }}
+  storageClassName: {{ .Values.caches.storageClassName }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.caches.storageSize }}
+{{- end }}

@@ -1,0 +1,21 @@
+{{- if not .Values.configFiles.existingConfigMap }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "metranova-snmp-pipeline.fullname" . }}-config
+  labels:
+    {{- include "metranova-snmp-pipeline.labels" . | nindent 4 }}
+data:
+  {{- if .Values.configFiles.metaInterface }}
+  meta_interface.yml: |
+    {{- .Values.configFiles.metaInterface | nindent 4 }}
+  {{- end }}
+  {{- if .Values.configFiles.metaDevice }}
+  meta_device.yml: |
+    {{- .Values.configFiles.metaDevice | nindent 4 }}
+  {{- end }}
+  {{- if .Values.configFiles.metaCircuit }}
+  meta_circuit.yml: |
+    {{- .Values.configFiles.metaCircuit | nindent 4 }}
+  {{- end }}
+{{- end }}

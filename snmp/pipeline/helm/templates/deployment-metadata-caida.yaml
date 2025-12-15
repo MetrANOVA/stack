@@ -1,0 +1,147 @@
+{{- if .Values.metadataCaidaOrgAs.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "metranova-snmp-pipeline.fullname" . }}-metadata-caida
+  labels:
+    {{- include "metranova-snmp-pipeline.labels" . | nindent 4 }}
+    app.kubernetes.io/component: metadata-caida
+spec:
+  replicas: {{ .Values.metadataCaidaOrgAs.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "metranova-snmp-pipeline.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: metadata-caida
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "metranova-snmp-pipeline.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: metadata-caida
+    spec:
+      {{- include "metranova-snmp-pipeline.imagePullSecrets" . | nindent 6 }}
+      serviceAccountName: {{ include "metranova-snmp-pipeline.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+      - name: metadata-caida
+        securityContext:
+          {{- toYaml .Values.securityContext | nindent 10 }}
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        env:
+        - name: DEBUG
+          value: {{ .Values.config.debug | quote }}
+        - name: PIPELINE_YAML
+          value: {{ .Values.metadataCaidaOrgAs.env.pipelineYaml | quote }}
+        - name: CLICKHOUSE_CACHER_TABLES
+          value: "{{ .Values.config.clickhouse.tables.organization }},{{ .Values.config.clickhouse.tables.as }}"
+        - name: CLICKHOUSE_AS_METADATA_EXTENSIONS
+          value: {{ .Values.metadataCaidaOrgAs.env.clickhouseAsMetadataExtensions | quote }}
+        - name: CLICKHOUSE_METADATA_FORCE_UPDATE
+          value: {{ .Values.metadataCaidaOrgAs.env.clickhouseMetadataForceUpdate | quote }}
+        - name: CAIDA_ORG_AS_CONSUMER_AS2ORG_FILE
+          value: {{ .Values.metadataCaidaOrgAs.env.caidaOrgAsConsumerAs2orgFile | quote }}
+        - name: CAIDA_ORG_AS_CONSUMER_PEERINGDB_FILE
+          value: {{ .Values.metadataCaidaOrgAs.env.caidaOrgAsConsumerPeeringdbFile | quote }}
+        - name: CAIDA_ORG_AS_CONSUMER_CUSTOM_AS_FILE
+          value: {{ .Values.metadataCaidaOrgAs.env.caidaOrgAsConsumerCustomAsFile | quote }}
+        - name: CAIDA_ORG_AS_CONSUMER_CUSTOM_ORG_FILE
+          value: {{ .Values.metadataCaidaOrgAs.env.caidaOrgAsConsumerCustomOrgFile | quote }}
+        - name: CAIDA_ORG_AS_CONSUMER_UPDATE_INTERVAL
+          value: {{ .Values.metadataCaidaOrgAs.env.caidaOrgAsConsumerUpdateInterval | quote }}
+        - name: CAIDA_ORG_AS_CONSUMER_AS_TABLE
+          value: {{ .Values.config.clickhouse.tables.as | quote }}
+        - name: CAIDA_ORG_AS_CONSUMER_ORG_TABLE
+          value: {{ .Values.config.clickhouse.tables.organization | quote }}
+        - name: KAFKA_BOOTSTRAP_SERVERS
+          value: {{ .Values.config.kafka.bootstrapServers | quote }}
+        - name: KAFKA_CONSUMER_GROUP
+          value: {{ .Values.config.kafka.consumerGroup | quote }}
+        - name: KAFKA_SSL_CA_LOCATION
+          value: {{ .Values.config.kafka.ssl.caLocation | quote }}
+        - name: KAFKA_SSL_CERTIFICATE_LOCATION
+          value: {{ .Values.config.kafka.ssl.certificateLocation | quote }}
+        - name: KAFKA_SSL_KEY_LOCATION
+          value: {{ .Values.config.kafka.ssl.keyLocation | quote }}
+        - name: KAFKA_SSL_KEY_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.certificates.existingSecret | default (printf "%s-secrets" (include "metranova-snmp-pipeline.fullname" .)) }}
+              key: KAFKA_SSL_KEY_PASSWORD
+        - name: CLICKHOUSE_HOST
+          value: {{ .Values.config.clickhouse.host | quote }}
+        - name: CLICKHOUSE_PORT
+          value: {{ .Values.config.clickhouse.port | quote }}
+        - name: CLICKHOUSE_DATABASE
+          value: {{ .Values.config.clickhouse.database | quote }}
+        - name: CLICKHOUSE_USERNAME
+          value: {{ .Values.config.clickhouse.username | quote }}
+        - name: CLICKHOUSE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.certificates.existingSecret | default (printf "%s-secrets" (include "metranova-snmp-pipeline.fullname" .)) }}
+              key: CLICKHOUSE_PASSWORD
+        - name: CLICKHOUSE_BATCH_SIZE
+          value: {{ .Values.config.clickhouse.batchSize | quote }}
+        - name: CLICKHOUSE_BATCH_TIMEOUT
+          value: {{ .Values.config.clickhouse.batchTimeout | quote }}
+        - name: REDIS_HOST
+          value: {{ .Values.config.redis.host | quote }}
+        - name: REDIS_PORT
+          value: {{ .Values.config.redis.port | quote }}
+        - name: REDIS_DB
+          value: {{ .Values.config.redis.db | quote }}
+        - name: CLICKHOUSE_IF_METADATA_TABLE
+          value: {{ .Values.config.clickhouse.tables.interface | quote }}
+        - name: CLICKHOUSE_DEVICE_METADATA_TABLE
+          value: {{ .Values.config.clickhouse.tables.device | quote }}
+        - name: CLICKHOUSE_ORGANIZATION_METADATA_TABLE
+          value: {{ .Values.config.clickhouse.tables.organization | quote }}
+        - name: CLICKHOUSE_CIRCUIT_METADATA_TABLE
+          value: {{ .Values.config.clickhouse.tables.circuit | quote }}
+        - name: CLICKHOUSE_AS_METADATA_TABLE
+          value: {{ .Values.config.clickhouse.tables.as | quote }}
+        resources:
+          {{- toYaml .Values.metadataCaidaOrgAs.resources | nindent 10 }}
+        volumeMounts:
+        - name: caches
+          mountPath: /app/caches
+        - name: config
+          mountPath: /app/conf
+          readOnly: true
+        {{- if or .Values.certificates.kafka.ca .Values.certificates.existingSecret }}
+        - name: certificates
+          mountPath: /app/conf/certificates/prod
+          readOnly: true
+        {{- end }}
+      volumes:
+      - name: caches
+        persistentVolumeClaim:
+          claimName: {{ .Values.caches.existingPvc | default (printf "%s-caches" (include "metranova-snmp-pipeline.fullname" .)) }}
+      - name: config
+        configMap:
+          name: {{ .Values.configFiles.existingConfigMap | default (printf "%s-config" (include "metranova-snmp-pipeline.fullname" .)) }}
+      {{- if or .Values.certificates.kafka.ca .Values.certificates.existingSecret }}
+      - name: certificates
+        secret:
+          secretName: {{ .Values.certificates.existingSecret | default (printf "%s-certs" (include "metranova-snmp-pipeline.fullname" .)) }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
