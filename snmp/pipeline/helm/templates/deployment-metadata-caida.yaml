@@ -59,21 +59,6 @@ spec:
           value: {{ .Values.config.clickhouse.tables.as | quote }}
         - name: CAIDA_ORG_AS_CONSUMER_ORG_TABLE
           value: {{ .Values.config.clickhouse.tables.organization | quote }}
-        - name: KAFKA_BOOTSTRAP_SERVERS
-          value: {{ .Values.config.kafka.bootstrapServers | quote }}
-        - name: KAFKA_CONSUMER_GROUP
-          value: {{ .Values.config.kafka.consumerGroup | quote }}
-        - name: KAFKA_SSL_CA_LOCATION
-          value: {{ .Values.config.kafka.ssl.caLocation | quote }}
-        - name: KAFKA_SSL_CERTIFICATE_LOCATION
-          value: {{ .Values.config.kafka.ssl.certificateLocation | quote }}
-        - name: KAFKA_SSL_KEY_LOCATION
-          value: {{ .Values.config.kafka.ssl.keyLocation | quote }}
-        - name: KAFKA_SSL_KEY_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: {{ .Values.certificates.existingSecret | default (printf "%s-secrets" (include "metranova-snmp-pipeline.fullname" .)) }}
-              key: KAFKA_SSL_KEY_PASSWORD
         - name: CLICKHOUSE_HOST
           value: {{ .Values.config.clickhouse.host | quote }}
         - name: CLICKHOUSE_PORT
@@ -91,12 +76,6 @@ spec:
           value: {{ .Values.config.clickhouse.batchSize | quote }}
         - name: CLICKHOUSE_BATCH_TIMEOUT
           value: {{ .Values.config.clickhouse.batchTimeout | quote }}
-        - name: REDIS_HOST
-          value: {{ .Values.config.redis.host | quote }}
-        - name: REDIS_PORT
-          value: {{ .Values.config.redis.port | quote }}
-        - name: REDIS_DB
-          value: {{ .Values.config.redis.db | quote }}
         - name: CLICKHOUSE_IF_METADATA_TABLE
           value: {{ .Values.config.clickhouse.tables.interface | quote }}
         - name: CLICKHOUSE_DEVICE_METADATA_TABLE
@@ -117,7 +96,7 @@ spec:
           readOnly: true
         {{- if or .Values.certificates.kafka.ca .Values.certificates.existingSecret }}
         - name: certificates
-          mountPath: /app/conf/certificates/prod
+          mountPath: /app/conf/certificates
           readOnly: true
         {{- end }}
       volumes:

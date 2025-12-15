@@ -32,3 +32,8 @@ services:
       - ./caches:/app/caches:rw
       - ./conf:/app/conf:ro
     restart: always
+
+  redis:
+    image: redis:8.2.1
+    ports:
+      - "6379:6379"
