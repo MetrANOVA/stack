@@ -47,8 +47,6 @@ spec:
           value: {{ .Values.metadataFileExport.env.fileConsumerFilePaths | quote }}
         - name: FILE_CONSUMER_UPDATE_INTERVAL
           value: {{ .Values.metadataFileExport.env.fileConsumerUpdateInterval | quote }}
-        - name: KAFKA_BOOTSTRAP_SERVERS
-          value: {{ .Values.config.kafka.bootstrapServers | quote }}
         - name: CLICKHOUSE_HOST
           value: {{ .Values.config.clickhouse.host | quote }}
         - name: CLICKHOUSE_PORT
@@ -84,11 +82,6 @@ spec:
         - name: config
           mountPath: /app/conf
           readOnly: true
-        {{- if or .Values.certificates.kafka.ca .Values.certificates.existingSecret }}
-        - name: certificates
-          mountPath: /app/conf/certificates
-          readOnly: true
-        {{- end }}
       volumes:
       - name: caches
         persistentVolumeClaim:
@@ -96,11 +89,6 @@ spec:
       - name: config
         configMap:
           name: {{ .Values.configFiles.existingConfigMap | default (printf "%s-config" (include "metranova-snmp-pipeline.fullname" .)) }}
-      {{- if or .Values.certificates.kafka.ca .Values.certificates.existingSecret }}
-      - name: certificates
-        secret:
-          secretName: {{ .Values.certificates.existingSecret | default (printf "%s-certs" (include "metranova-snmp-pipeline.fullname" .)) }}
-      {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
