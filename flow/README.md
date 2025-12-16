@@ -22,18 +22,7 @@ cp -r conf.example conf
 
 4. Update `conf/envs/base.env` with Kafka and ClickHouse credentials
 
-5. Download the CAIDA AS and organization metadata:
-```
-curl -k "https://publicdata.caida.org/datasets/as-organizations/20251001.as-org2info.jsonl.gz" | gunzip --stdout > caches/caida_as_org2info.jsonl
-curl -k -o caches/caida_peeringdb.json "https://publicdata.caida.org/datasets/peeringdb/2025/12/peeringdb_2_dump_2025_12_01.json"
-```
-
-6. Bootstrap ClickHouse with the CAIDA metadata:
-```bash
-docker compose run --rm -e CAIDA_ORG_AS_CONSUMER_UPDATE_INTERVAL=-1 metadata_caida_org_as
-```
-
-7. Download MaxMind metadata (replace YOUR_ACCOUNT_ID and YOUR_LICENSE_KEY with your MaxMind account and license key)
+5. Download MaxMind metadata (replace YOUR_ACCOUNT_ID and YOUR_LICENSE_KEY with your MaxMind account and license key)
 ```
 curl -o caches/GeoLite2-ASN-CSV.zip -L -u YOUR_ACCOUNT_ID:YOUR_LICENSE_KEY \
 'https://download.maxmind.com/geoip/databases/GeoLite2-ASN-CSV/download?suffix=zip'
@@ -50,29 +39,29 @@ cp caches/GeoLite2-City-CSV/GeoLite2-City-CSV_*/GeoLite2-City-Locations-en.csv c
 rm -rf caches/GeoLite2-City-CSV
 ```
 
-8. Load MaxMind metadata into clickhouse
+6. Load MaxMind metadata into clickhouse
 ```bash
 docker compose run --rm -e IP_GEO_CSV_CONSUMER_UPDATE_INTERVAL=-1 metadata_ip_geo
 ```
 
-9. Bootstrap ClickHouse with Science Registry data:
+7. Bootstrap ClickHouse with Science Registry data:
 ```bash
 docker compose run --rm -e SCIREG_HTTP_CONSUMER_UPDATE_INTERVAL=-1 metadata_scireg
 ```
 
-10. Build local cache of IP references:
+8. Build local cache of IP references:
 ```bash
 docker compose run --rm -e CLICKHOUSE_CONSUMER_UPDATE_INTERVAL=-1 cache_ip_trie
 ```
 
-11. Update `meta_device.yml` and `meta_interface.yml` with your site specific metadata. You can optionally also add circuit info to `meta_circuit.yml`, but this is not required.
+9. Update `meta_device.yml` and `meta_interface.yml` with your site specific metadata. You can optionally also add circuit info to `meta_circuit.yml`, but this is not required.
 
-12. Bootstrap ClickHouse with the metadata from the files:
+10. Bootstrap ClickHouse with the metadata from the files:
 ```bash
 docker compose run --rm -e FILE_CONSUMER_UPDATE_INTERVAL=-1 metadata_file_export
 ```
 
-13. Start all the pipleines:
+11. Start all the pipleines:
 ```bash
 docker compose up -d
 ```
