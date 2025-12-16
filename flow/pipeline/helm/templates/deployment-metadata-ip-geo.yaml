@@ -43,6 +43,12 @@ spec:
           value: "{{ .Values.config.clickhouse.tables.as }},{{ .Values.config.clickhouse.tables.ip }}"
         - name: CLICKHOUSE_METADATA_FORCE_UPDATE
           value: {{ .Values.metadataIpGeo.env.clickhouseMetadataForceUpdate | quote }}
+        - name: IP_GEO_CSV_CONSUMER_USE_MAXMIND_DOWNLOAD
+          value: {{ .Values.metadataIpGeo.env.ipGeoCsvConsumerUseMaxMindDownload | quote }}
+        - name: IP_GEO_CSV_CONSUMER_MAXMIND_ACCOUNT_ID
+          value: {{ .Values.metadataIpGeo.env.ipGeoCsvConsumerMaxMindAccountId | quote }}
+        - name: IP_GEO_CSV_CONSUMER_MAXMIND_LICENSE_KEY
+          value: {{ .Values.metadataIpGeo.env.ipGeoCsvConsumerMaxMindLicenseKey | quote }}
         - name: IP_GEO_CSV_CONSUMER_ASN_FILES
           value: {{ .Values.metadataIpGeo.env.ipGeoCsvConsumerAsnFiles | quote }}
         - name: IP_GEO_CSV_CONSUMER_LOCATION_FILES

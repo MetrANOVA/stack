@@ -17,9 +17,17 @@ This chart deploys six main components:
 3. **metadata-file-export**: Exports metadata from configuration files to ClickHouse
 4. **metadata-ip-geo**: Manages IP geolocation metadata from MaxMind GeoLite2
 5. **metadata-scireg**: Manages Science Registry metadata from external sources
-6. **cache-ip-trie**: Maintains IP prefix trie cache in Redis for fast lookups
+6. **cache-ip-trie**: Maintains IP prefix trie cache in files to be loaded by flow pipeline.
 
 ## Installing the Chart
+
+### Copy values.yaml File
+
+Fist copy the example values.yaml file
+
+```bash
+cp helm/values.yaml.example helm/values.yaml
+```
 
 ### Basic Installation
 
@@ -79,8 +87,6 @@ The following table lists the configurable parameters of the chart and their def
 | `config.clickhouse.database` | ClickHouse database | `metranova` |
 | `config.clickhouse.username` | ClickHouse username | `pipeline_user` |
 | `config.clickhouse.password` | ClickHouse password | `CHANGEME` |
-| `config.redis.host` | Redis host | `redis` |
-| `config.redis.port` | Redis port | `6379` |
 
 ### Storage
 
@@ -155,5 +161,3 @@ This removes all the Kubernetes components associated with the chart and deletes
 - The chart uses a ReadWriteMany PVC for caches to allow multiple pods to access the same cache data
 - Certificate files should be provided either through an existing secret or inline in values
 - Configuration files (meta_*.yml) should be provided through ConfigMap
-- GeoLite2 CSV files must be present in the caches directory before deploying
-- Redis is expected to be available (can use external Redis or deploy separately)

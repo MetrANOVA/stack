@@ -82,6 +82,10 @@ metadataIpGeo:
   env:
     pipelineYaml: /app/pipelines/metadata_ip_geo.yml
     clickhouseMetadataForceUpdate: "false"
+    #IP_GEO_CSV_CONSUMER_USE_MAXMIND_DOWNLOAD
+    ipGeoCsvConsumerUseMaxMindDownload: "true"
+    ipGeoCsvConsumerMaxMindAccountId: ""
+    ipGeoCsvConsumerMaxMindLicenseKey: ""
     ipGeoCsvConsumerAsnFiles: /app/caches/GeoLite2-ASN-Blocks-IPv4.csv,/app/caches/GeoLite2-ASN-Blocks-IPv6.csv
     ipGeoCsvConsumerLocationFiles: /app/caches/GeoLite2-City-Locations-en.csv
     ipGeoCsvConsumerIpBlockFiles: /app/caches/GeoLite2-City-Blocks-IPv4.csv,/app/caches/GeoLite2-City-Blocks-IPv6.csv

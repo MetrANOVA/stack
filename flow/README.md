@@ -22,22 +22,7 @@ cp -r conf.example conf
 
 4. Update `conf/envs/base.env` with Kafka and ClickHouse credentials
 
-5. Download MaxMind metadata (replace YOUR_ACCOUNT_ID and YOUR_LICENSE_KEY with your MaxMind account and license key)
-```
-curl -o caches/GeoLite2-ASN-CSV.zip -L -u YOUR_ACCOUNT_ID:YOUR_LICENSE_KEY \
-'https://download.maxmind.com/geoip/databases/GeoLite2-ASN-CSV/download?suffix=zip'
-unzip caches/GeoLite2-ASN-CSV.zip -d caches/GeoLite2-ASN-CSV
-cp caches/GeoLite2-ASN-CSV/GeoLite2-ASN-CSV_*/GeoLite2-ASN-Blocks-IPv4.csv caches/GeoLite2-ASN-Blocks-IPv4.csv
-cp caches/GeoLite2-ASN-CSV/GeoLite2-ASN-CSV_*/GeoLite2-ASN-Blocks-IPv6.csv caches/GeoLite2-ASN-Blocks-IPv6.csv
-rm -rf caches/GeoLite2-ASN-CSV
-curl -o caches/GeoLite2-City-CSV.zip -L -u YOUR_ACCOUNT_ID:YOUR_LICENSE_KEY \
-'https://download.maxmind.com/geoip/databases/GeoLite2-City-CSV/download?suffix=zip'
-unzip caches/GeoLite2-City-CSV.zip -d caches/GeoLite2-City-CSV
-cp caches/GeoLite2-City-CSV/GeoLite2-City-CSV_*/GeoLite2-City-Blocks-IPv4.csv caches/GeoLite2-City-Blocks-IPv4.csv
-cp caches/GeoLite2-City-CSV/GeoLite2-City-CSV_*/GeoLite2-City-Blocks-IPv6.csv caches/GeoLite2-City-Blocks-IPv6.csv
-cp caches/GeoLite2-City-CSV/GeoLite2-City-CSV_*/GeoLite2-City-Locations-en.csv caches/GeoLite2-City-Locations-en.csv
-rm -rf caches/GeoLite2-City-CSV
-```
+5. Update `conf/envs/metadata_ip_geo.env' with your MaxMind account id and license key. Go to https://www.maxmind.com/ to generate these.
 
 6. Load MaxMind metadata into clickhouse
 ```bash
