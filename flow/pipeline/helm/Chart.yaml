@@ -1,0 +1,13 @@
+apiVersion: v2
+name: metranova-flow-pipeline
+description: A Helm chart for MetrANOVA Flow Pipeline
+type: application
+version: 0.1.0
+appVersion: "latest"
+keywords:
+  - metranova
+  - flow
+  - pipeline
+  - monitoring
+maintainers:
+  - name: MetrANOVA Team

@@ -1,0 +1,142 @@
+{{- if .Values.dataFlow.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "metranova-flow-pipeline.fullname" . }}-data-flow
+  labels:
+    {{- include "metranova-flow-pipeline.labels" . | nindent 4 }}
+    app.kubernetes.io/component: data-flow
+spec:
+  replicas: {{ .Values.dataFlow.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "metranova-flow-pipeline.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: data-flow
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "metranova-flow-pipeline.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: data-flow
+    spec:
+      {{- include "metranova-flow-pipeline.imagePullSecrets" . | nindent 6 }}
+      serviceAccountName: {{ include "metranova-flow-pipeline.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+      - name: data-flow
+        securityContext:
+          {{- toYaml .Values.securityContext | nindent 10 }}
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        env:
+        - name: DEBUG
+          value: {{ .Values.config.debug | quote }}
+        - name: PIPELINE_YAML
+          value: {{ .Values.dataFlow.env.pipelineYaml | quote }}
+        - name: KAFKA_TOPIC
+          value: {{ .Values.dataFlow.env.kafkaTopic | quote }}
+        - name: CLICKHOUSE_FLOW_TABLE
+          value: {{ .Values.dataFlow.env.clickhouseFlowTable | quote }}
+        - name: CLICKHOUSE_CACHER_TABLES
+          value: "{{ .Values.config.clickhouse.tables.as }},{{ .Values.config.clickhouse.tables.device }}:@loopback_ip,{{ .Values.config.clickhouse.tables.interface }}:device_id:flow_index:edge"
+        - name: IP_CACHER_TABLES
+          value: "{{ .Values.config.clickhouse.tables.scireg }},{{ .Values.config.clickhouse.tables.ip }}"
+        - name: CLICKHOUSE_CACHER_REFRESH_INTERVAL
+          value: {{ .Values.dataFlow.env.clickhouseCacherRefreshInterval | quote }}
+        - name: CLICKHOUSE_FLOW_POLICY_COMMUNITY_SCOPE_MAP
+          value: {{ .Values.dataFlow.env.clickhouseFlowPolicyCommunityScope | quote }}
+        - name: CLICKHOUSE_FLOW_EXTENSIONS
+          value: {{ .Values.dataFlow.env.clickhouseFlowExtensions | quote }}
+        - name: CLICKHOUSE_FLOW_IP_REF_EXTENSIONS
+          value: {{ .Values.dataFlow.env.clickhouseFlowIpRefExtensions | quote }}
+        - name: KAFKA_BOOTSTRAP_SERVERS
+          value: {{ .Values.config.kafka.bootstrapServers | quote }}
+        - name: KAFKA_CONSUMER_GROUP
+          value: {{ .Values.config.kafka.consumerGroup | quote }}
+        - name: KAFKA_SSL_CA_LOCATION
+          value: {{ .Values.config.kafka.ssl.caLocation | quote }}
+        - name: KAFKA_SSL_CERTIFICATE_LOCATION
+          value: {{ .Values.config.kafka.ssl.certificateLocation | quote }}
+        - name: KAFKA_SSL_KEY_LOCATION
+          value: {{ .Values.config.kafka.ssl.keyLocation | quote }}
+        - name: KAFKA_SSL_KEY_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.certificates.existingSecret | default (printf "%s-secrets" (include "metranova-flow-pipeline.fullname" .)) }}
+              key: KAFKA_SSL_KEY_PASSWORD
+        - name: CLICKHOUSE_HOST
+          value: {{ .Values.config.clickhouse.host | quote }}
+        - name: CLICKHOUSE_PORT
+          value: {{ .Values.config.clickhouse.port | quote }}
+        - name: CLICKHOUSE_DATABASE
+          value: {{ .Values.config.clickhouse.database | quote }}
+        - name: CLICKHOUSE_USERNAME
+          value: {{ .Values.config.clickhouse.username | quote }}
+        - name: CLICKHOUSE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.certificates.existingSecret | default (printf "%s-secrets" (include "metranova-flow-pipeline.fullname" .)) }}
+              key: CLICKHOUSE_PASSWORD
+        - name: CLICKHOUSE_BATCH_SIZE
+          value: {{ .Values.config.clickhouse.batchSize | quote }}
+        - name: CLICKHOUSE_BATCH_TIMEOUT
+          value: {{ .Values.config.clickhouse.batchTimeout | quote }}
+        - name: CLICKHOUSE_SCIREG_METADATA_TABLE
+          value: {{ .Values.config.clickhouse.tables.scireg | quote }}
+        - name: CLICKHOUSE_IF_METADATA_TABLE
+          value: {{ .Values.config.clickhouse.tables.interface | quote }}
+        - name: CLICKHOUSE_DEVICE_METADATA_TABLE
+          value: {{ .Values.config.clickhouse.tables.device | quote }}
+        - name: CLICKHOUSE_ORGANIZATION_METADATA_TABLE
+          value: {{ .Values.config.clickhouse.tables.organization | quote }}
+        - name: CLICKHOUSE_CIRCUIT_METADATA_TABLE
+          value: {{ .Values.config.clickhouse.tables.circuit | quote }}
+        - name: CLICKHOUSE_AS_METADATA_TABLE
+          value: {{ .Values.config.clickhouse.tables.as | quote }}
+        - name: CLICKHOUSE_IP_METADATA_TABLE
+          value: {{ .Values.config.clickhouse.tables.ip | quote }}
+        resources:
+          {{- toYaml .Values.dataFlow.resources | nindent 10 }}
+        volumeMounts:
+        - name: caches
+          mountPath: /app/caches
+          readOnly: true
+        - name: config
+          mountPath: /app/conf
+          readOnly: true
+        {{- if or .Values.certificates.kafka.ca .Values.certificates.existingSecret }}
+        - name: certificates
+          mountPath: /app/conf/certificates/prod
+          readOnly: true
+        {{- end }}
+      volumes:
+      - name: caches
+        persistentVolumeClaim:
+          claimName: {{ .Values.caches.existingPvc | default (printf "%s-caches" (include "metranova-flow-pipeline.fullname" .)) }}
+      - name: config
+        configMap:
+          name: {{ .Values.configFiles.existingConfigMap | default (printf "%s-config" (include "metranova-flow-pipeline.fullname" .)) }}
+      {{- if or .Values.certificates.kafka.ca .Values.certificates.existingSecret }}
+      - name: certificates
+        secret:
+          secretName: {{ .Values.certificates.existingSecret | default (printf "%s-certs" (include "metranova-flow-pipeline.fullname" .)) }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

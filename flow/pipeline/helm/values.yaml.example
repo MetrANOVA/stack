@@ -1,0 +1,217 @@
+# Default values for metranova-flow-pipeline
+
+# Global settings
+global:
+  imagePullSecrets: []
+
+# Image settings
+image:
+  repository: ghcr.io/metranova/pipeline
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+# Data Flow service configuration
+dataFlow:
+  enabled: true
+  replicaCount: 1
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+    requests:
+      cpu: 250m
+      memory: 512Mi
+  env:
+    pipelineYaml: /app/pipelines/data_flow.yml
+    kafkaTopic: metranova_flow
+    clickhouseFlowTable: data_flow
+    clickhouseCacherRefreshInterval: "3600"
+    clickhouseFlowPolicyCommunityScope: "64805:lhcone,64806:lsst,64807:fabric,293:ipt"
+    clickhouseFlowExtensions: "bgp,ipv4,ipv6,mpls"
+    clickhouseFlowIpRefExtensions: "scireg"
+
+# Metadata CAIDA Org AS service configuration
+metadataCaidaOrgAs:
+  enabled: true
+  replicaCount: 1
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+  env:
+    pipelineYaml: /app/pipelines/metadata_caida_org_as.yml
+    clickhouseAsMetadataExtensions: peeringdb
+    clickhouseMetadataForceUpdate: "false"
+    caidaOrgAsConsumerAs2orgFile: /app/caches/caida_as_org2info.jsonl
+    caidaOrgAsConsumerPeeringdbFile: /app/caches/caida_peeringdb.json
+    caidaOrgAsConsumerCustomAsFile: /app/caches/custom_as_additions.yml
+    caidaOrgAsConsumerCustomOrgFile: /app/caches/custom_org_additions.yml
+    caidaOrgAsConsumerUpdateInterval: "86400"
+
+# Metadata File Export service configuration
+metadataFileExport:
+  enabled: true
+  replicaCount: 1
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+  env:
+    pipelineYaml: /app/pipelines/metadata_file_export.yml
+    clickhouseMetadataForceUpdate: "false"
+    fileConsumerFilePaths: /app/conf/meta_interface.yml,/app/conf/meta_device.yml,/app/conf/meta_circuit.yml,/app/conf/meta_application.yml
+    fileConsumerUpdateInterval: "600"
+
+# Metadata IP Geo service configuration
+metadataIpGeo:
+  enabled: true
+  replicaCount: 1
+  resources:
+    limits:
+      cpu: 500m
+      memory: 2Gi
+    requests:
+      cpu: 250m
+      memory: 512Mi
+  env:
+    pipelineYaml: /app/pipelines/metadata_ip_geo.yml
+    clickhouseMetadataForceUpdate: "false"
+    ipGeoCsvConsumerAsnFiles: /app/caches/GeoLite2-ASN-Blocks-IPv4.csv,/app/caches/GeoLite2-ASN-Blocks-IPv6.csv
+    ipGeoCsvConsumerLocationFiles: /app/caches/GeoLite2-City-Locations-en.csv
+    ipGeoCsvConsumerIpBlockFiles: /app/caches/GeoLite2-City-Blocks-IPv4.csv,/app/caches/GeoLite2-City-Blocks-IPv6.csv
+    ipGeoCsvConsumerCustomIpFile: /app/caches/custom_ip_additions.yml
+    ipGeoCsvConsumerUpdateInterval: "7200"
+
+# Metadata SciReg service configuration
+metadataScireg:
+  enabled: true
+  replicaCount: 1
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+  env:
+    pipelineYaml: /app/pipelines/metadata_scireg.yml
+    clickhouseMetadataForceUpdate: "false"
+    httpConsumerEnvPrefix: SCIREG
+    sciregHttpConsumerUpdateInterval: "3600"
+    sciregHttpConsumerUrls: "https://epoc-rabbitmq.tacc.utexas.edu/NetSage/scireg.json"
+
+# Cache IP Trie service configuration
+cacheIpTrie:
+  enabled: true
+  replicaCount: 1
+  resources:
+    limits:
+      cpu: 500m
+      memory: 1Gi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+  env:
+    pipelineYaml: /app/pipelines/cache_ip_trie.yml
+    clickhouseConsumerUpdateInterval: "0"
+
+# Base configuration (shared across all services)
+config:
+  debug: "false"
+  
+  # Kafka configuration
+  kafka:
+    bootstrapServers: kafka:9092
+    consumerGroup: metranova_pipeline
+    ssl:
+      enabled: true
+      caLocation: /app/conf/certificates/prod/kafka_ca.crt
+      certificateLocation: /app/conf/certificates/prod/kafka_user.crt
+      keyLocation: /app/conf/certificates/prod/kafka_user.key
+      keyPassword: "CHANGEME"
+  
+  # ClickHouse configuration
+  clickhouse:
+    host: clickhouse
+    port: 9440
+    database: metranova
+    username: pipeline_user
+    password: "CHANGEME"
+    batchSize: "10000"
+    batchTimeout: "5"
+    
+    # Metadata tables
+    tables:
+      scireg: meta_ip_scireg
+      interface: meta_interface
+      device: meta_device
+      organization: meta_organization
+      circuit: meta_circuit
+      as: meta_as
+      ip: meta_ip
+
+# Certificates
+certificates:
+  # Create ConfigMap/Secret for certificates
+  # Mount your certificate files here
+  existingSecret: ""  # Name of existing secret containing certificates
+  # If existingSecret is not provided, certificates will be created from files
+  kafka:
+    ca: ""
+    cert: ""
+    key: ""
+
+# Cache files configuration
+caches:
+  # Existing PVC for cache files
+  existingPvc: ""
+  # If existingPvc is not provided, a new PVC will be created
+  storageSize: 5Gi
+  storageClassName: ""
+
+# Configuration files
+configFiles:
+  # Existing ConfigMap for configuration files
+  existingConfigMap: ""
+  # If existingConfigMap is not provided, files will be mounted from local conf/ directory
+  metaInterface: ""
+  metaDevice: ""
+  metaCircuit: ""
+  metaApplication: ""
+
+# Service account
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+# Pod annotations
+podAnnotations: {}
+
+# Pod security context
+podSecurityContext: {}
+  # fsGroup: 2000
+
+# Security context
+securityContext: {}
+  # capabilities:
+  #   drop:
+  #   - ALL
+  # readOnlyRootFilesystem: true
+  # runAsNonRoot: true
+  # runAsUser: 1000
+
+# Node selector
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity
+affinity: {}
