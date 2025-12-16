@@ -112,7 +112,7 @@ spec:
           readOnly: true
         {{- if or .Values.certificates.kafka.ca .Values.certificates.existingSecret }}
         - name: certificates
-          mountPath: /app/conf/certificates/prod
+          mountPath: /app/conf/certificates
           readOnly: true
         {{- end }}
       volumes:

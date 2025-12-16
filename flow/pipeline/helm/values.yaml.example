@@ -17,7 +17,7 @@ dataFlow:
   resources:
     limits:
       cpu: 1000m
-      memory: 2Gi
+      memory: 8Gi
     requests:
       cpu: 250m
       memory: 512Mi
@@ -135,9 +135,9 @@ config:
     consumerGroup: metranova_pipeline
     ssl:
       enabled: true
-      caLocation: /app/conf/certificates/prod/kafka_ca.crt
-      certificateLocation: /app/conf/certificates/prod/kafka_user.crt
-      keyLocation: /app/conf/certificates/prod/kafka_user.key
+      caLocation: /app/conf/certificates/kafka_ca.crt
+      certificateLocation: /app/conf/certificates/kafka_user.crt
+      keyLocation: /app/conf/certificates/kafka_user.key
       keyPassword: "CHANGEME"
   
   # ClickHouse configuration
