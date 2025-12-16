@@ -37,7 +37,7 @@ metadataCaidaOrgAs:
   resources:
     limits:
       cpu: 500m
-      memory: 512Mi
+      memory: 1Gi
     requests:
       cpu: 250m
       memory: 256Mi
@@ -75,7 +75,7 @@ metadataIpGeo:
   resources:
     limits:
       cpu: 500m
-      memory: 2Gi
+      memory: 8Gi
     requests:
       cpu: 250m
       memory: 512Mi
@@ -117,13 +117,13 @@ cacheIpTrie:
   resources:
     limits:
       cpu: 500m
-      memory: 1Gi
+      memory: 8Gi
     requests:
       cpu: 250m
       memory: 256Mi
   env:
     pipelineYaml: /app/pipelines/cache_ip_trie.yml
-    clickhouseConsumerUpdateInterval: "0"
+    clickhouseConsumerUpdateInterval: "3600"
 
 # Base configuration (shared across all services)
 config:
