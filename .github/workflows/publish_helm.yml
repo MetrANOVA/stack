@@ -37,23 +37,33 @@ jobs:
         id: version_check
         if: github.ref_name != 'main'
         run: |
-          CHART_FILE="${{ matrix.helm_chart_dir }}/helm/Chart.yaml"
-          CURRENT_VERSION=$(yq eval '.version' "$CHART_FILE")
           BRANCH_NAME="${{ github.ref_name }}"
+          CHANGED=false
           
-          if [ "$CURRENT_VERSION" != "$BRANCH_NAME" ]; then
-            echo "Version mismatch: Chart has '$CURRENT_VERSION' but branch is '$BRANCH_NAME'"
-            echo "Updating Chart.yaml to version $BRANCH_NAME"
-            yq eval -i ".version = \"$BRANCH_NAME\"" "$CHART_FILE"
-            
-            git add "$CHART_FILE"
-            git commit -m "chore: update chart version to $BRANCH_NAME"
+          # Find and process all Chart.yaml files in helm subdirectories
+          for CHART_FILE in ./helm/*/Chart.yaml; do
+            if [ -f "$CHART_FILE" ]; then
+              CURRENT_VERSION=$(yq eval '.version' "$CHART_FILE")
+              
+              if [ "$CURRENT_VERSION" != "$BRANCH_NAME" ]; then
+                echo "Version mismatch in $CHART_FILE: Chart has '$CURRENT_VERSION' but branch is '$BRANCH_NAME'"
+                echo "Updating $CHART_FILE to version $BRANCH_NAME"
+                yq eval -i ".version = \"$BRANCH_NAME\"" "$CHART_FILE"
+                git add "$CHART_FILE"
+                CHANGED=true
+              else
+                echo "Version in $CHART_FILE already matches branch name: $CURRENT_VERSION"
+              fi
+            fi
+          done
+          
+          if [ "$CHANGED" = true ]; then
+            git commit -m "chore: update chart versions to $BRANCH_NAME"
             git push
-            
             echo "version_changed=true" >> $GITHUB_OUTPUT
-            echo "Version updated and committed. Stopping workflow - new run will be triggered."
+            echo "Versions updated and committed. Stopping workflow - new run will be triggered."
           else
-            echo "Version already matches branch name: $CURRENT_VERSION"
+            echo "All chart versions already match branch name"
             echo "version_changed=false" >> $GITHUB_OUTPUT
           fi
 
@@ -72,7 +82,7 @@ jobs:
           CR_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
         with:
           #looks for subdirectoryies with Chart.yaml files, so point at parent dir
-          charts_dir: ./${{ matrix.helm_chart_dir }}
+          charts_dir: ./helm
           # if on main, don;t overwrite existing, mark as latest.
           # If on version branch, always publish so that we get new charts as we merge in changes pre-release
           skip_existing: ${{ github.ref_name == 'main' }}
