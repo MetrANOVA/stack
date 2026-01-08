@@ -15,9 +15,6 @@ on:
 # The jobs to run that wil publish helm charts
 jobs:
   release:
-    strategy:
-      matrix:
-        helm_chart_dir: [ flow/pipeline, snmp/pipeline ]
     permissions:
       contents: write
     runs-on: ubuntu-latest
@@ -71,9 +68,12 @@ jobs:
       - name: Update Chart Version for Pre-Releases
         if: github.ref_name != 'main' && steps.version_check.outputs.version_changed != 'true'
         run: |
-          CHART_FILE="${{ matrix.helm_chart_dir }}/helm/Chart.yaml"
-          echo "Updating chart version in $CHART_FILE"
-          yq eval -i '.version += "-beta"' "$CHART_FILE"
+          for CHART_FILE in ./helm/*/Chart.yaml; do
+            if [ -f "$CHART_FILE" ]; then
+              echo "Updating chart version in $CHART_FILE"
+              yq eval -i '.version += "-beta"' "$CHART_FILE"
+            fi
+          done
 
       - name: Run chart-releaser
         if: steps.version_check.outputs.version_changed != 'true'
