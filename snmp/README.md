@@ -7,7 +7,49 @@ TBD
 
 ## Pipeline
 
-### Pipeline Configuration
+### Installing with Helm (Recommended)
+
+The recommended way to deploy the SNMP pipeline is using Helm:
+
+#### Add the Helm Repository
+
+```bash
+helm repo add metranova https://metranova.github.io/stack
+helm repo update
+```
+
+#### Install Latest Stable Release
+
+```bash
+helm install metranova-snmp metranova/snmp-pipeline
+```
+
+#### Install with Custom Values
+
+```bash
+helm install metranova-snmp metranova/snmp-pipeline -f custom-values.yaml
+```
+
+#### Install Pre-Release Version
+
+To install a pre-release version (e.g., beta releases from version branches), use the `--devel` flag:
+
+```bash
+# Install latest pre-release version
+helm install metranova-snmp metranova/snmp-pipeline --devel
+
+# Install specific pre-release version
+helm install metranova-snmp metranova/snmp-pipeline --version 0.1.0-beta --devel
+```
+
+For detailed configuration options, see the chart's README or use:
+
+```bash
+helm show readme metranova/snmp-pipeline
+helm show values metranova/snmp-pipeline
+```
+
+### Pipeline Configuration (Docker Compose)
 1. Change to the pipeline directory:
 ```bash
 cd pipeline/
