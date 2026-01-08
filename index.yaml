@@ -1,0 +1,21 @@
+apiVersion: v1
+entries:
+  metranova-snmp-pipeline:
+  - apiVersion: v2
+    appVersion: latest
+    created: "2026-01-08T19:19:35.854120237Z"
+    description: A Helm chart for MetrANOVA SNMP Pipeline
+    digest: 35fd99a9bf215dd7145006d95e364eed72706379af8d9327ec057c00d8589e40
+    keywords:
+    - metranova
+    - snmp
+    - pipeline
+    - monitoring
+    maintainers:
+    - name: MetrANOVA Team
+    name: metranova-snmp-pipeline
+    type: application
+    urls:
+    - https://github.com/MetrANOVA/stack/releases/download/metranova-snmp-pipeline-0.1.0-beta/metranova-snmp-pipeline-0.1.0-beta.tgz
+    version: 0.1.0-beta
+generated: "2026-01-08T19:19:35.854129154Z"
