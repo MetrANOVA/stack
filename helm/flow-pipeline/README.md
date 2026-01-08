@@ -21,32 +21,57 @@ This chart deploys six main components:
 
 ## Installing the Chart
 
-### Copy values.yaml File
+### From Helm Repository (Recommended)
 
-Fist copy the example values.yaml file
+First, add the MetrANOVA Helm repository:
 
 ```bash
-cp helm/values.yaml.example helm/values.yaml
+helm repo add metranova https://metranova.github.io/stack
+helm repo update
 ```
 
-### Basic Installation
+#### Install Latest Stable Release
 
 ```bash
-helm install metranova-flow ./helm
+helm install metranova-flow metranova/flow-pipeline
 ```
 
-### Installation with Custom Values
+#### Install with Custom Values
 
 ```bash
-helm install metranova-flow ./helm -f custom-values.yaml
+helm install metranova-flow metranova/flow-pipeline -f custom-values.yaml
 ```
 
-### Installation with Inline Values
+#### Install Pre-Release Version
+
+To install a pre-release version (e.g., beta releases from version branches), use the `--devel` flag:
 
 ```bash
-helm install metranova-flow ./helm \
+# Install latest pre-release version
+helm install metranova-flow metranova/flow-pipeline --devel
+
+# Install specific pre-release version
+helm install metranova-flow metranova/flow-pipeline --version 0.1.0-beta --devel
+```
+
+#### Install with Inline Values
+
+```bash
+helm install metranova-flow metranova/flow-pipeline \
   --set config.clickhouse.password=mypassword \
   --set config.kafka.ssl.keyPassword=mykafkapassword
+```
+
+### From Local Source
+
+If you're developing or want to install from local source:
+
+```bash
+# Copy example values file
+cp helm/values.yaml.example helm/values.yaml
+
+# Install from local directory
+helm install metranova-flow ./helm
 ```
 
 ## Configuration
