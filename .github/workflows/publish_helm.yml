@@ -71,7 +71,8 @@ jobs:
         env:
           CR_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
         with:
-          charts_dir: ./${{ matrix.helm_chart_dir }}/helm
+          #looks for subdirectoryies with Chart.yaml files, so point at parent dir
+          charts_dir: ./${{ matrix.helm_chart_dir }}
           # if on main, don;t overwrite existing, mark as latest.
           # If on version branch, always publish so that we get new charts as we merge in changes pre-release
           skip_existing: ${{ github.ref_name == 'main' }}
