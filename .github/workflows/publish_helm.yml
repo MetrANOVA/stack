@@ -71,7 +71,7 @@ jobs:
           for CHART_FILE in ./helm/*/Chart.yaml; do
             if [ -f "$CHART_FILE" ]; then
               echo "Updating chart version in $CHART_FILE"
-              yq eval -i '.version += "-beta"' "$CHART_FILE"
+              yq eval -i '.version += "-beta.' + env(GITHUB_RUN_NUMBER) + '"' "$CHART_FILE"
             fi
           done
 
