@@ -29,6 +29,7 @@ dataFlow:
     clickhouseFlowPolicyCommunityScope: "64805:lhcone,64806:lsst,64807:fabric,293:ipt"
     clickhouseFlowExtensions: "bgp,ipv4,ipv6,mpls"
     clickhouseFlowIpRefExtensions: "scireg"
+    ipCacherBaseUrl: "http://{{ include \"metranova-flow-pipeline.fullname\" . }}-cache-ip-trie"
 
 # Metadata CAIDA Org AS service configuration
 metadataCaidaOrgAs:
