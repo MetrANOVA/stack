@@ -27,7 +27,11 @@ spec:
       {{- include "metranova-flow-pipeline.imagePullSecrets" . | nindent 6 }}
       serviceAccountName: {{ include "metranova-flow-pipeline.serviceAccountName" . }}
       securityContext:
-        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+        {{- if .Values.cacheIpTrie.podSecurityContext }}
+        {{- toYaml .Values.cacheIpTrie.podSecurityContext | nindent 8 }}
+        {{- else }}
+        fsGroup: 1000
+        {{- end }}
       containers:
       - name: cache-ip-trie
         securityContext:
