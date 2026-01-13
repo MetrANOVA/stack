@@ -22,4 +22,24 @@ data:
   meta_application.yml: |
     {{- .Values.configFiles.metaApplication | nindent 4 }}
   {{- end }}
+  {{- if .Values.configFiles.caidaAsOrg2Info }}
+  caida_as_org2_info.jsonl: |
+    {{- .Values.configFiles.caidaAsOrg2Info | nindent 4 }}
+  {{- end }}
+  {{- if .Values.configFiles.caidaPeeringDb }}
+  caida_peeringdb.json: |
+    {{- .Values.configFiles.caidaPeeringDb | nindent 4 }}
+  {{- end }}
+  {{- if .Values.configFiles.caidaCustomOrgAdditions }}
+  custom_org_additions.yml: |
+    {{- .Values.configFiles.caidaCustomOrgAdditions | nindent 4 }}
+  {{- end }}
+  {{- if .Values.configFiles.caidaCustomAsAdditions }}
+  caida_custom_as_additions.yml: |
+    {{- .Values.configFiles.caidaCustomAsAdditions | nindent 4 }}
+  {{- end }}
+  {{- if .Values.configFiles.ipgeoCustomIpFile }}
+  ipgeo_custom_ip_file: |
+    {{- .Values.configFiles.ipgeoCustomIpFile | nindent 4 }}
+  {{- end }}
 {{- end }}

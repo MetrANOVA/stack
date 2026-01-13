@@ -188,6 +188,11 @@ configFiles:
   metaDevice: ""
   metaCircuit: ""
   metaApplication: ""
+  caidaAsOrg2Info: ""
+  caidaPeeringDb: ""
+  caidaCustomOrgAdditions: ""
+  caidaCustomAsAdditions: ""
+  ipgeoCustomIpFile: ""
 
 # Service account
 serviceAccount:

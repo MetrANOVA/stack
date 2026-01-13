@@ -93,15 +93,10 @@ spec:
         resources:
           {{- toYaml .Values.metadataIpGeo.resources | nindent 10 }}
         volumeMounts:
-        - name: caches
-          mountPath: /app/caches
         - name: config
           mountPath: /app/conf
           readOnly: true
       volumes:
-      - name: caches
-        persistentVolumeClaim:
-          claimName: {{ .Values.caches.existingPvc | default (printf "%s-caches" (include "metranova-flow-pipeline.fullname" .)) }}
       - name: config
         configMap:
           name: {{ .Values.configFiles.existingConfigMap | default (printf "%s-config" (include "metranova-flow-pipeline.fullname" .)) }}
