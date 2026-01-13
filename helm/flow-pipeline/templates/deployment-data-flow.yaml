@@ -101,7 +101,7 @@ spec:
           value: {{ .Values.config.clickhouse.tables.as | quote }}
         - name: CLICKHOUSE_IP_METADATA_TABLE
           value: {{ .Values.config.clickhouse.tables.ip | quote }}
-        - name: CACHE_SERVER_URL
+        - name: IP_CACHER_BASE_URL
           value: "http://{{ include \"metranova-flow-pipeline.fullname\" . }}-cache-ip-trie"
         resources:
           {{- toYaml .Values.dataFlow.resources | nindent 10 }}
