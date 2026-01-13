@@ -109,7 +109,7 @@ metadataScireg:
     clickhouseMetadataForceUpdate: "false"
     httpConsumerEnvPrefix: SCIREG
     sciregHttpConsumerUpdateInterval: "3600"
-    sciregHttpConsumerUrls: "https://epoc-rabbitmq.tacc.utexas.edu/NetSage/scireg.json"
+    sciregHttpConsumerUrls: "https://downloads.netsage.io/scireg.json"
 
 # Cache IP Trie service configuration
 cacheIpTrie:
@@ -125,6 +125,7 @@ cacheIpTrie:
   env:
     pipelineYaml: /app/pipelines/cache_ip_trie.yml
     clickhouseConsumerUpdateInterval: "3600"
+    pickleFileDirectory: /app/caches
 
 # Base configuration (shared across all services)
 config:

@@ -74,6 +74,8 @@ spec:
           value: {{ .Values.config.clickhouse.tables.as | quote }}
         - name: CLICKHOUSE_IP_METADATA_TABLE
           value: {{ .Values.config.clickhouse.tables.ip | quote }}
+        - name: PICKLE_FILE_DIRECTORY
+          value: {{ .Values.cacheIpTrie.env.pickleFileDirectory | quote }}
         resources:
           {{- toYaml .Values.cacheIpTrie.resources | nindent 10 }}
         volumeMounts:
