@@ -91,7 +91,7 @@ metadataIpGeo:
     ipGeoCsvConsumerLocationFiles: /app/caches/GeoLite2-City-Locations-en.csv
     ipGeoCsvConsumerIpBlockFiles: /app/caches/GeoLite2-City-Blocks-IPv4.csv,/app/caches/GeoLite2-City-Blocks-IPv6.csv
     ipGeoCsvConsumerCustomIpFile: /app/caches/custom_ip_additions.yml
-    ipGeoCsvConsumerUpdateInterval: "7200"
+    ipGeoCsvConsumerUpdateInterval: "86400"
 
 # Metadata SciReg service configuration
 metadataScireg:
