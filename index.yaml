@@ -20,6 +20,23 @@ entries:
     version: 0.1.0
   - apiVersion: v2
     appVersion: latest
+    created: "2026-01-15T21:32:01.716039039Z"
+    description: A Helm chart for MetrANOVA Flow Pipeline
+    digest: ac1cf1b5666c01bad4803f797563190f0789b9be1d87befb2047a132a6b69811
+    keywords:
+    - metranova
+    - flow
+    - pipeline
+    - monitoring
+    maintainers:
+    - name: MetrANOVA Team
+    name: metranova-flow-pipeline
+    type: application
+    urls:
+    - https://github.com/MetrANOVA/stack/releases/download/metranova-flow-pipeline-0.1.0-beta.19/metranova-flow-pipeline-0.1.0-beta.19.tgz
+    version: 0.1.0-beta.19
+  - apiVersion: v2
+    appVersion: latest
     created: "2026-01-14T16:45:17.464559683Z"
     description: A Helm chart for MetrANOVA Flow Pipeline
     digest: 292dfc240278adf2d4b01d81f238004b005d2b09a6040a011055193469dbc2dd
@@ -86,23 +103,6 @@ entries:
     urls:
     - https://github.com/MetrANOVA/stack/releases/download/metranova-flow-pipeline-0.1.0-beta.15/metranova-flow-pipeline-0.1.0-beta.15.tgz
     version: 0.1.0-beta.15
-  - apiVersion: v2
-    appVersion: latest
-    created: "2026-01-08T21:20:28.544589807Z"
-    description: A Helm chart for MetrANOVA Flow Pipeline
-    digest: 8020a6282fa52382936cad09eb0713aa87af5824d0dc3b9bd1af427fc81051e0
-    keywords:
-    - metranova
-    - flow
-    - pipeline
-    - monitoring
-    maintainers:
-    - name: MetrANOVA Team
-    name: metranova-flow-pipeline
-    type: application
-    urls:
-    - https://github.com/MetrANOVA/stack/releases/download/metranova-flow-pipeline-0.1.0-beta/metranova-flow-pipeline-0.1.0-beta.tgz
-    version: 0.1.0-beta
   - apiVersion: v2
     appVersion: latest
     created: "2026-01-08T21:43:25.747933895Z"
@@ -239,6 +239,23 @@ entries:
     urls:
     - https://github.com/MetrANOVA/stack/releases/download/metranova-flow-pipeline-0.1.0-beta/metranova-flow-pipeline-0.1.0-beta.tgz
     version: 0.1.0-beta
+  - apiVersion: v2
+    appVersion: latest
+    created: "2026-01-08T21:20:28.544589807Z"
+    description: A Helm chart for MetrANOVA Flow Pipeline
+    digest: 8020a6282fa52382936cad09eb0713aa87af5824d0dc3b9bd1af427fc81051e0
+    keywords:
+    - metranova
+    - flow
+    - pipeline
+    - monitoring
+    maintainers:
+    - name: MetrANOVA Team
+    name: metranova-flow-pipeline
+    type: application
+    urls:
+    - https://github.com/MetrANOVA/stack/releases/download/metranova-flow-pipeline-0.1.0-beta/metranova-flow-pipeline-0.1.0-beta.tgz
+    version: 0.1.0-beta
   metranova-snmp-pipeline:
   - apiVersion: v2
     appVersion: latest
@@ -257,6 +274,23 @@ entries:
     urls:
     - https://github.com/MetrANOVA/stack/releases/download/metranova-snmp-pipeline-0.1.0/metranova-snmp-pipeline-0.1.0.tgz
     version: 0.1.0
+  - apiVersion: v2
+    appVersion: latest
+    created: "2026-01-15T21:32:01.846056276Z"
+    description: A Helm chart for MetrANOVA SNMP Pipeline
+    digest: c3837df1e7f45d98e17e7251e1bc181f2c3a2a280225f469153c0cef3120f6bb
+    keywords:
+    - metranova
+    - snmp
+    - pipeline
+    - monitoring
+    maintainers:
+    - name: MetrANOVA Team
+    name: metranova-snmp-pipeline
+    type: application
+    urls:
+    - https://github.com/MetrANOVA/stack/releases/download/metranova-snmp-pipeline-0.1.0-beta.19/metranova-snmp-pipeline-0.1.0-beta.19.tgz
+    version: 0.1.0-beta.19
   - apiVersion: v2
     appVersion: latest
     created: "2026-01-14T16:45:17.656543699Z"
@@ -327,26 +361,9 @@ entries:
     version: 0.1.0-beta.15
   - apiVersion: v2
     appVersion: latest
-    created: "2026-01-08T21:20:28.746926199Z"
+    created: "2026-01-13T18:27:33.32062851Z"
     description: A Helm chart for MetrANOVA SNMP Pipeline
-    digest: a44a77774d829574aac0c74c8babed5fc92fb3eaa07a1e35a2f55de00baeb5a8
-    keywords:
-    - metranova
-    - snmp
-    - pipeline
-    - monitoring
-    maintainers:
-    - name: MetrANOVA Team
-    name: metranova-snmp-pipeline
-    type: application
-    urls:
-    - https://github.com/MetrANOVA/stack/releases/download/metranova-snmp-pipeline-0.1.0-beta/metranova-snmp-pipeline-0.1.0-beta.tgz
-    version: 0.1.0-beta
-  - apiVersion: v2
-    appVersion: latest
-    created: "2026-01-08T21:43:25.896911273Z"
-    description: A Helm chart for MetrANOVA SNMP Pipeline
-    digest: 414429b11cd6ae37bc841f245cc60ec79b07c2cee2dbe6bebabf4b4929e93a53
+    digest: a743dd59d9e3973ac9ac2489016845f696d7c90a315cb8792984feff43154032
     keywords:
     - metranova
     - snmp
@@ -378,9 +395,9 @@ entries:
     version: 0.1.0-beta
   - apiVersion: v2
     appVersion: latest
-    created: "2026-01-13T18:27:33.32062851Z"
+    created: "2026-01-08T21:43:25.896911273Z"
     description: A Helm chart for MetrANOVA SNMP Pipeline
-    digest: a743dd59d9e3973ac9ac2489016845f696d7c90a315cb8792984feff43154032
+    digest: 414429b11cd6ae37bc841f245cc60ec79b07c2cee2dbe6bebabf4b4929e93a53
     keywords:
     - metranova
     - snmp
@@ -495,4 +512,21 @@ entries:
     urls:
     - https://github.com/MetrANOVA/stack/releases/download/metranova-snmp-pipeline-0.1.0-beta/metranova-snmp-pipeline-0.1.0-beta.tgz
     version: 0.1.0-beta
-generated: "2026-01-14T16:45:17.656820834Z"
+  - apiVersion: v2
+    appVersion: latest
+    created: "2026-01-08T21:20:28.746926199Z"
+    description: A Helm chart for MetrANOVA SNMP Pipeline
+    digest: a44a77774d829574aac0c74c8babed5fc92fb3eaa07a1e35a2f55de00baeb5a8
+    keywords:
+    - metranova
+    - snmp
+    - pipeline
+    - monitoring
+    maintainers:
+    - name: MetrANOVA Team
+    name: metranova-snmp-pipeline
+    type: application
+    urls:
+    - https://github.com/MetrANOVA/stack/releases/download/metranova-snmp-pipeline-0.1.0-beta/metranova-snmp-pipeline-0.1.0-beta.tgz
+    version: 0.1.0-beta
+generated: "2026-01-15T21:32:01.846429642Z"
