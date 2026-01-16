@@ -18,9 +18,9 @@ data:
   meta_circuit.yml: |
     {{- .Values.configFiles.metaCircuit | nindent 4 }}
   {{- end }}
-  {{- if .Values.configFiles.metaApplication }}
+  {{- if or .Values.configFiles.metaApplication (.Files.Get "files/meta_application.yml") }}
   meta_application.yml: |
-    {{- .Values.configFiles.metaApplication | nindent 4 }}
+    {{- .Values.configFiles.metaApplication | default (.Files.Get "files/meta_application.yml") | nindent 4 }}
   {{- end }}
   {{- if .Values.configFiles.caidaAsOrg2Info }}
   caida_as_org2_info.jsonl: |
