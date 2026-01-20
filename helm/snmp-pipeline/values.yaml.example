@@ -88,6 +88,10 @@ config:
     password: "CHANGEME"
     batchSize: "10000"
     batchTimeout: "5"
+    # clusterName: ""
+    # replication: "false"
+    # replicaPath: "/clickhouse/tables/{shard}/{database}/{table}"
+    # replicaName: "{replica}"
     
     # Metadata tables
     tables:

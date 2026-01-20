@@ -112,6 +112,10 @@ The following table lists the configurable parameters of the chart and their def
 | `config.clickhouse.database` | ClickHouse database | `metranova` |
 | `config.clickhouse.username` | ClickHouse username | `pipeline_user` |
 | `config.clickhouse.password` | ClickHouse password | `CHANGEME` |
+| `config.clickhouse.clusterName` | ClickHouse cluster name (optional) | `""` |
+| `config.clickhouse.replication` | Enable ClickHouse replication | `"false"` |
+| `config.clickhouse.replicaPath` | ClickHouse replica path template | `"/clickhouse/tables/{shard}/{database}/{table}"` |
+| `config.clickhouse.replicaName` | ClickHouse replica name template | `"{replica}"` |
 
 ### Storage
 
