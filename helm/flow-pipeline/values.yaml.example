@@ -30,6 +30,28 @@ dataFlow:
     clickhouseFlowExtensions: "bgp,ipv4,ipv6,mpls"
     clickhouseFlowIpRefExtensions: "scireg"
     ipCacherBaseUrl: "http://{{ include \"metranova-flow-pipeline.fullname\" . }}-cache-ip-trie"
+    # Materialized View Configuration
+    # Comma-separated list of aggregation windows (e.g., "5m,1h,1d,1w")
+    # Leave empty to disable that materialized view type
+    clickhouseFlowMvByEdgeAs: ""
+    clickhouseFlowMvByInterface: ""
+    clickhouseFlowMvByIpVersion: ""
+  # Optional per-window materialized view settings
+  # Format: mvSettings.<type>.<window>.<setting>
+  # Types: edgeAs, interface, ipVersion
+  # Windows: 5m, 1h, 1d, 1w, 1mo, 1y (lowercase)
+  # Settings: table, ttl, ttlColumn, partitionBy, policyLevel, policyScope, policyOverride
+  mvSettings: {}
+    # Example:
+    # edgeAs:
+    #   5m:
+    #     ttl: "90 DAY"
+    #     policyLevel: "tlp:amber"
+    #   1h:
+    #     table: "custom_edge_as_1h"
+    # interface:
+    #   1d:
+    #     partitionBy: "toYYYYMM(start_time)"
 
 
 # Metadata CAIDA Org AS service configuration

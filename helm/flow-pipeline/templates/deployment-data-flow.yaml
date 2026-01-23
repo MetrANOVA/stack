@@ -55,6 +55,55 @@ spec:
           value: {{ .Values.dataFlow.env.clickhouseFlowExtensions | quote }}
         - name: CLICKHOUSE_FLOW_IP_REF_EXTENSIONS
           value: {{ .Values.dataFlow.env.clickhouseFlowIpRefExtensions | quote }}
+        {{- if .Values.dataFlow.env.clickhouseFlowMvByEdgeAs }}
+        - name: CLICKHOUSE_FLOW_MV_BY_EDGE_AS
+          value: {{ .Values.dataFlow.env.clickhouseFlowMvByEdgeAs | quote }}
+        {{- end }}
+        {{- if .Values.dataFlow.env.clickhouseFlowMvByInterface }}
+        - name: CLICKHOUSE_FLOW_MV_BY_INTERFACE
+          value: {{ .Values.dataFlow.env.clickhouseFlowMvByInterface | quote }}
+        {{- end }}
+        {{- if .Values.dataFlow.env.clickhouseFlowMvByIpVersion }}
+        - name: CLICKHOUSE_FLOW_MV_BY_IP_VERSION
+          value: {{ .Values.dataFlow.env.clickhouseFlowMvByIpVersion | quote }}
+        {{- end }}
+        {{- if .Values.dataFlow.mvSettings }}
+        {{- range $mvType, $windows := .Values.dataFlow.mvSettings }}
+        {{- $mvTypeUpper := "" }}
+        {{- if eq $mvType "edgeAs" }}
+        {{- $mvTypeUpper = "EDGE_AS" }}
+        {{- else if eq $mvType "interface" }}
+        {{- $mvTypeUpper = "INTERFACE" }}
+        {{- else if eq $mvType "ipVersion" }}
+        {{- $mvTypeUpper = "IP_VERSION" }}
+        {{- end }}
+        {{- range $window, $settings := $windows }}
+        {{- $windowUpper := upper $window }}
+        {{- range $setting, $value := $settings }}
+        {{- $settingUpper := "" }}
+        {{- if eq $setting "table" }}
+        {{- $settingUpper = "TABLE" }}
+        {{- else if eq $setting "ttl" }}
+        {{- $settingUpper = "TTL" }}
+        {{- else if eq $setting "ttlColumn" }}
+        {{- $settingUpper = "TTL_COLUMN" }}
+        {{- else if eq $setting "partitionBy" }}
+        {{- $settingUpper = "PARTITION_BY" }}
+        {{- else if eq $setting "policyLevel" }}
+        {{- $settingUpper = "POLICY_LEVEL" }}
+        {{- else if eq $setting "policyScope" }}
+        {{- $settingUpper = "POLICY_SCOPE" }}
+        {{- else if eq $setting "policyOverride" }}
+        {{- $settingUpper = "POLICY_OVERRIDE" }}
+        {{- end }}
+        {{- if $settingUpper }}
+        - name: CLICKHOUSE_FLOW_MV_BY_{{ $mvTypeUpper }}_{{ $windowUpper }}_{{ $settingUpper }}
+          value: {{ $value | quote }}
+        {{- end }}
+        {{- end }}
+        {{- end }}
+        {{- end }}
+        {{- end }}
         - name: KAFKA_BOOTSTRAP_SERVERS
           value: {{ .Values.config.kafka.bootstrapServers | quote }}
         - name: KAFKA_CONSUMER_GROUP
