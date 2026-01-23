@@ -55,6 +55,14 @@ spec:
           value: {{ .Values.metadataCaidaOrgAs.env.caidaOrgAsConsumerCustomOrgFile | quote }}
         - name: CAIDA_ORG_AS_CONSUMER_UPDATE_INTERVAL
           value: {{ .Values.metadataCaidaOrgAs.env.caidaOrgAsConsumerUpdateInterval | quote }}
+        - name: CLICKHOUSE_AS_DICTIONARY_ENABLED
+          value: {{ .Values.metadataCaidaOrgAs.env.clickhouseAsDictionaryEnabled | default "true" | quote }}
+        - name: CLICKHOUSE_AS_DICTIONARY_NAME
+          value: {{ .Values.metadataCaidaOrgAs.env.clickhouseAsDictionaryName | default "meta_as_dict" | quote }}
+        - name: CLICKHOUSE_AS_DICTIONARY_LIFETIME_MIN
+          value: {{ .Values.metadataCaidaOrgAs.env.clickhouseAsDictionaryLifetimeMin | default "600" | quote }}
+        - name: CLICKHOUSE_AS_DICTIONARY_LIFETIME_MAX
+          value: {{ .Values.metadataCaidaOrgAs.env.clickhouseAsDictionaryLifetimeMax | default "3600" | quote }}
         - name: CAIDA_ORG_AS_CONSUMER_AS_TABLE
           value: {{ .Values.config.clickhouse.tables.as | quote }}
         - name: CAIDA_ORG_AS_CONSUMER_ORG_TABLE

@@ -31,6 +31,7 @@ dataFlow:
     clickhouseFlowIpRefExtensions: "scireg"
     ipCacherBaseUrl: "http://{{ include \"metranova-flow-pipeline.fullname\" . }}-cache-ip-trie"
 
+
 # Metadata CAIDA Org AS service configuration
 metadataCaidaOrgAs:
   enabled: true
@@ -51,6 +52,11 @@ metadataCaidaOrgAs:
     caidaOrgAsConsumerCustomAsFile: /app/caches/custom_as_additions.yml
     caidaOrgAsConsumerCustomOrgFile: /app/caches/custom_org_additions.yml
     caidaOrgAsConsumerUpdateInterval: "86400"
+    # AS Dictionary Settings
+    clickhouseAsDictionaryEnabled: "true"
+    clickhouseAsDictionaryName: "meta_as_dict"
+    clickhouseAsDictionaryLifetimeMin: "600"
+    clickhouseAsDictionaryLifetimeMax: "3600"
 
 # Metadata File Export service configuration
 metadataFileExport:
@@ -68,6 +74,16 @@ metadataFileExport:
     clickhouseMetadataForceUpdate: "false"
     fileConsumerPaths: /app/conf/meta_interface.yml,/app/conf/meta_device.yml,/app/conf/meta_circuit.yml,/app/conf/meta_application.yml
     fileConsumerUpdateInterval: "600"
+    # Application Dictionary Settings
+    clickhouseApplicationDictionaryEnabled: "true"
+    clickhouseApplicationDictionaryName: "meta_application_dict"
+    clickhouseApplicationDictionaryLifetimeMin: "600"
+    clickhouseApplicationDictionaryLifetimeMax: "3600"
+    # AS Dictionary Settings
+    clickhouseAsDictionaryEnabled: "true"
+    clickhouseAsDictionaryName: "meta_as_dict"
+    clickhouseAsDictionaryLifetimeMin: "600"
+    clickhouseAsDictionaryLifetimeMax: "3600"
 
 # Metadata IP Geo service configuration
 metadataIpGeo:

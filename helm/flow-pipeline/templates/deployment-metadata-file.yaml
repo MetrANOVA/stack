@@ -47,6 +47,22 @@ spec:
           value: {{ .Values.metadataFileExport.env.fileConsumerPaths | quote }}
         - name: FILE_CONSUMER_UPDATE_INTERVAL
           value: {{ .Values.metadataFileExport.env.fileConsumerUpdateInterval | quote }}
+        - name: CLICKHOUSE_APPLICATION_DICTIONARY_ENABLED
+          value: {{ .Values.metadataFileExport.env.clickhouseApplicationDictionaryEnabled | default "true" | quote }}
+        - name: CLICKHOUSE_APPLICATION_DICTIONARY_NAME
+          value: {{ .Values.metadataFileExport.env.clickhouseApplicationDictionaryName | default "meta_application_dict" | quote }}
+        - name: CLICKHOUSE_APPLICATION_DICTIONARY_LIFETIME_MIN
+          value: {{ .Values.metadataFileExport.env.clickhouseApplicationDictionaryLifetimeMin | default "600" | quote }}
+        - name: CLICKHOUSE_APPLICATION_DICTIONARY_LIFETIME_MAX
+          value: {{ .Values.metadataFileExport.env.clickhouseApplicationDictionaryLifetimeMax | default "3600" | quote }}
+        - name: CLICKHOUSE_AS_DICTIONARY_ENABLED
+          value: {{ .Values.metadataFileExport.env.clickhouseAsDictionaryEnabled | default "true" | quote }}
+        - name: CLICKHOUSE_AS_DICTIONARY_NAME
+          value: {{ .Values.metadataFileExport.env.clickhouseAsDictionaryName | default "meta_as_dict" | quote }}
+        - name: CLICKHOUSE_AS_DICTIONARY_LIFETIME_MIN
+          value: {{ .Values.metadataFileExport.env.clickhouseAsDictionaryLifetimeMin | default "600" | quote }}
+        - name: CLICKHOUSE_AS_DICTIONARY_LIFETIME_MAX
+          value: {{ .Values.metadataFileExport.env.clickhouseAsDictionaryLifetimeMax | default "3600" | quote }}
         - name: CLICKHOUSE_HOST
           value: {{ .Values.config.clickhouse.host | quote }}
         - name: CLICKHOUSE_PORT
