@@ -51,10 +51,18 @@ spec:
           value: {{ .Values.dataFlow.env.clickhouseCacherRefreshInterval | quote }}
         - name: CLICKHOUSE_FLOW_POLICY_COMMUNITY_SCOPE_MAP
           value: {{ .Values.dataFlow.env.clickhouseFlowPolicyCommunityScope | quote }}
+        - name: CLICKHOUSE_FLOW_POLICY_AUTO_SCOPES
+          value: {{ .Values.dataFlow.env.clickhouseFlowPolicyAutoScopes | default "true" | quote }}
         - name: CLICKHOUSE_FLOW_EXTENSIONS
           value: {{ .Values.dataFlow.env.clickhouseFlowExtensions | quote }}
         - name: CLICKHOUSE_FLOW_IP_REF_EXTENSIONS
           value: {{ .Values.dataFlow.env.clickhouseFlowIpRefExtensions | quote }}
+        - name: CLICKHOUSE_POLICY_ORIGINATOR
+          value: {{ .Values.dataFlow.env.clickhousePolicyOriginator | default "unknown" | quote }}
+        - name: CLICKHOUSE_POLICY_LEVEL
+          value: {{ .Values.dataFlow.env.clickhousePolicyLevel | default "tlp:amber" | quote }}
+        - name: CLICKHOUSE_POLICY_SCOPE
+          value: {{ .Values.dataFlow.env.clickhousePolicyScope | default "" | quote }}
         {{- if .Values.dataFlow.env.clickhouseFlowMvByEdgeAs }}
         - name: CLICKHOUSE_FLOW_MV_BY_EDGE_AS
           value: {{ .Values.dataFlow.env.clickhouseFlowMvByEdgeAs | quote }}

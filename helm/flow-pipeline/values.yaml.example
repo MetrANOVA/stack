@@ -27,9 +27,14 @@ dataFlow:
     clickhouseFlowTable: data_flow
     clickhouseCacherRefreshInterval: "3600"
     clickhouseFlowPolicyCommunityScope: "64805:lhcone,64806:lsst,64807:fabric,293:ipt"
+    clickhouseFlowPolicyAutoScopes: "true"
     clickhouseFlowExtensions: "bgp,ipv4,ipv6,mpls"
     clickhouseFlowIpRefExtensions: "scireg"
     ipCacherBaseUrl: "http://{{ include \"metranova-flow-pipeline.fullname\" . }}-cache-ip-trie"
+    # Policy Settings
+    clickhousePolicyOriginator: "unknown"
+    clickhousePolicyLevel: "tlp:amber"
+    clickhousePolicyScope: ""
     # Materialized View Configuration
     # Comma-separated list of aggregation windows (e.g., "5m,1h,1d,1w")
     # Leave empty to disable that materialized view type
