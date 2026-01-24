@@ -25,6 +25,8 @@ dataFlow:
     pipelineYaml: /app/pipelines/data_flow.yml
     kafkaTopic: metranova_flow
     clickhouseFlowTable: data_flow
+    clickhouseFlowTtl: "30 DAY"
+    clickhouseFlowTtlColumn: "start_time"
     clickhouseCacherRefreshInterval: "3600"
     clickhouseFlowPolicyCommunityScope: "64805:lhcone,64806:lsst,64807:fabric,293:ipt"
     clickhouseFlowPolicyAutoScopes: "true"

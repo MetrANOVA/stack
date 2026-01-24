@@ -43,6 +43,10 @@ spec:
           value: {{ .Values.dataFlow.env.kafkaTopic | quote }}
         - name: CLICKHOUSE_FLOW_TABLE
           value: {{ .Values.dataFlow.env.clickhouseFlowTable | quote }}
+        - name: CLICKHOUSE_FLOW_TTL
+          value: {{ .Values.dataFlow.env.clickhouseFlowTtl | default "30 DAY" | quote }}
+        - name: CLICKHOUSE_FLOW_TTL_COLUMN
+          value: {{ .Values.dataFlow.env.clickhouseFlowTtlColumn | default "start_time" | quote }}
         - name: CLICKHOUSE_CACHER_TABLES
           value: "{{ .Values.config.clickhouse.tables.as }},{{ .Values.config.clickhouse.tables.device }}:@loopback_ip,{{ .Values.config.clickhouse.tables.interface }}:device_id:flow_index:edge"
         - name: IP_CACHER_TABLES
