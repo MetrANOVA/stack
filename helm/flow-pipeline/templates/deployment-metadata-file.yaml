@@ -45,6 +45,8 @@ spec:
           value: {{ .Values.metadataFileExport.env.clickhouseMetadataForceUpdate | quote }}
         - name: CLICKHOUSE_IF_METADATA_EXTENSIONS
           value: {{ .Values.metadataFileExport.env.clickhouseIfMetadataExtensions | default "sap,vrtr,vrtr_interface" | quote }}
+        - name: CLICKHOUSE_AS_METADATA_EXTENSIONS
+          value: {{ .Values.metadataFileExport.env.clickhouseAsMetadataExtensions | default "peeringdb" | quote }}
         - name: FILE_CONSUMER_PATHS
           value: {{ .Values.metadataFileExport.env.fileConsumerPaths | quote }}
         - name: FILE_CONSUMER_UPDATE_INTERVAL

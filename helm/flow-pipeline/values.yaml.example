@@ -102,6 +102,7 @@ metadataFileExport:
     pipelineYaml: /app/pipelines/metadata_file_export.yml
     clickhouseMetadataForceUpdate: "false"
     clickhouseIfMetadataExtensions: "sap,vrtr,vrtr_interface"
+    clickhouseAsMetadataExtensions: "peeringdb"
     fileConsumerPaths: /app/conf/meta_interface.yml,/app/conf/meta_device.yml,/app/conf/meta_circuit.yml,/app/conf/meta_application.yml
     fileConsumerUpdateInterval: "600"
     # Application Dictionary Settings
