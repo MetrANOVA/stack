@@ -43,6 +43,8 @@ spec:
           value: "{{ .Values.config.clickhouse.tables.interface }},{{ .Values.config.clickhouse.tables.device }},{{ .Values.config.clickhouse.tables.organization }},{{ .Values.config.clickhouse.tables.circuit }},{{ .Values.config.clickhouse.tables.as }}"
         - name: CLICKHOUSE_METADATA_FORCE_UPDATE
           value: {{ .Values.metadataFileExport.env.clickhouseMetadataForceUpdate | quote }}
+        - name: CLICKHOUSE_IF_METADATA_EXTENSIONS
+          value: {{ .Values.metadataFileExport.env.clickhouseIfMetadataExtensions | default "sap,vrtr,vrtr_interface" | quote }}
         - name: FILE_CONSUMER_PATHS
           value: {{ .Values.metadataFileExport.env.fileConsumerPaths | quote }}
         - name: FILE_CONSUMER_UPDATE_INTERVAL
