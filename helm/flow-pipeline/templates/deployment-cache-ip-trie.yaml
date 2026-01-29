@@ -44,7 +44,7 @@ spec:
         - name: PIPELINE_YAML
           value: {{ .Values.cacheIpTrie.env.pipelineYaml | quote }}
         - name: CLICKHOUSE_CONSUMER_TABLES
-          value: "{{ .Values.config.clickhouse.tables.scireg }},{{ .Values.config.clickhouse.tables.ip }}:as_id"
+          value: {{ .Values.cacheIpTrie.env.clickhouseConsumerTables | quote }}
         - name: CLICKHOUSE_CONSUMER_UPDATE_INTERVAL
           value: {{ .Values.cacheIpTrie.env.clickhouseConsumerUpdateInterval | quote }}
         - name: CLICKHOUSE_HOST

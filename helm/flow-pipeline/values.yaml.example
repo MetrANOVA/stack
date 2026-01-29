@@ -173,6 +173,7 @@ cacheIpTrie:
     pipelineYaml: /app/pipelines/cache_ip_trie.yml
     clickhouseConsumerUpdateInterval: "3600"
     pickleFileDirectory: /app/caches
+    clickHouseConsumerTables: "{{ .Values.config.clickhouse.tables.scireg }},{{ .Values.config.clickhouse.tables.ip }}:as_id"
 
 # Base configuration (shared across all services)
 config:
