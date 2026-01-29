@@ -27,6 +27,7 @@ dataFlow:
     clickhouseFlowTable: data_flow
     clickhouseFlowTtl: "30 DAY"
     clickhouseFlowTtlColumn: "start_time"
+    clickhouseCacherTables: "meta_as,meta_device:@loopback_ip,meta_interface:device_id:flow_index:edge"
     clickhouseCacherRefreshInterval: "3600"
     clickhouseFlowPolicyCommunityScope: "64805:lhcone,64806:lsst,64807:fabric,293:ipt"
     clickhouseFlowPolicyAutoScopes: "true"
@@ -43,6 +44,7 @@ dataFlow:
     clickhouseFlowMvByEdgeAs: ""
     clickhouseFlowMvByInterface: ""
     clickhouseFlowMvByIpVersion: ""
+    ipCacherTables: "meta_ip_scireg,meta_ip"
   # Optional per-window materialized view settings
   # Format: mvSettings.<type>.<window>.<setting>
   # Types: edgeAs, interface, ipVersion
