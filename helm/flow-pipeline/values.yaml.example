@@ -160,6 +160,25 @@ metadataScireg:
     sciregHttpConsumerUpdateInterval: "3600"
     sciregHttpConsumerUrls: "https://downloads.netsage.io/scireg.json"
 
+# Metadata CRIC service configuration (LHC-specific)
+metadataCric:
+  enabled: false
+  replicaCount: 1
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+  env:
+    pipelineYaml: /app/pipelines/metadata_cric.yml
+    clickhouseMetadataForceUpdate: "false"
+    httpConsumerEnvPrefix: CRIC_IP
+    cricIpHttpConsumerUrls: "https://wlcg-cric.cern.ch/api/core/rcsite/query/list/?json"
+    cricIpHttpConsumerUpdateInterval: "3600"
+    cricUrlMatchPattern: "cric.cern.ch"
+
 # Cache IP Trie service configuration
 cacheIpTrie:
   enabled: true

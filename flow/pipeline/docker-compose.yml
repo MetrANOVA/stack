@@ -53,6 +53,17 @@ services:
       - ./conf:/app/conf:ro
     restart: always
 
+  metadata_cric:
+    image: ghcr.io/metranova/pipeline:latest
+    env_file:
+      - conf/envs/base.env
+      - conf/envs/metadata_cric.env
+    volumes:
+      - ./caches:/app/caches:rw
+      - ./conf:/app/conf:ro
+    profiles: ["lhc"]
+    restart: always
+
   cache_ip_trie:
     image: ghcr.io/metranova/pipeline:latest
     env_file:
