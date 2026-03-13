@@ -49,6 +49,8 @@ spec:
           value: {{ .Values.dataFlow.env.clickhouseFlowTtlColumn | default "start_time" | quote }}
         - name: CLICKHOUSE_CACHER_TABLES
           value: {{ .Values.dataFlow.env.clickhouseCacherTables | quote }}
+        - name: CLICKHOUSE_RANGED_CACHER_CONFIGS
+          value: {{ .Values.dataFlow.env.clickhouseRangedCacherConfigs | quote }}
         - name: IP_CACHER_TABLES
           value: {{ .Values.dataFlow.env.ipCacherTables | quote }}
         - name: CLICKHOUSE_CACHER_REFRESH_INTERVAL
