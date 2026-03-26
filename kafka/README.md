@@ -76,6 +76,56 @@ kafka-topics.sh --list \
   --command-config kafka/conf/client.properties
 ```
 
+## Admin CLI examples
+
+Run Kafka CLI commands from the Kafka container with the helper script.
+
+List topics:
+
+```bash
+./kafka/scripts/kafka-cli.sh kafka-topics \
+  --list
+```
+
+Describe a topic (settings and partitions):
+
+```bash
+./kafka/scripts/kafka-cli.sh kafka-topics \
+  --describe \
+  --topic YOUR_TOPIC
+```
+
+List consumer groups:
+
+```bash
+./kafka/scripts/kafka-cli.sh kafka-consumer-groups \
+  --list
+```
+
+Describe a consumer group:
+
+```bash
+./kafka/scripts/kafka-cli.sh kafka-consumer-groups \
+  --describe \
+  --group YOUR_GROUP
+```
+
+Read from a topic:
+
+```bash
+./kafka/scripts/kafka-cli.sh kafka-console-consumer \
+  --topic YOUR_TOPIC \
+  --from-beginning \
+  --max-messages 10
+```
+
+Produce a message to a topic:
+
+```bash
+./kafka/scripts/kafka-cli.sh kafka-console-producer \
+  --topic YOUR_TOPIC
+```
+
 ## Notes
 
 - Auto topic creation is disabled.
