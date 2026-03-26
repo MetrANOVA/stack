@@ -1,0 +1,75 @@
+services:
+  kafka-init:
+    image: confluentinc/cp-kafka:7.9.6
+    container_name: kafka-init
+    entrypoint: ["/bin/bash", "/scripts/generate-certs.sh"]
+    env_file:
+      - ./conf/kafka.env
+    volumes:
+      - kafka-secrets:/etc/kafka/secrets
+      - ./scripts:/scripts:ro
+      - ./conf:/config
+    restart: "no"
+
+  kafka:
+    image: confluentinc/cp-kafka:7.9.6
+    container_name: kafka
+    entrypoint: ["/bin/bash", "/scripts/kafka-entrypoint.sh"]
+    depends_on:
+      - kafka-init
+    ports:
+      - "9094:9094"
+    env_file:
+      - ./conf/kafka.env
+    environment:
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_NODE_ID: "1"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:9092"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_LISTENERS: "CONTROLLER://kafka:9092,INTERNAL://kafka:9093,EXTERNAL://0.0.0.0:9094"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,INTERNAL:SASL_SSL,EXTERNAL:SASL_SSL"
+      KAFKA_INTER_BROKER_LISTENER_NAME: "INTERNAL"
+      KAFKA_SSL_KEYSTORE_FILENAME: "kafka.keystore.jks"
+      KAFKA_SSL_KEYSTORE_CREDENTIALS: "keystore_creds"
+      KAFKA_SSL_KEY_CREDENTIALS: "key_creds"
+      KAFKA_SSL_TRUSTSTORE_FILENAME: "kafka.truststore.jks"
+      KAFKA_SSL_TRUSTSTORE_CREDENTIALS: "truststore_creds"
+      KAFKA_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM: "https"
+      KAFKA_SASL_ENABLED_MECHANISMS: "PLAIN"
+      KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL: "PLAIN"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+      - kafka-secrets:/etc/kafka/secrets
+      - ./conf:/config:ro
+      - ./scripts:/scripts:ro
+    healthcheck:
+      test: ["CMD", "bash", "-lc", "kafka-broker-api-versions --bootstrap-server kafka:9093 --command-config /config/client.properties 1>/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  kafka-topics:
+    image: confluentinc/cp-kafka:7.9.6
+    container_name: kafka-topics
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "/scripts/create-topics.sh"]
+    env_file:
+      - ./conf/topics.env
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:9093"
+      KAFKA_CLIENT_CONFIG: "/config/client.properties"
+    volumes:
+      - ./scripts:/scripts:ro
+      - ./conf:/config:ro
+      - kafka-secrets:/etc/kafka/secrets:ro
+    restart: "no"
+
+volumes:
+  kafka-data:
+  kafka-secrets:
