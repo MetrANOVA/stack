@@ -11,6 +11,10 @@ KSTORE_PASS="${KAFKA_SSL_KEYSTORE_PASSWORD:-changeit}"
 TSTORE_PASS="${KAFKA_SSL_TRUSTSTORE_PASSWORD:-changeit}"
 KEY_PASS="${KAFKA_SSL_KEY_PASSWORD:-changeit}"
 DNS_NAME="${KAFKA_SSL_DNS_NAME:-kafka}"
+KEY_ALG="${KAFKA_SSL_KEY_ALG:-RSA}"
+KEY_SIZE="${KAFKA_SSL_KEY_SIZE:-2048}"
+KAFKA_UID="${KAFKA_UID:-1000}"
+KAFKA_GID="${KAFKA_GID:-1000}"
 
 if [[ ! -f "$KEYSTORE_PATH" || ! -f "$TRUSTSTORE_PATH" ]]; then
   WORKDIR="/tmp/kafka-certs"
@@ -28,6 +32,8 @@ if [[ ! -f "$KEYSTORE_PATH" || ! -f "$TRUSTSTORE_PATH" ]]; then
   # Create broker keystore and CSR
   keytool -genkeypair \
     -alias kafka \
+    -keyalg "$KEY_ALG" \
+    -keysize "$KEY_SIZE" \
     -keystore "$KEYSTORE_PATH" \
     -storepass "$KSTORE_PASS" \
     -keypass "$KEY_PASS" \
@@ -81,7 +87,7 @@ fi
 
 if [[ ! -f "$CLUSTER_ID_PATH" ]]; then
   kafka-storage random-uuid > "$CLUSTER_ID_PATH"
-  chmod 600 "$CLUSTER_ID_PATH"
+  chmod 644 "$CLUSTER_ID_PATH"
   echo "Generated cluster id in $CLUSTER_ID_PATH"
 else
   echo "Cluster id already exists in $CLUSTER_ID_PATH"
@@ -92,7 +98,14 @@ printf '%s' "$KSTORE_PASS" > "$SECRETS_DIR/keystore_creds"
 printf '%s' "$KEY_PASS" > "$SECRETS_DIR/key_creds"
 printf '%s' "$TSTORE_PASS" > "$SECRETS_DIR/truststore_creds"
 
-chmod 600 "$SECRETS_DIR/keystore_creds" "$SECRETS_DIR/key_creds" "$SECRETS_DIR/truststore_creds"
+chmod 640 "$SECRETS_DIR/keystore_creds" "$SECRETS_DIR/key_creds" "$SECRETS_DIR/truststore_creds"
+
+# Ensure the Kafka user can read generated files when running as non-root.
+chown "$KAFKA_UID:$KAFKA_GID" \
+  "$SECRETS_DIR/keystore_creds" \
+  "$SECRETS_DIR/key_creds" \
+  "$SECRETS_DIR/truststore_creds" \
+  "$CLUSTER_ID_PATH" 2>/dev/null || true
 
 CLIENT_USER="${KAFKA_CLIENT_USERNAME:-admin}"
 CLIENT_PASS="${KAFKA_CLIENT_PASSWORD:-admin-secret}"
