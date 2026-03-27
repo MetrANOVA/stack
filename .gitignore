@@ -12,6 +12,7 @@ __pycache__/
 .coverage
 conf/
 kafka/conf/
+clickhouse/conf/
 # Ignore Helm values file
 helm/**/values.yaml
 #anything in caches that isn't .placeholder
