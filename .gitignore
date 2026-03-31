@@ -11,7 +11,8 @@ __pycache__/
 *.pyd
 .coverage
 conf/
-docker/conf.d/*.env
+docker/conf.d/
+!docker/conf.d/.placeholder
 kafka/conf/
 clickhouse/conf/
 # Ignore Helm values file

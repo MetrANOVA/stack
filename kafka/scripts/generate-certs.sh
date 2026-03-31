@@ -7,6 +7,8 @@ TRUSTSTORE_PATH="$SECRETS_DIR/kafka.truststore.jks"
 CLIENT_PROPS_PATH="${KAFKA_CLIENT_PROPERTIES_PATH:-/config/client.properties}"
 CA_CERT_PATH="$SECRETS_DIR/ca.crt"
 CONFIG_CA_PATH="/config/ca.crt"
+CONFIG_EXPORT_DIR="/config/export"
+CONFIG_EXPORT_CA_PATH="$CONFIG_EXPORT_DIR/ca.crt"
 CLUSTER_ID_PATH="$SECRETS_DIR/cluster_id"
 
 KSTORE_PASS="${KAFKA_SSL_KEYSTORE_PASSWORD:-changeit}"
@@ -104,6 +106,12 @@ if [[ -f "$CA_CERT_PATH" && -w "/config" ]]; then
   fi
   cp "$CA_CERT_PATH" "$CONFIG_CA_PATH"
   chmod 644 "$CONFIG_CA_PATH" 2>/dev/null || true
+
+  if [[ -w "$CONFIG_EXPORT_DIR" || ! -e "$CONFIG_EXPORT_DIR" ]]; then
+    mkdir -p "$CONFIG_EXPORT_DIR"
+    cp "$CA_CERT_PATH" "$CONFIG_EXPORT_CA_PATH"
+    chmod 644 "$CONFIG_EXPORT_CA_PATH" 2>/dev/null || true
+  fi
 fi
 
 if [[ ! -f "$CLUSTER_ID_PATH" ]]; then

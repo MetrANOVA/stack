@@ -4,9 +4,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEFAULT_CONF_DIR="$SCRIPT_DIR/../conf"
 CONF_FILE="${KAFKA_CONF_FILE:-$DEFAULT_CONF_DIR/kafka.env}"
-EXPORT_DIR="$DEFAULT_CONF_DIR/export"
+CONF_DIR="$(cd "$(dirname "$CONF_FILE")" && pwd)"
+EXPORT_DIR="$CONF_DIR/export"
 EXPORT_ENV_FILE="$EXPORT_DIR/kafka.env"
-CA_CERT_SRC="$DEFAULT_CONF_DIR/ca.crt"
+CA_CERT_SRC="$CONF_DIR/ca.crt"
 CA_CERT_DEST="$EXPORT_DIR/ca.crt"
 
 if [[ ! -f "$CONF_FILE" ]]; then

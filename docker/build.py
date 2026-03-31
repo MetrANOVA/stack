@@ -44,6 +44,11 @@ def ensure_dir(path: Path) -> None:
 	path.mkdir(parents=True, exist_ok=True)
 
 
+def remove_dir_if_exists(path: Path) -> None:
+	if path.exists():
+		shutil.rmtree(path)
+
+
 def render_compose(template_dir: Path, config: Dict[str, Any], output_path: Path) -> None:
 	env = Environment(
 		loader=FileSystemLoader(str(template_dir)),
@@ -69,6 +74,11 @@ def parse_args() -> argparse.Namespace:
 		"--output",
 		default="docker/docker-compose.yml",
 		help="Output docker-compose.yml path (default: docker/docker-compose.yml)",
+	)
+	parser.add_argument(
+		"--clean",
+		action="store_true",
+		help="Remove generated conf directories for enabled components",
 	)
 	return parser.parse_args()
 
@@ -97,27 +107,30 @@ def main() -> None:
 		if not mb_dir.exists():
 			raise FileNotFoundError(f"Message bus directory not found: {mb_dir}")
 
-		copytree_if_missing(mb_dir / "conf.example", mb_dir / "conf")
+		if args.clean:
+			remove_dir_if_exists(mb_dir / "conf")
+		else:
+			copytree_if_missing(mb_dir / "conf.example", mb_dir / "conf")
 
-		compose_file = mb_dir / "docker-compose.yml"
-		run([
-			"docker",
-			"compose",
-			"-f",
-			str(compose_file),
-			"run",
-			"--rm",
-			f"{message_bus_type}-init",
-		])
+			compose_file = mb_dir / "docker-compose.yml"
+			run([
+				"docker",
+				"compose",
+				"-f",
+				str(compose_file),
+				"run",
+				"--rm",
+				f"{message_bus_type}-init",
+			])
 
-		export_dir = mb_dir / "conf" / "export"
-		if not export_dir.exists():
-			raise FileNotFoundError(f"Missing message bus export dir: {export_dir}")
-		mb_export_dir = conf_d / message_bus_type
-		ensure_dir(mb_export_dir)
-		for item in export_dir.iterdir():
-			if item.is_file():
-				shutil.copy2(item, mb_export_dir / item.name)
+			export_dir = mb_dir / "conf" / "export"
+			if not export_dir.exists():
+				raise FileNotFoundError(f"Missing message bus export dir: {export_dir}")
+			mb_export_dir = conf_d / message_bus_type
+			ensure_dir(mb_export_dir)
+			for item in export_dir.iterdir():
+				if item.is_file():
+					shutil.copy2(item, mb_export_dir / item.name)
 
 	for stack in stacks:
 		stack_type = stack.get("type")
@@ -135,13 +148,21 @@ def main() -> None:
 			if not collector_dir.exists():
 				raise FileNotFoundError(f"Collector directory not found: {collector_dir}")
 
+			if args.clean:
+				remove_dir_if_exists(collector_dir / "conf")
+				continue
+
 			copytree_if_missing(collector_dir / "conf.example", collector_dir / "conf")
 
-			if message_bus_type:
-				env_src = conf_d / message_bus_type / f"{message_bus_type}.env"
-				if not env_src.exists():
-					raise FileNotFoundError(f"Missing message bus env file: {env_src}")
-				shutil.copy2(env_src, collector_dir / "conf" / f"{message_bus_type}.env")
+			if message_bus_type and not args.clean:
+				export_src_dir = conf_d / message_bus_type
+				if not export_src_dir.exists():
+					raise FileNotFoundError(f"Missing message bus export dir: {export_src_dir}")
+				export_dest_dir = collector_dir / "conf" / message_bus_type
+				ensure_dir(export_dest_dir)
+				for item in export_src_dir.iterdir():
+					if item.is_file():
+						shutil.copy2(item, export_dest_dir / item.name)
 
 			compose_file = collector_dir / "docker-compose.yml"
 			run([
@@ -154,10 +175,11 @@ def main() -> None:
 				f"{collector_type}-init",
 			])
 
-	output_path = Path(args.output)
-	if not output_path.is_absolute():
-		output_path = repo_root / output_path
-	render_compose(docker_dir / "templates", config, output_path)
+	if not args.clean:
+		output_path = Path(args.output)
+		if not output_path.is_absolute():
+			output_path = repo_root / output_path
+		render_compose(docker_dir / "templates", config, output_path)
 
 
 if __name__ == "__main__":
