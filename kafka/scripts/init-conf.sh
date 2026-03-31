@@ -4,6 +4,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEFAULT_CONF_DIR="$SCRIPT_DIR/../conf"
 CONF_FILE="${KAFKA_CONF_FILE:-$DEFAULT_CONF_DIR/kafka.env}"
+EXPORT_DIR="$DEFAULT_CONF_DIR/export"
+EXPORT_ENV_FILE="$EXPORT_DIR/kafka.env"
+CA_CERT_SRC="$DEFAULT_CONF_DIR/ca.crt"
+CA_CERT_DEST="$EXPORT_DIR/ca.crt"
 
 if [[ ! -f "$CONF_FILE" ]]; then
   echo "Missing $CONF_FILE. Run: cp -r kafka/conf.example/ kafka/conf/"
@@ -87,5 +91,16 @@ set_value KAFKA_LISTENER_NAME_INTERNAL_PLAIN_SASL_JAAS_CONFIG "$INTERNAL_JAAS"
 set_value KAFKA_LISTENER_NAME_EXTERNAL_PLAIN_SASL_JAAS_CONFIG "$EXTERNAL_JAAS"
 set_value KAFKA_SASL_JAAS_CONFIG "$BROKER_JAAS"
 set_value KAFKA_SUPER_USERS "User:$ADMIN_USER"
+
+mkdir -p "$EXPORT_DIR"
+cat > "$EXPORT_ENV_FILE" <<EOF
+KAFKA_PIPELINE_PASSWORD=$PIPELINE_PASS
+KAFKA_COLLECTOR_PASSWORD=$COLLECTOR_PASS
+EOF
+
+if [[ -f "$CA_CERT_SRC" ]]; then
+  cp "$CA_CERT_SRC" "$CA_CERT_DEST"
+  chmod 644 "$CA_CERT_DEST" 2>/dev/null || true
+fi
 
 echo "Updated $CONF_FILE"

@@ -110,10 +110,14 @@ def main() -> None:
 			f"{message_bus_type}-init",
 		])
 
-		env_src = mb_dir / "conf" / f"{message_bus_type}.env"
-		if not env_src.exists():
-			raise FileNotFoundError(f"Missing message bus env file: {env_src}")
-		shutil.copy2(env_src, conf_d / f"{message_bus_type}.env")
+		export_dir = mb_dir / "conf" / "export"
+		if not export_dir.exists():
+			raise FileNotFoundError(f"Missing message bus export dir: {export_dir}")
+		mb_export_dir = conf_d / message_bus_type
+		ensure_dir(mb_export_dir)
+		for item in export_dir.iterdir():
+			if item.is_file():
+				shutil.copy2(item, mb_export_dir / item.name)
 
 	for stack in stacks:
 		stack_type = stack.get("type")
@@ -134,7 +138,7 @@ def main() -> None:
 			copytree_if_missing(collector_dir / "conf.example", collector_dir / "conf")
 
 			if message_bus_type:
-				env_src = conf_d / f"{message_bus_type}.env"
+				env_src = conf_d / message_bus_type / f"{message_bus_type}.env"
 				if not env_src.exists():
 					raise FileNotFoundError(f"Missing message bus env file: {env_src}")
 				shutil.copy2(env_src, collector_dir / "conf" / f"{message_bus_type}.env")
