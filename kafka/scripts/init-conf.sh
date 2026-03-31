@@ -40,6 +40,9 @@ ADMIN_USER="$(get_value KAFKA_CLIENT_USERNAME)"
 ADMIN_PASS="$(get_value KAFKA_CLIENT_PASSWORD)"
 PIPELINE_PASS="$(get_value KAFKA_PIPELINE_PASSWORD)"
 COLLECTOR_PASS="$(get_value KAFKA_COLLECTOR_PASSWORD)"
+KEYSTORE_PASS="$(get_value KAFKA_SSL_KEYSTORE_PASSWORD)"
+TRUSTSTORE_PASS="$(get_value KAFKA_SSL_TRUSTSTORE_PASSWORD)"
+KEY_PASS="$(get_value KAFKA_SSL_KEY_PASSWORD)"
 
 if [[ -z "$ADMIN_USER" ]]; then
   ADMIN_USER="admin"
@@ -59,6 +62,21 @@ fi
 if [[ -z "$COLLECTOR_PASS" || "$COLLECTOR_PASS" == "collector-secret" ]]; then
   COLLECTOR_PASS="$(random_password)"
   set_value KAFKA_COLLECTOR_PASSWORD "$COLLECTOR_PASS"
+fi
+
+if [[ -z "$KEYSTORE_PASS" || "$KEYSTORE_PASS" == "changeit" ]]; then
+  KEYSTORE_PASS="$(random_password)"
+  set_value KAFKA_SSL_KEYSTORE_PASSWORD "$KEYSTORE_PASS"
+fi
+
+if [[ -z "$TRUSTSTORE_PASS" || "$TRUSTSTORE_PASS" == "changeit" ]]; then
+  TRUSTSTORE_PASS="$(random_password)"
+  set_value KAFKA_SSL_TRUSTSTORE_PASSWORD "$TRUSTSTORE_PASS"
+fi
+
+if [[ -z "$KEY_PASS" || "$KEY_PASS" == "changeit" ]]; then
+  KEY_PASS="$(random_password)"
+  set_value KAFKA_SSL_KEY_PASSWORD "$KEY_PASS"
 fi
 
 INTERNAL_JAAS="org.apache.kafka.common.security.plain.PlainLoginModule required username=\"$ADMIN_USER\" password=\"$ADMIN_PASS\" user_${ADMIN_USER}=\"$ADMIN_PASS\" user_pipeline=\"$PIPELINE_PASS\" user_collector=\"$COLLECTOR_PASS\";"
