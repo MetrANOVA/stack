@@ -4,6 +4,8 @@ stacks:
     collectors:
       - type: nfacctd
         enabled: true
+      - type: sfacctd
+        enabled: true
     pipeline:
       enabled: true
 

@@ -20,5 +20,5 @@ helm/**/values.yaml
 #anything in caches that isn't .placeholder
 */pipeline/caches/*
 !*/pipeline/caches/.placeholder
-docker-compose.yml
+/docker-compose.yml
 .venv/
