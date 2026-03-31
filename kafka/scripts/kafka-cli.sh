@@ -40,7 +40,7 @@ if ! has_arg "$CONFIG_FLAG"; then
   ARGS+=("$CONFIG_FLAG" "$CLIENT_CONFIG")
 fi
 
-docker compose -f kafka/docker-compose.yml exec \
+docker compose -f docker-compose.yml exec \
   -e KAFKA_BOOTSTRAP_SERVERS="$BOOTSTRAP" \
   -e KAFKA_CLIENT_CONFIG="$CLIENT_CONFIG" \
   kafka "$CMD" "${ARGS[@]}"

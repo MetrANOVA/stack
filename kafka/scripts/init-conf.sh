@@ -48,6 +48,9 @@ COLLECTOR_PASS="$(get_value KAFKA_COLLECTOR_PASSWORD)"
 KEYSTORE_PASS="$(get_value KAFKA_SSL_KEYSTORE_PASSWORD)"
 TRUSTSTORE_PASS="$(get_value KAFKA_SSL_TRUSTSTORE_PASSWORD)"
 KEY_PASS="$(get_value KAFKA_SSL_KEY_PASSWORD)"
+SSL_DNS_NAME="$(get_value KAFKA_SSL_DNS_NAME)"
+SSL_KEY_ALG="$(get_value KAFKA_SSL_KEY_ALG)"
+SSL_KEY_SIZE="$(get_value KAFKA_SSL_KEY_SIZE)"
 
 if [[ -z "$ADMIN_USER" ]]; then
   ADMIN_USER="admin"
@@ -79,9 +82,22 @@ if [[ -z "$TRUSTSTORE_PASS" || "$TRUSTSTORE_PASS" == "changeit" ]]; then
   set_value KAFKA_SSL_TRUSTSTORE_PASSWORD "$TRUSTSTORE_PASS"
 fi
 
-if [[ -z "$KEY_PASS" || "$KEY_PASS" == "changeit" ]]; then
-  KEY_PASS="$(random_password)"
+# For PKCS12, Kafka expects the key password to match the keystore password.
+if [[ -z "$KEY_PASS" || "$KEY_PASS" == "changeit" || "$KEY_PASS" != "$KEYSTORE_PASS" ]]; then
+  KEY_PASS="$KEYSTORE_PASS"
   set_value KAFKA_SSL_KEY_PASSWORD "$KEY_PASS"
+fi
+
+if [[ -z "$SSL_DNS_NAME" ]]; then
+  SSL_DNS_NAME="kafka"
+fi
+
+if [[ -z "$SSL_KEY_ALG" ]]; then
+  SSL_KEY_ALG="RSA"
+fi
+
+if [[ -z "$SSL_KEY_SIZE" ]]; then
+  SSL_KEY_SIZE="2048"
 fi
 
 INTERNAL_JAAS="org.apache.kafka.common.security.plain.PlainLoginModule required username=\"$ADMIN_USER\" password=\"$ADMIN_PASS\" user_${ADMIN_USER}=\"$ADMIN_PASS\" user_pipeline=\"$PIPELINE_PASS\" user_collector=\"$COLLECTOR_PASS\";"
@@ -102,6 +118,25 @@ EOF
 if [[ -f "$CA_CERT_SRC" ]]; then
   cp "$CA_CERT_SRC" "$CA_CERT_DEST"
   chmod 644 "$CA_CERT_DEST" 2>/dev/null || true
+fi
+
+export KAFKA_SSL_KEYSTORE_PASSWORD="$KEYSTORE_PASS"
+export KAFKA_SSL_TRUSTSTORE_PASSWORD="$TRUSTSTORE_PASS"
+export KAFKA_SSL_KEY_PASSWORD="$KEY_PASS"
+export KAFKA_SSL_DNS_NAME="$SSL_DNS_NAME"
+export KAFKA_SSL_KEY_ALG="$SSL_KEY_ALG"
+export KAFKA_SSL_KEY_SIZE="$SSL_KEY_SIZE"
+export KAFKA_CLIENT_USERNAME="$ADMIN_USER"
+export KAFKA_CLIENT_PASSWORD="$ADMIN_PASS"
+
+"$SCRIPT_DIR/generate-certs.sh"
+
+KEYSTORE_PATH="${KAFKA_SSL_KEYSTORE_LOCATION:-/etc/kafka/secrets/kafka.keystore.jks}"
+if [[ -f "$KEYSTORE_PATH" ]]; then
+  if ! keytool -list -keystore "$KEYSTORE_PATH" -storepass "$KEYSTORE_PASS" >/dev/null 2>&1; then
+    echo "Keystore password validation failed for $KEYSTORE_PATH"
+    exit 1
+  fi
 fi
 
 echo "Updated $CONF_FILE"

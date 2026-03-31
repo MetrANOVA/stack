@@ -87,6 +87,9 @@ def main() -> None:
 	repo_root = Path(__file__).resolve().parents[1]
 	docker_dir = repo_root / "docker"
 	args = parse_args()
+	output_path = Path(args.output)
+	if not output_path.is_absolute():
+		output_path = repo_root / output_path
 	config_path = Path(args.config)
 	if not config_path.is_absolute():
 		config_path = repo_root / config_path
@@ -97,6 +100,9 @@ def main() -> None:
 
 	conf_d = docker_dir / "conf.d"
 	ensure_dir(conf_d)
+
+	if not args.clean:
+		render_compose(docker_dir / "templates", config, output_path)
 
 	message_bus_type = None
 	if message_bus.get("enabled"):
@@ -112,7 +118,7 @@ def main() -> None:
 		else:
 			copytree_if_missing(mb_dir / "conf.example", mb_dir / "conf")
 
-			compose_file = mb_dir / "docker-compose.yml"
+			compose_file = output_path
 			run([
 				"docker",
 				"compose",
@@ -164,7 +170,7 @@ def main() -> None:
 					if item.is_file():
 						shutil.copy2(item, export_dest_dir / item.name)
 
-			compose_file = collector_dir / "docker-compose.yml"
+			compose_file = output_path
 			run([
 				"docker",
 				"compose",
@@ -174,12 +180,6 @@ def main() -> None:
 				"--rm",
 				f"{collector_type}-init",
 			])
-
-	if not args.clean:
-		output_path = Path(args.output)
-		if not output_path.is_absolute():
-			output_path = repo_root / output_path
-		render_compose(docker_dir / "templates", config, output_path)
 
 
 if __name__ == "__main__":

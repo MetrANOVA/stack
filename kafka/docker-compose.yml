@@ -2,7 +2,7 @@ services:
   kafka-init:
     image: confluentinc/cp-kafka:7.9.6
     container_name: kafka-init
-    entrypoint: ["/bin/bash", "-lc", "KAFKA_CONF_FILE=/config/kafka.env /scripts/init-conf.sh && /scripts/generate-certs.sh"]
+    entrypoint: ["/bin/bash", "-lc", "KAFKA_CONF_FILE=/config/kafka.env /scripts/init-conf.sh"]
     env_file:
       - ./conf/kafka.env
     volumes:
