@@ -14,6 +14,12 @@ writer_id_string: nfacctd
 
 ! Enable recommended internal buffer settings
 plugin_pipe_zmq: true
+! If you are not seeing data, make sure this is set correctly. Guidance for setting this is here based on flows per second (source: pmacct docs):
+! micro   : up to 1K (0KB)
+! small   : from 1K to 10-15K (10KB) 
+! medium  : from 10-15K to 100-125K (100KB)
+! large   : from 100-125K to 250K (1MB)
+! xlarge  : from 250K (10MB)
 plugin_pipe_zmq_profile: medium
 
 ! Adds debugging output to logs. Disable in production.

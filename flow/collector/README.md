@@ -109,3 +109,4 @@ python3 flow/collector/sfacctd/scripts/send_sflow.py --host localhost --port 999
 
 - Both collectors send to Kafka using the `kafka.csv` config file.
 - Auto topic creation is disabled in Kafka. Ensure topics exist before sending data.
+- If you aren't seeing data in kafka or you are getting logs about dropped messages, you may need to check the buffer settings in conf/nfacctd.conf and conf/sfacctd.conf The setting `plugin_pipe_zmq_profile` controls the internal flow buffer. Default is `medium`, which can be too large for low traffic (data may appear to “stall” before Kafka output) and too small for high traffic (watch for dropped-message logs). If you are testing with the Python generators, use `micro` or send more packets; for high-volume environments, increase the profile to avoid drops.
