@@ -5,6 +5,10 @@ SECRETS_DIR="/etc/kafka/secrets"
 KEYSTORE_PATH="$SECRETS_DIR/kafka.keystore.jks"
 TRUSTSTORE_PATH="$SECRETS_DIR/kafka.truststore.jks"
 CLIENT_PROPS_PATH="${KAFKA_CLIENT_PROPERTIES_PATH:-/config/client.properties}"
+CA_CERT_PATH="$SECRETS_DIR/ca.crt"
+CONFIG_CA_PATH="/config/ca.crt"
+CONFIG_EXPORT_DIR="/config/export"
+CONFIG_EXPORT_CA_PATH="$CONFIG_EXPORT_DIR/ca.crt"
 CLUSTER_ID_PATH="$SECRETS_DIR/cluster_id"
 
 KSTORE_PASS="${KAFKA_SSL_KEYSTORE_PASSWORD:-changeit}"
@@ -65,6 +69,8 @@ if [[ ! -f "$KEYSTORE_PATH" || ! -f "$TRUSTSTORE_PATH" ]]; then
     -storepass "$TSTORE_PASS" \
     -noprompt
 
+  cp "$WORKDIR/ca.crt" "$CA_CERT_PATH"
+
   # Import CA and broker cert into keystore
   keytool -importcert \
     -alias CARoot \
@@ -83,6 +89,29 @@ if [[ ! -f "$KEYSTORE_PATH" || ! -f "$TRUSTSTORE_PATH" ]]; then
   echo "TLS materials created in $SECRETS_DIR"
 else
   echo "TLS materials already exist. Skipping generation."
+fi
+
+if [[ ! -f "$CA_CERT_PATH" && -f "$TRUSTSTORE_PATH" ]]; then
+  keytool -exportcert \
+    -alias CARoot \
+    -keystore "$TRUSTSTORE_PATH" \
+    -storepass "$TSTORE_PASS" \
+    -rfc \
+    -file "$CA_CERT_PATH" 2>/dev/null || true
+fi
+
+if [[ -f "$CA_CERT_PATH" && -w "/config" ]]; then
+  if [[ -d "$CONFIG_CA_PATH" ]]; then
+    rm -rf "$CONFIG_CA_PATH"
+  fi
+  cp "$CA_CERT_PATH" "$CONFIG_CA_PATH"
+  chmod 644 "$CONFIG_CA_PATH" 2>/dev/null || true
+
+  if [[ -w "$CONFIG_EXPORT_DIR" || ! -e "$CONFIG_EXPORT_DIR" ]]; then
+    mkdir -p "$CONFIG_EXPORT_DIR"
+    cp "$CA_CERT_PATH" "$CONFIG_EXPORT_CA_PATH"
+    chmod 644 "$CONFIG_EXPORT_CA_PATH" 2>/dev/null || true
+  fi
 fi
 
 if [[ ! -f "$CLUSTER_ID_PATH" ]]; then

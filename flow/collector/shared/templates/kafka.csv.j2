@@ -1,0 +1,9 @@
+global,metadata.broker.list,{{ kafka_broker }}
+global,security.protocol,SASL_SSL
+global,sasl.mechanism,PLAIN
+global,sasl.username,collector
+global,sasl.password,{{ kafka_collector_password }}
+global,ssl.ca.location,/etc/pmacct_certificates/ca.crt
+global,ssl.endpoint.identification.algorithm,https
+topic,partitioner,random
+global,sticky.partitioning.linger.ms,0

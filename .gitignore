@@ -11,6 +11,8 @@ __pycache__/
 *.pyd
 .coverage
 conf/
+docker/conf.d/
+!docker/conf.d/.placeholder
 kafka/conf/
 clickhouse/conf/
 # Ignore Helm values file
@@ -18,3 +20,5 @@ helm/**/values.yaml
 #anything in caches that isn't .placeholder
 */pipeline/caches/*
 !*/pipeline/caches/.placeholder
+/docker-compose.yml
+.venv/
