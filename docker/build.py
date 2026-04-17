@@ -96,6 +96,7 @@ def main() -> None:
 	config = load_config(config_path)
 
 	message_bus = config.get("message_bus", {}) or {}
+	datastore = config.get("datastore", {}) or {}
 	stacks = config.get("stacks", []) or []
 
 	conf_d = docker_dir / "conf.d"
@@ -137,6 +138,40 @@ def main() -> None:
 			for item in export_dir.iterdir():
 				if item.is_file():
 					shutil.copy2(item, mb_export_dir / item.name)
+
+	datastore_type = None
+	if datastore.get("enabled"):
+		datastore_type = datastore.get("type")
+		if not datastore_type:
+			raise ValueError("datastore.type is required when enabled")
+		ds_dir = repo_root / datastore_type
+		if not ds_dir.exists():
+			raise FileNotFoundError(f"Datastore directory not found: {ds_dir}")
+
+		if args.clean:
+			remove_dir_if_exists(ds_dir / "conf")
+		else:
+			copytree_if_missing(ds_dir / "conf.example", ds_dir / "conf")
+
+			compose_file = output_path
+			run([
+				"docker",
+				"compose",
+				"-f",
+				str(compose_file),
+				"run",
+				"--rm",
+				f"{datastore_type}-init",
+			])
+
+			export_dir = ds_dir / "conf" / "export"
+			if not export_dir.exists():
+				raise FileNotFoundError(f"Missing datastore export dir: {export_dir}")
+			ds_export_dir = conf_d / datastore_type
+			ensure_dir(ds_export_dir)
+			for item in export_dir.iterdir():
+				if item.is_file():
+					shutil.copy2(item, ds_export_dir / item.name)
 
 	for stack in stacks:
 		stack_type = stack.get("type")

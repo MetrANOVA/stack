@@ -2,6 +2,9 @@ include:
 {% if message_bus.enabled %}
   - {{ message_bus.type }}/docker-compose.yml
 {% endif %}
+{% if datastore.enabled %}
+  - {{ datastore.type }}/docker-compose.yml
+{% endif %}
 {% for stack in stacks %}
 {% for collector in stack.collectors | default([]) %}
 {% if collector.enabled %}
