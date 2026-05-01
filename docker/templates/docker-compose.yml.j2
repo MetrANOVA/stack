@@ -11,4 +11,7 @@ include:
   - {{ stack.type }}/collector/{{ collector.type }}/docker-compose.yml
 {% endif %}
 {% endfor %}
+{% if stack.pipeline.enabled %}
+  - {{ stack.type }}/pipeline/docker-compose.yml
+{% endif %}
 {% endfor %}

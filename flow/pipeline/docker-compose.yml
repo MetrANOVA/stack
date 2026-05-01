@@ -1,4 +1,17 @@
 services:
+  pipeline-init:
+    image: python:3.11-slim
+    container_name: pipeline-init
+    entrypoint:
+      - /bin/bash
+      - -lc
+      - >-
+        pip install --no-cache-dir jinja2 &&
+        python /scripts/render_configs.py
+    volumes:
+      - ./conf:/app/conf
+      - ./scripts:/scripts:ro
+    restart: "no"
 
   data_flow:
     image: ghcr.io/metranova/pipeline:latest
@@ -8,6 +21,7 @@ services:
     volumes:
       - ./caches:/app/caches:ro
       - ./conf:/app/conf:ro
+      - ./conf/kafka/ca.crt:/etc/kafka/ca.crt:ro
     restart: always
     deploy:
       mode: replicated

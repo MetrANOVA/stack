@@ -216,6 +216,48 @@ def main() -> None:
 				f"{collector_type}-init",
 			])
 
+		pipeline = stack.get("pipeline", {}) or {}
+		if pipeline.get("enabled"):
+			pipeline_dir = repo_root / stack_type / "pipeline"
+			if not pipeline_dir.exists():
+				raise FileNotFoundError(f"Pipeline directory not found: {pipeline_dir}")
+
+			if args.clean:
+				remove_dir_if_exists(pipeline_dir / "conf")
+			else:
+				copytree_if_missing(pipeline_dir / "conf.example", pipeline_dir / "conf")
+
+				if message_bus_type:
+					export_src_dir = conf_d / message_bus_type
+					if not export_src_dir.exists():
+						raise FileNotFoundError(f"Missing message bus export dir: {export_src_dir}")
+					export_dest_dir = pipeline_dir / "conf" / message_bus_type
+					ensure_dir(export_dest_dir)
+					for item in export_src_dir.iterdir():
+						if item.is_file():
+							shutil.copy2(item, export_dest_dir / item.name)
+
+				if datastore_type:
+					export_src_dir = conf_d / datastore_type
+					if not export_src_dir.exists():
+						raise FileNotFoundError(f"Missing datastore export dir: {export_src_dir}")
+					export_dest_dir = pipeline_dir / "conf" / datastore_type
+					ensure_dir(export_dest_dir)
+					for item in export_src_dir.iterdir():
+						if item.is_file():
+							shutil.copy2(item, export_dest_dir / item.name)
+
+				compose_file = output_path
+				run([
+					"docker",
+					"compose",
+					"-f",
+					str(compose_file),
+					"run",
+					"--rm",
+					"pipeline-init",
+				])
+
 
 if __name__ == "__main__":
 	main()
