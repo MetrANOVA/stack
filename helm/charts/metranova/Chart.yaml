@@ -5,6 +5,7 @@ type: application
 version: 0.1.0
 appVersion: "1.0"
 
+
 dependencies:
   - name: clickhouse
     version: 0.0.3
@@ -38,6 +39,6 @@ dependencies:
     repository: file://../api
     condition: api.enabled
   - name: grafana
-    version: ^8.0.0
+    version: ^12.3.0
     repository: https://grafana.github.io/helm-charts
     condition: grafana.enabled
