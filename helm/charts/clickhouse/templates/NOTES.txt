@@ -1,0 +1,5 @@
+⚠ ClickHouse Operator was not installed. Please make sure to install it from https://helm.altinity.com
+
+⚠ Please not, that altinity opertor needs to be installed first.
+
+ClickHouse cluster "{{ .Release.Name }}" has been deployed!

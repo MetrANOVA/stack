@@ -1,0 +1,157 @@
+{{- if not .Values.configFiles.existingConfigMap }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "metranova-flow-pipeline.fullname" . }}-config-core
+  {{- if .Values.configFiles.argocdReplaceLargeConfigMaps }}
+  annotations:
+    argocd.argoproj.io/sync-options: Replace=true
+  {{- end }}
+  labels:
+    {{- include "metranova-flow-pipeline.labels" . | nindent 4 }}
+data: {}
+{{- if .Values.configFiles.metaInterface }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "metranova-flow-pipeline.fullname" . }}-config-meta-interface
+  {{- if .Values.configFiles.argocdReplaceLargeConfigMaps }}
+  annotations:
+    argocd.argoproj.io/sync-options: Replace=true
+  {{- end }}
+  labels:
+    {{- include "metranova-flow-pipeline.labels" . | nindent 4 }}
+data:
+  meta_interface.yml: |
+    {{- .Values.configFiles.metaInterface | nindent 4 }}
+{{- end }}
+{{- if .Values.configFiles.metaDevice }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "metranova-flow-pipeline.fullname" . }}-config-meta-device
+  {{- if .Values.configFiles.argocdReplaceLargeConfigMaps }}
+  annotations:
+    argocd.argoproj.io/sync-options: Replace=true
+  {{- end }}
+  labels:
+    {{- include "metranova-flow-pipeline.labels" . | nindent 4 }}
+data:
+  meta_device.yml: |
+    {{- .Values.configFiles.metaDevice | nindent 4 }}
+{{- end }}
+{{- if .Values.configFiles.metaCircuit }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "metranova-flow-pipeline.fullname" . }}-config-meta-circuit
+  {{- if .Values.configFiles.argocdReplaceLargeConfigMaps }}
+  annotations:
+    argocd.argoproj.io/sync-options: Replace=true
+  {{- end }}
+  labels:
+    {{- include "metranova-flow-pipeline.labels" . | nindent 4 }}
+data:
+  meta_circuit.yml: |
+    {{- .Values.configFiles.metaCircuit | nindent 4 }}
+{{- end }}
+{{- if or .Values.configFiles.metaApplication (.Files.Get "files/meta_application.yml") }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "metranova-flow-pipeline.fullname" . }}-config-meta-application
+  {{- if .Values.configFiles.argocdReplaceLargeConfigMaps }}
+  annotations:
+    argocd.argoproj.io/sync-options: Replace=true
+  {{- end }}
+  labels:
+    {{- include "metranova-flow-pipeline.labels" . | nindent 4 }}
+data:
+  meta_application.yml: |
+    {{- .Values.configFiles.metaApplication | default (.Files.Get "files/meta_application.yml") | nindent 4 }}
+{{- end }}
+{{- if .Values.configFiles.caidaAsOrg2Info }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "metranova-flow-pipeline.fullname" . }}-config-caida-as-org
+  {{- if .Values.configFiles.argocdReplaceLargeConfigMaps }}
+  annotations:
+    argocd.argoproj.io/sync-options: Replace=true
+  {{- end }}
+  labels:
+    {{- include "metranova-flow-pipeline.labels" . | nindent 4 }}
+data:
+  caida_as_org2_info.jsonl: |
+    {{- .Values.configFiles.caidaAsOrg2Info | nindent 4 }}
+{{- end }}
+{{- if .Values.configFiles.caidaPeeringDb }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "metranova-flow-pipeline.fullname" . }}-config-caida-peeringdb
+  {{- if .Values.configFiles.argocdReplaceLargeConfigMaps }}
+  annotations:
+    argocd.argoproj.io/sync-options: Replace=true
+  {{- end }}
+  labels:
+    {{- include "metranova-flow-pipeline.labels" . | nindent 4 }}
+data:
+  caida_peeringdb.json: |
+    {{- .Values.configFiles.caidaPeeringDb | nindent 4 }}
+{{- end }}
+{{- if .Values.configFiles.caidaCustomOrgAdditions }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "metranova-flow-pipeline.fullname" . }}-config-caida-custom-org
+  {{- if .Values.configFiles.argocdReplaceLargeConfigMaps }}
+  annotations:
+    argocd.argoproj.io/sync-options: Replace=true
+  {{- end }}
+  labels:
+    {{- include "metranova-flow-pipeline.labels" . | nindent 4 }}
+data:
+  custom_org_additions.yml: |
+    {{- .Values.configFiles.caidaCustomOrgAdditions | nindent 4 }}
+{{- end }}
+{{- if .Values.configFiles.caidaCustomAsAdditions }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "metranova-flow-pipeline.fullname" . }}-config-caida-custom-as
+  {{- if .Values.configFiles.argocdReplaceLargeConfigMaps }}
+  annotations:
+    argocd.argoproj.io/sync-options: Replace=true
+  {{- end }}
+  labels:
+    {{- include "metranova-flow-pipeline.labels" . | nindent 4 }}
+data:
+  caida_custom_as_additions.yml: |
+    {{- .Values.configFiles.caidaCustomAsAdditions | nindent 4 }}
+{{- end }}
+{{- if .Values.configFiles.ipgeoCustomIpFile }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "metranova-flow-pipeline.fullname" . }}-config-ipgeo-custom-ip
+  {{- if .Values.configFiles.argocdReplaceLargeConfigMaps }}
+  annotations:
+    argocd.argoproj.io/sync-options: Replace=true
+  {{- end }}
+  labels:
+    {{- include "metranova-flow-pipeline.labels" . | nindent 4 }}
+data:
+  ipgeo_custom_ip_file: |
+    {{- .Values.configFiles.ipgeoCustomIpFile | nindent 4 }}
+{{- end }}
+{{- end }}

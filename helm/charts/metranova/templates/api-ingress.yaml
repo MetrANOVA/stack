@@ -1,0 +1,46 @@
+{{- if and .Values.api.enabled .Values.apiIngress.enabled -}}
+{{- $host := "" -}}
+{{- if .Values.global.ingressHost -}}
+{{- $host = .Values.global.ingressHost -}}
+{{- else if .Values.global.ingressDomain -}}
+{{- $host = .Values.global.ingressDomain -}}
+{{- else if .Values.global.baseDomain -}}
+{{- $host = printf "%s.%s" (.Values.global.apiSubdomain | default "api") .Values.global.baseDomain -}}
+{{- end -}}
+{{- if and (eq $host "") .Values.api.ingress.hosts (gt (len .Values.api.ingress.hosts) 0) -}}
+{{- $host = (index .Values.api.ingress.hosts 0).host -}}
+{{- end -}}
+{{- if $host -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .Release.Name }}-api
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: api
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  {{- with .Values.apiIngress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  ingressClassName: {{ .Values.apiIngress.ingressClassName | default "traefik" }}
+  {{- if .Values.apiIngress.tlsSecretName }}
+  tls:
+    - hosts:
+        - {{ $host }}
+      secretName: {{ .Values.apiIngress.tlsSecretName }}
+  {{- end }}
+  rules:
+    - host: {{ $host }}
+      http:
+        paths:
+          - path: {{ .Values.apiIngress.path | default (.Values.global.apiPath | default "/api") }}
+            pathType: {{ .Values.apiIngress.pathType | default "Prefix" }}
+            backend:
+              service:
+                name: {{ .Release.Name }}-api
+                port:
+                  number: {{ .Values.api.service.port | default 8000 }}
+{{- end }}
+{{- end }}

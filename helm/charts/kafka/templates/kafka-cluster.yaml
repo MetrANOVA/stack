@@ -1,0 +1,162 @@
+---
+{{- $kraftStorageClass := .Values.kraft.storage.class | default .Values.global.storageClassName }}
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaNodePool
+metadata:
+  name: {{ .Values.cluster.name }}-kraft-controllers
+  labels:
+    strimzi.io/cluster: {{ .Values.cluster.name }}
+spec:
+  replicas: {{ .Values.kraft.replicas }}
+  roles:
+    - controller
+  {{- with .Values.kraft.resources }}
+  resources:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- if or .Values.kraft.affinity .Values.kraft.tolerations .Values.kraft.topologySpreadConstraints }}
+  template:
+    pod:
+      {{- with .Values.kraft.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.kraft.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.kraft.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  {{- end }}
+  storage:
+    type: persistent-claim
+    size: {{ .Values.kraft.storage.size }}
+    {{- if $kraftStorageClass }}
+    class: {{ $kraftStorageClass }}
+    {{- end }}
+    deleteClaim: false
+---
+{{- $kafkaStorageClass := .Values.kafka.storage.class | default .Values.global.storageClassName }}
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaNodePool
+metadata:
+  name: {{ .Values.cluster.name }}-brokers
+  labels:
+    strimzi.io/cluster: {{ .Values.cluster.name }}
+spec:
+  replicas: {{ .Values.kafka.replicas }}
+  roles:
+    - broker
+  {{- with .Values.kafka.resources }}
+  resources:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- if or .Values.kafka.affinity .Values.kafka.tolerations .Values.kafka.topologySpreadConstraints }}
+  template:
+    pod:
+      {{- with .Values.kafka.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.kafka.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.kafka.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  {{- end }}
+  storage:
+    type: persistent-claim
+    size: {{ .Values.kafka.storage.size }}
+    {{- if $kafkaStorageClass }}
+    class: {{ $kafkaStorageClass }}
+    {{- end }}
+    deleteClaim: false
+---
+apiVersion: kafka.strimzi.io/v1
+kind: Kafka
+metadata:
+  name: {{ .Values.cluster.name }}
+  annotations:
+    strimzi.io/kraft: enabled
+    strimzi.io/node-pools: enabled
+spec:
+  kafka:
+    version: {{ .Values.kafka.version }}
+    authorization:
+      type: simple
+      superUsers:
+        - CN={{ .Values.cluster.name }}-entity-topic-operator
+        - CN={{ .Values.cluster.name }}-entity-user-operator
+    listeners:
+      - name: plain
+        port: 9092
+        type: internal
+        tls: false
+      - name: tls
+        port: 9093
+        type: internal
+        tls: true
+        authentication:
+          type: tls
+      - name: scram
+        port: 9094
+        type: internal
+        tls: false
+        authentication:
+          type: scram-sha-512
+    config:
+      offsets.topic.replication.factor: 3
+      transaction.state.log.replication.factor: 3
+      transaction.state.log.min.isr: 2
+      default.replication.factor: 3
+      min.insync.replicas: 2
+  entityOperator:
+    topicOperator:
+      reconciliationIntervalMs: 120000
+      {{- if .Values.entityOperator.topicOperator.resources }}
+      resources:
+        {{- toYaml .Values.entityOperator.topicOperator.resources | nindent 8 }}
+      {{- end }}
+      {{- if or .Values.entityOperator.topicOperator.affinity .Values.entityOperator.topicOperator.tolerations .Values.entityOperator.topicOperator.topologySpreadConstraints }}
+      template:
+        pod:
+          {{- if .Values.entityOperator.topicOperator.affinity }}
+          affinity:
+            {{- toYaml .Values.entityOperator.topicOperator.affinity | nindent 12 }}
+          {{- end }}
+          {{- if .Values.entityOperator.topicOperator.tolerations }}
+          tolerations:
+            {{- toYaml .Values.entityOperator.topicOperator.tolerations | nindent 12 }}
+          {{- end }}
+          {{- if .Values.entityOperator.topicOperator.topologySpreadConstraints }}
+          topologySpreadConstraints:
+            {{- toYaml .Values.entityOperator.topicOperator.topologySpreadConstraints | nindent 12 }}
+          {{- end }}
+      {{- end }}
+    userOperator:
+      reconciliationIntervalMs: 120000
+      {{- if .Values.entityOperator.userOperator.resources }}
+      resources:
+        {{- toYaml .Values.entityOperator.userOperator.resources | nindent 8 }}
+      {{- end }}
+      {{- if or .Values.entityOperator.userOperator.affinity .Values.entityOperator.userOperator.tolerations .Values.entityOperator.userOperator.topologySpreadConstraints }}
+      template:
+        pod:
+          {{- if .Values.entityOperator.userOperator.affinity }}
+          affinity:
+            {{- toYaml .Values.entityOperator.userOperator.affinity | nindent 12 }}
+          {{- end }}
+          {{- if .Values.entityOperator.userOperator.tolerations }}
+          tolerations:
+            {{- toYaml .Values.entityOperator.userOperator.tolerations | nindent 12 }}
+          {{- end }}
+          {{- if .Values.entityOperator.userOperator.topologySpreadConstraints }}
+          topologySpreadConstraints:
+            {{- toYaml .Values.entityOperator.userOperator.topologySpreadConstraints | nindent 12 }}
+          {{- end }}
+      {{- end }}

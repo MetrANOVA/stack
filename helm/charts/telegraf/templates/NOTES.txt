@@ -1,0 +1,13 @@
+Telegraf has been deployed.
+
+Release name: {{ .Release.Name }}
+Namespace: {{ .Release.Namespace }}
+
+To inspect resources:
+  kubectl get deploy,po,svc -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }}
+
+To port-forward metrics locally:
+  kubectl port-forward svc/{{ .Release.Name }}-telegraf 9273:{{ .Values.service.port }} -n {{ .Release.Namespace }}
+
+Then open:
+  http://127.0.0.1:9273/metrics

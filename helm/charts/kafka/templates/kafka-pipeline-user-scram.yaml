@@ -1,0 +1,41 @@
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaUser
+metadata:
+  name: pipeline-user-scram
+  labels:
+    strimzi.io/cluster: {{ .Values.cluster.name }}
+spec:
+  authentication:
+    type: scram-sha-512
+  authorization:
+    type: simple
+    acls:
+      - resource:
+          type: topic
+          name: metranova_flow
+          patternType: literal
+        operations:
+          - Read
+          - Write
+          - Describe
+          - DescribeConfigs
+      - resource:
+          type: topic
+          name: metranova_snmp
+          patternType: literal
+        operations:
+          - Read
+          - Write
+          - Describe
+          - DescribeConfigs
+      - resource:
+          type: group
+          name: metranova_pipeline
+          patternType: literal
+        operations:
+          - Read
+      - resource:
+          type: cluster
+        operations:
+          - Describe
+          - DescribeConfigs

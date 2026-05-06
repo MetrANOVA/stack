@@ -1,0 +1,19 @@
+{{- $nfacctd := .Values.nfacctd | default dict -}}
+{{- $ingress := $nfacctd.ingress | default dict -}}
+{{- if ($ingress.enabled | default false) }}
+apiVersion: traefik.io/v1alpha1
+kind: IngressRouteUDP
+metadata:
+  name: {{ .Release.Name }}-netflow-ingress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: nfacctd
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  entryPoints:
+    - {{ $ingress.entryPoint | default "netflow-2055" }}
+  routes:
+    - services:
+        - name: {{ .Release.Name }}-nfacctd
+          port: {{ $nfacctd.port | default 2055 }}
+{{- end }}

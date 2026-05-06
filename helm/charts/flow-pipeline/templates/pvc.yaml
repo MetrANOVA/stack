@@ -1,0 +1,18 @@
+{{- if not .Values.caches.existingPvc }}
+{{- $storageClassName := .Values.caches.storageClassName | default .Values.global.storageClassName }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "metranova-flow-pipeline.fullname" . }}-caches
+  labels:
+    {{- include "metranova-flow-pipeline.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- if $storageClassName }}
+  storageClassName: {{ $storageClassName }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.caches.storageSize }}
+{{- end }}

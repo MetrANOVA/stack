@@ -1,0 +1,6 @@
+apiVersion: v2
+name: kafka
+description: MetraNova Kafka cluster using Strimzi operator
+type: application
+version: 0.2.0
+appVersion: "4.1.1"
