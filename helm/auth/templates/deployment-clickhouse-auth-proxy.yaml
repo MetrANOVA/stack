@@ -1,0 +1,79 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "metranova-auth.fullname" . }}-clickhouse-auth-proxy
+  labels:
+    {{- include "metranova-auth.labels" . | nindent 4 }}
+    app.kubernetes.io/component: clickhouse-auth-proxy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "metranova-auth.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: clickhouse-auth-proxy
+  template:
+    metadata:
+      annotations:
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "metranova-auth.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: clickhouse-auth-proxy
+    spec:
+      {{- include "metranova-auth.imagePullSecrets" . | nindent 6 }}
+      serviceAccountName: {{ include "metranova-auth.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: clickhouse-auth-proxy
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.clickhouseAuthProxy.image.repository }}:{{ .Values.clickhouseAuthProxy.image.tag }}"
+          imagePullPolicy: {{ .Values.clickhouseAuthProxy.image.pullPolicy }}
+          env:
+            - name: LDAP_HOST
+              value: {{ include "metranova-auth.fullname" . }}-openldap
+            - name: LDAP_PORT
+              value: "389"
+            - name: LDAP_BASE_DN
+              value: {{ include "metranova-auth.ldapBaseDN" . | quote }}
+            - name: LDAP_BIND_DN
+              value: "cn=admin,{{ include "metranova-auth.ldapBaseDN" . }}"
+            - name: LDAP_BIND_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "metranova-auth.fullname" . }}-secrets
+                  key: LDAP_ADMIN_PASSWORD
+            - name: TOKEN_STORE_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "metranova-auth.fullname" . }}-secrets
+                  key: TOKEN_STORE_ENCRYPTION_KEY
+            - name: OIDC_CLIENT_ID
+              value: {{ .Values.clickhouseAuthProxy.oidcClientId | quote }}
+          ports:
+            - name: http
+              containerPort: 8001
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8001
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.clickhouseAuthProxy.resources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

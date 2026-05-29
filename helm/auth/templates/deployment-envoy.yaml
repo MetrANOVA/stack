@@ -1,0 +1,97 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "metranova-auth.fullname" . }}-envoy
+  labels:
+    {{- include "metranova-auth.labels" . | nindent 4 }}
+    app.kubernetes.io/component: envoy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "metranova-auth.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: envoy
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap-envoy.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "metranova-auth.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: envoy
+    spec:
+      {{- include "metranova-auth.imagePullSecrets" . | nindent 6 }}
+      serviceAccountName: {{ include "metranova-auth.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: envoy
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.envoy.image.repository }}:{{ .Values.envoy.image.tag }}"
+          imagePullPolicy: {{ .Values.envoy.image.pullPolicy }}
+          args:
+            - envoy
+            - -c
+            - /etc/envoy/envoy.yaml
+            - --log-level
+            - info
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            - name: https
+              containerPort: 8443
+              protocol: TCP
+            - name: admin
+              containerPort: 9901
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 9901
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.envoy.resources | nindent 12 }}
+          volumeMounts:
+            - name: envoy-config
+              mountPath: /etc/envoy/envoy.yaml
+              subPath: envoy.yaml
+              readOnly: true
+            - name: envoy-tls
+              mountPath: /etc/envoy/tls
+              readOnly: true
+            - name: envoy-secrets
+              mountPath: /etc/envoy/secrets
+              readOnly: true
+      volumes:
+        - name: envoy-config
+          configMap:
+            name: {{ include "metranova-auth.fullname" . }}-envoy
+        - name: envoy-tls
+          secret:
+            secretName: {{ include "metranova-auth.tlsSecretName" . }}
+        - name: envoy-secrets
+          secret:
+            secretName: {{ include "metranova-auth.fullname" . }}-secrets
+            items:
+              - key: token.yaml
+                path: token.yaml
+              - key: hmac.yaml
+                path: hmac.yaml
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

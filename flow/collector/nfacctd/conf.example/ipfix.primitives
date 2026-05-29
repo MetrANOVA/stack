@@ -1,0 +1,45 @@
+! For example of this file see https://github.com/pmacct/pmacct/blob/master/examples/primitives.lst.example
+!
+! For list of IPFIX fields see https://www.iana.org/assignments/ipfix/ipfix.xhtml
+! 
+
+!IPv6 flow label
+name=ipv6_flow_label field_type=31 len=4 semantics=u_int
+
+! VRF fields
+! Note: Spec seems to indicate vrf fields are 4 byte, but only seeing 2. maybe need do vlen and raw then format later?
+name=vrfid_ingress    field_type=234  len=4        semantics=u_int
+name=vrfid_egress     field_type=235  len=4        semantics=u_int
+
+!mpls label fields
+name=mpls_top_label_type field_type=46 len=1 semantics=u_int
+name=mpls_top_label_ipv4 field_type=47 len=4 semantics=ip
+name=mpls_label1 field_type=70 len=3 semantics=raw
+name=mpls_label2 field_type=71 len=3 semantics=raw
+name=mpls_label3 field_type=72 len=3 semantics=raw
+name=mpls_label4 field_type=73 len=3 semantics=raw
+name=mpls_label5 field_type=74 len=3 semantics=raw
+name=mpls_label6 field_type=75 len=3 semantics=raw
+name=mpls_label7 field_type=76 len=3 semantics=raw
+name=mpls_label8 field_type=77 len=3 semantics=raw
+name=mpls_label9 field_type=78 len=3 semantics=raw
+name=mpls_label10 field_type=79 len=3 semantics=raw
+
+!IP length fields: These are uint64 in spec - possible they are vlen?
+name=min_pkt_len field_type=25 len=2 semantics=u_int
+name=max_pkt_len field_type=26 len=2 semantics=u_int
+! TTL fields
+name=min_ttl field_type=52 len=1 semantics=u_int
+name=max_ttl field_type=53 len=1 semantics=u_int
+
+! L2 fields
+name=in_src_mac             field_type=56  len=6 semantics=mac
+name=physical_iface_ingress field_type=252 len=4 semantics=u_int
+name=vlan_id                field_type=243 len=2 semantics=u_int
+name=customer_vlan_id       field_type=245 len=2 semantics=u_int
+name=post_vlan_id           field_type=254 len=2 semantics=u_int
+name=post_customer_vlan_id  field_type=255 len=2 semantics=u_int
+name=flow_start_ms          field_type=152 len=8 semantics=u_int
+name=flow_end_ms            field_type=153 len=8 semantics=u_int
+name=ipv6_extension_header  field_type=64  len=4 semantics=u_int
+name=ipv6_next_header       field_type=193 len=1 semantics=u_int

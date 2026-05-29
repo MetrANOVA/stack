@@ -1,0 +1,268 @@
+node:
+  id: envoy
+  cluster: local
+
+static_resources:
+  listeners:
+  - name: https_listener
+    address:
+      socket_address:
+        address: 0.0.0.0
+        port_value: 8443
+    filter_chains:
+    - transport_socket:
+        name: envoy.transport_sockets.tls
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
+          common_tls_context:
+            tls_certificates:
+            - certificate_chain:
+                filename: /etc/envoy/tls/server.crt
+              private_key:
+                filename: /etc/envoy/tls/server.key
+      filters:
+      - name: envoy.filters.network.http_connection_manager
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+          stat_prefix: ingress_https
+          access_log:
+          - name: envoy.access_loggers.stdout
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.access_loggers.stream.v3.StdoutAccessLog
+          http_filters:
+          - name: envoy.filters.http.oauth2
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.oauth2.v3.OAuth2
+              config:
+                token_endpoint:
+                  cluster: keycloak
+                  uri: http://{{ keycloak_host }}:{{ keycloak_port }}/realms/{{ realm }}/protocol/openid-connect/token
+                  timeout: 15s
+                authorization_endpoint: https://{{ domain }}/realms/{{ realm }}/protocol/openid-connect/auth
+                redirect_uri: "https://{{ domain }}/oauth2/callback"
+                auth_scopes:
+                - openid
+                - profile
+                - email
+                redirect_path_matcher:
+                  path:
+                    exact: /oauth2/callback
+                signout_path:
+                  path:
+                    exact: /signout
+                forward_bearer_token: true
+                credentials:
+                  client_id: envoy-proxy
+                  token_secret:
+                    name: token-secret
+                    sds_config:
+                      path_config_source:
+                        path: /etc/envoy/secrets/token.yaml
+                        watched_directory:
+                          path: /etc/envoy/secrets
+                  hmac_secret:
+                    name: hmac-secret
+                    sds_config:
+                      path_config_source:
+                        path: /etc/envoy/secrets/hmac.yaml
+                        watched_directory:
+                          path: /etc/envoy/secrets
+                pass_through_matcher:
+                - name: ":path"
+                  string_match:
+                    exact: /health
+                - name: ":path"
+                  string_match:
+                    prefix: /realms/
+                - name: ":path"
+                  string_match:
+                    prefix: /admin/
+                - name: ":path"
+                  string_match:
+                    prefix: /resources/
+                - name: ":path"
+                  string_match:
+                    prefix: /js/
+                - name: ":path"
+                  string_match:
+                    prefix: /grafana/
+                - name: "authorization"
+                  string_match:
+                    prefix: "Bearer "
+          - name: envoy.filters.http.jwt_authn
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.jwt_authn.v3.JwtAuthentication
+              providers:
+                keycloak:
+                  issuer: https://{{ domain }}/realms/{{ realm }}
+                  remote_jwks:
+                    http_uri:
+                      uri: http://{{ keycloak_host }}:{{ keycloak_port }}/realms/{{ realm }}/protocol/openid-connect/certs
+                      cluster: keycloak
+                      timeout: 5s
+                    cache_duration:
+                      seconds: 300
+                  claim_to_headers:
+                  - header_name: x-user-id
+                    claim_name: preferred_username
+                  forward: true
+              rules:
+              - match:
+                  prefix: /clickhouse
+                requires:
+                  provider_name: keycloak
+              - match:
+                  prefix: /token-store
+                requires:
+                  provider_name: keycloak
+              - match:
+                  prefix: /
+          - name: envoy.filters.http.router
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+          route_config:
+            name: main_route
+            virtual_hosts:
+            - name: local_service
+              domains: ["*"]
+              routes:
+              - match:
+                  path: /health
+                direct_response:
+                  status: 200
+                  body:
+                    inline_string: "OK"
+              - match:
+                  prefix: /realms/
+                route:
+                  cluster: keycloak
+              - match:
+                  prefix: /admin/
+                route:
+                  cluster: keycloak
+              - match:
+                  prefix: /resources/
+                route:
+                  cluster: keycloak
+              - match:
+                  prefix: /js/
+                route:
+                  cluster: keycloak
+              - match:
+                  prefix: /grafana/
+                route:
+                  cluster: grafana
+                  prefix_rewrite: /
+              - match:
+                  prefix: /clickhouse
+                route:
+                  cluster: clickhouse
+                  prefix_rewrite: /
+                request_headers_to_add:
+                - header:
+                    key: X-ClickHouse-User
+                    value: "%REQ(x-user-id)%"
+                  keep_empty_value: false
+                request_headers_to_remove:
+                - X-ClickHouse-User
+                - Authorization
+              - match:
+                  prefix: /token-store/api
+                route:
+                  cluster: token_store
+                  prefix_rewrite: /api
+              - match:
+                  prefix: /
+                direct_response:
+                  status: 200
+                  body:
+                    inline_string: "MetrANOVA — authenticated"
+
+  - name: http_redirect_listener
+    address:
+      socket_address:
+        address: 0.0.0.0
+        port_value: 8080
+    filter_chains:
+    - filters:
+      - name: envoy.filters.network.http_connection_manager
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+          stat_prefix: ingress_http
+          http_filters:
+          - name: envoy.filters.http.router
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+          route_config:
+            virtual_hosts:
+            - name: redirect_to_https
+              domains: ["*"]
+              routes:
+              - match:
+                  prefix: /
+                redirect:
+                  https_redirect: true
+                  port_redirect: 443
+
+  clusters:
+  - name: keycloak
+    connect_timeout: 5s
+    type: LOGICAL_DNS
+    lb_policy: ROUND_ROBIN
+    load_assignment:
+      cluster_name: keycloak
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address:
+                address: {{ keycloak_host }}
+                port_value: {{ keycloak_port }}
+
+  - name: grafana
+    connect_timeout: 5s
+    type: LOGICAL_DNS
+    lb_policy: ROUND_ROBIN
+    load_assignment:
+      cluster_name: grafana
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address:
+                address: grafana
+                port_value: 3000
+
+  - name: clickhouse
+    connect_timeout: 5s
+    type: LOGICAL_DNS
+    lb_policy: ROUND_ROBIN
+    load_assignment:
+      cluster_name: clickhouse
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address:
+                address: clickhouse
+                port_value: 8123
+
+  - name: token_store
+    connect_timeout: 5s
+    type: LOGICAL_DNS
+    lb_policy: ROUND_ROBIN
+    load_assignment:
+      cluster_name: token_store
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address:
+                address: token-store
+                port_value: 8000
+
+admin:
+  address:
+    socket_address:
+      address: 0.0.0.0
+      port_value: 9901

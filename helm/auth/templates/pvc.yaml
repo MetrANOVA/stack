@@ -1,0 +1,51 @@
+{{- if .Values.openldap.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "metranova-auth.fullname" . }}-openldap-data
+  labels:
+    {{- include "metranova-auth.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- if .Values.openldap.persistence.storageClass }}
+  storageClassName: {{ .Values.openldap.persistence.storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.openldap.persistence.size | quote }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "metranova-auth.fullname" . }}-openldap-config
+  labels:
+    {{- include "metranova-auth.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- if .Values.openldap.persistence.storageClass }}
+  storageClassName: {{ .Values.openldap.persistence.storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: 100Mi
+{{- end }}
+---
+{{- if .Values.grafana.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "metranova-auth.fullname" . }}-grafana-data
+  labels:
+    {{- include "metranova-auth.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- if .Values.grafana.persistence.storageClass }}
+  storageClassName: {{ .Values.grafana.persistence.storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.grafana.persistence.size | quote }}
+{{- end }}

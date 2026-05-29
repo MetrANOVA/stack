@@ -1,0 +1,57 @@
+services:
+  kafka-init:
+    image: confluentinc/cp-kafka:7.9.6
+    container_name: kafka-init
+    entrypoint: ["/bin/bash", "-lc", "KAFKA_CONF_FILE=/config/kafka.env /scripts/init-conf.sh"]
+    env_file:
+      - ./conf/kafka.env
+    volumes:
+      - kafka-secrets:/etc/kafka/secrets
+      - ./scripts:/scripts:ro
+      - ./conf:/config
+      - ./conf/export:/config/export
+    restart: "no"
+
+  kafka:
+    image: confluentinc/cp-kafka:7.9.6
+    container_name: kafka
+    entrypoint: ["/bin/bash", "/scripts/kafka-entrypoint.sh"]
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+    ports:
+      - "9094:9094"
+    env_file:
+      - ./conf/kafka.env
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+      - kafka-secrets:/etc/kafka/secrets
+      - ./conf:/config:ro
+      - ./scripts:/scripts:ro
+    healthcheck:
+      test: ["CMD", "bash", "-lc", "kafka-broker-api-versions --bootstrap-server kafka:9093 --command-config /config/client.properties 1>/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  kafka-topics:
+    image: confluentinc/cp-kafka:7.9.6
+    container_name: kafka-topics
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "/scripts/create-topics.sh"]
+    env_file:
+      - ./conf/topics.env
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:9093"
+      KAFKA_CLIENT_CONFIG: "/config/client.properties"
+    volumes:
+      - ./scripts:/scripts:ro
+      - ./conf:/config:ro
+      - kafka-secrets:/etc/kafka/secrets:ro
+    restart: "no"
+
+volumes:
+  kafka-data:
+  kafka-secrets:

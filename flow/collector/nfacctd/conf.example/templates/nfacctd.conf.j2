@@ -1,0 +1,58 @@
+!
+! This is the config for nfacctd
+! See https://github.com/pmacct/pmacct/blob/master/CONFIG-KEYS
+!
+! When using nfreplay watch for this bug: https://github.com/pmacct/pmacct/issues/163
+
+!
+! General nfacctd settings
+!
+
+! Port where nfacctd listens
+nfacctd_port: 9996
+writer_id_string: nfacctd
+
+! Enable recommended internal buffer settings
+plugin_pipe_zmq: true
+plugin_pipe_zmq_profile: medium
+
+! Adds debugging output to logs. Disable in production.
+! debug: true
+
+! Fields we want in the output. See pmacct docs for field meanings
+aggregate: peer_src_ip,label,src_host,dst_host,src_port,dst_port,proto,in_iface,out_iface,src_as,dst_as,peer_dst_ip,timestamp_start,timestamp_end,vlan,in_vlan,out_vlan,in_cvlan,out_cvlan 
+
+! Output timestamps as epoch as opposed to strings we need to parse
+timestamps_since_epoch: true
+
+! Gets the sampling rate from flow packet and automatically applies it
+!  Example: If sample_rate is 1000 (meaning 1/1000) then it multiplies 
+!  packets and bytes by 1000.
+nfacctd_renormalize: true
+
+! Add custom labels and tags
+pre_tag_map: /etc/pmacct/pretag.map
+
+!
+! Kafka settings
+!
+! Note: kafka_config_file is a full pathname to a file containing directives to configure librdkafka. All knobs
+! whose values are string, integer, boolean, CSV are supported. Pointer values, ie.
+! for setting callbacks, are currently not supported through this infrastructure.
+! The syntax of the file is CSV and expected in the format: <type, key, value> where
+! 'type' is one of 'global' or 'topic' and 'key' and 'value' are set according to
+! librdkafka doc https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md
+! Both 'key' and 'value' are passed onto librdkafka without any validation being
+! performed; the 'value' field can also contain commas no problem as it is also not
+! parsed. Examples are:
+!
+! topic, compression.codec, snappy
+! global, socket.keepalive.enable, true
+plugins: kafka[main]
+! "Main" handles flows above 1 packet assuming 1/1000 sampling
+! minp matches >=
+! kafka_preprocess[main]: minp=1001
+! kafka_preprocess_type[main]: any
+kafka_topic[main]: {{ kafka_topic }}
+kafka_config_file[main]: /etc/pmacct/kafka.csv
+kafka_refresh_time[main]: 30

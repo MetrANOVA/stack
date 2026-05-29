@@ -1,0 +1,39 @@
+[server]
+domain = {{ domain }}
+# Grafana is served at /grafana/ via Envoy prefix rewrite
+root_url = https://{{ domain }}/grafana/
+serve_from_sub_path = true
+
+[auth]
+# Keep local login available for break-glass access
+disable_login_form = false
+
+[auth.generic_oauth]
+enabled = true
+name = MetrANOVA
+allow_sign_up = true
+client_id = grafana
+client_secret = {{ grafana_client_secret }}
+scopes = openid profile email
+# auth_url: browser-facing — goes directly to Keycloak port 8080
+auth_url = http://{{ domain }}:8080/realms/{{ realm }}/protocol/openid-connect/auth
+# token_url / api_url: server-side — use internal service name
+token_url = http://keycloak:8080/realms/{{ realm }}/protocol/openid-connect/token
+api_url = http://keycloak:8080/realms/{{ realm }}/protocol/openid-connect/userinfo
+email_attribute_path = email
+name_attribute_path = preferred_username
+login_attribute_path = preferred_username
+# Map Keycloak realm roles to Grafana roles (JMESPath)
+role_attribute_path = contains(realm_access.roles[*], 'admin') && 'Admin' || contains(realm_access.roles[*], 'operator') && 'Editor' || 'Viewer'
+role_attribute_strict = false
+use_pkce = true
+auto_login = false
+
+[security]
+cookie_secure = true
+# Needed if Grafana panels are embedded in other UIs
+allow_embedding = true
+
+[users]
+auto_assign_org = true
+auto_assign_org_role = Viewer

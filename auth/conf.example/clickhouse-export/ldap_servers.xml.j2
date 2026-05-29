@@ -1,0 +1,10 @@
+<clickhouse>
+  <ldap_servers>
+    <openldap>
+      <host>openldap</host>
+      <port>389</port>
+      <bind_dn>uid={user_name},ou=users,{{ ldap_base_dn }}</bind_dn>
+      <enable_tls>no</enable_tls>
+    </openldap>
+  </ldap_servers>
+</clickhouse>

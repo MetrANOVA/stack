@@ -1,0 +1,111 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "metranova-auth.fullname" . }}-keycloak
+  labels:
+    {{- include "metranova-auth.labels" . | nindent 4 }}
+    app.kubernetes.io/component: keycloak
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "metranova-auth.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: keycloak
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "metranova-auth.fullname" . }}-openldap
+  labels:
+    {{- include "metranova-auth.labels" . | nindent 4 }}
+    app.kubernetes.io/component: openldap
+spec:
+  type: ClusterIP
+  ports:
+    - port: 389
+      targetPort: 389
+      protocol: TCP
+      name: ldap
+  selector:
+    {{- include "metranova-auth.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: openldap
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "metranova-auth.fullname" . }}-envoy
+  labels:
+    {{- include "metranova-auth.labels" . | nindent 4 }}
+    app.kubernetes.io/component: envoy
+spec:
+  type: LoadBalancer
+  ports:
+    - port: 80
+      targetPort: 8080
+      protocol: TCP
+      name: http
+    - port: 443
+      targetPort: 8443
+      protocol: TCP
+      name: https
+  selector:
+    {{- include "metranova-auth.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: envoy
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "metranova-auth.fullname" . }}-token-store
+  labels:
+    {{- include "metranova-auth.labels" . | nindent 4 }}
+    app.kubernetes.io/component: token-store
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8000
+      targetPort: 8000
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "metranova-auth.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: token-store
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "metranova-auth.fullname" . }}-clickhouse-auth-proxy
+  labels:
+    {{- include "metranova-auth.labels" . | nindent 4 }}
+    app.kubernetes.io/component: clickhouse-auth-proxy
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8001
+      targetPort: 8001
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "metranova-auth.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: clickhouse-auth-proxy
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "metranova-auth.fullname" . }}-grafana
+  labels:
+    {{- include "metranova-auth.labels" . | nindent 4 }}
+    app.kubernetes.io/component: grafana
+spec:
+  type: ClusterIP
+  ports:
+    - port: 3000
+      targetPort: 3000
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "metranova-auth.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: grafana
