@@ -55,12 +55,12 @@ while true; do
         --user "$USER" --password "$PASS" \
         --accept-invalid-certificate \
         --multiquery <<'SQL'
-CREATE ROLE IF NOT EXISTS clickhouse_admin;
-GRANT SELECT, INSERT, ALTER, CREATE, DROP, TRUNCATE, OPTIMIZE, BACKUP, KILL QUERY ON *.* TO clickhouse_admin;
-CREATE ROLE IF NOT EXISTS clickhouse_operator;
-GRANT SELECT, INSERT, ALTER, CREATE, DROP ON metranova.* TO clickhouse_operator;
-CREATE ROLE IF NOT EXISTS clickhouse_viewer;
-GRANT SELECT ON metranova.* TO clickhouse_viewer;
+CREATE ROLE IF NOT EXISTS `clickhouse-admin`;
+GRANT SELECT, INSERT, ALTER, CREATE, DROP, TRUNCATE, OPTIMIZE, BACKUP, KILL QUERY ON *.* TO `clickhouse-admin`;
+CREATE ROLE IF NOT EXISTS `clickhouse-operator`;
+GRANT SELECT, INSERT, ALTER, CREATE, DROP ON metranova.* TO `clickhouse-operator`;
+CREATE ROLE IF NOT EXISTS `clickhouse-viewer`;
+GRANT SELECT ON metranova.* TO `clickhouse-viewer`;
 CREATE ROLE IF NOT EXISTS `esnet-staff-user`;
 GRANT SELECT ON metranova.* TO `esnet-staff-user`;
 SQL

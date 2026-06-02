@@ -437,8 +437,8 @@
   "groups": [
     {
       "id": "22222222-0000-0000-0000-000000000001",
-      "name": "clickhouse_admin",
-      "path": "/clickhouse_admin",
+      "name": "clickhouse-admin",
+      "path": "/clickhouse-admin",
       "subGroups": [],
       "attributes": {},
       "realmRoles": [
@@ -448,8 +448,8 @@
     },
     {
       "id": "22222222-0000-0000-0000-000000000002",
-      "name": "clickhouse_operator",
-      "path": "/clickhouse_operator",
+      "name": "clickhouse-operator",
+      "path": "/clickhouse-operator",
       "subGroups": [],
       "attributes": {},
       "realmRoles": [
@@ -459,8 +459,8 @@
     },
     {
       "id": "22222222-0000-0000-0000-000000000003",
-      "name": "clickhouse_viewer",
-      "path": "/clickhouse_viewer",
+      "name": "clickhouse-viewer",
+      "path": "/clickhouse-viewer",
       "subGroups": [],
       "attributes": {},
       "realmRoles": [
@@ -1882,7 +1882,7 @@
       "config": {
         "syncMode": "LEGACY",
         "claims": "[{\"key\":\"organization\",\"value\":\"ESnet\"}]",
-        "group": "/clickhouse_admin"
+        "group": "/clickhouse-admin"
       }
     },
     {
