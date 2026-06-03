@@ -91,6 +91,11 @@ Make changes in the Keycloak UI, then re-run `export-realm.sh` and commit the up
 **Fresh deployment from the repo:**
 1. Copy `conf.example/` to `conf/` and fill in secrets (client IDs, passwords, etc.)
 2. `docker compose up -d` — Keycloak imports the realm automatically
+3. Sync secrets from your conf files into Keycloak (client secrets and LDAP bind password):
+   ```bash
+   ./auth/scripts/sync-secrets.sh
+   ```
+   Re-run this any time you rotate a secret in `auth/conf/`.
 
 ### Dev vs. production persistence
 
