@@ -82,7 +82,7 @@ jobs:
           CR_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
         with:
           #looks for subdirectoryies with Chart.yaml files, so point at parent dir
-          charts_dir: ./helm
+          charts_dir: ./helm/charts
           # if on main, don;t overwrite existing, mark as latest.
           # If on version branch, always publish so that we get new charts as we merge in changes pre-release
           skip_existing: ${{ github.ref_name == 'main' }}
