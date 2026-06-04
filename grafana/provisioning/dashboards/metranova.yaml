@@ -1,0 +1,12 @@
+apiVersion: 1
+
+providers:
+- name: 'MetrANOVA'
+  orgId: 1
+  folder: 'MetrANOVA'
+  folderUid: '83ae9ca2-4c6d-456f-98b6-48ddb4711c76'
+  type: file
+  updateIntervalSeconds: 10
+  allowUiUpdates: false
+  options:
+    path: /var/lib/metranova/grafana/dashboards/

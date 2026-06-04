@@ -98,6 +98,7 @@ def main() -> None:
 	message_bus = config.get("message_bus", {}) or {}
 	datastore = config.get("datastore", {}) or {}
 	stacks = config.get("stacks", []) or []
+	dashboard = config.get("dashboard", {}) or {}
 
 	conf_d = docker_dir / "conf.d"
 	ensure_dir(conf_d)
@@ -257,6 +258,47 @@ def main() -> None:
 					"--rm",
 					"pipeline-init",
 				])
+
+	dashboard_type = None
+	if dashboard.get("enabled"):
+		dashboard_type = dashboard.get("type")
+		if not dashboard_type:
+			raise ValueError("dashboard.type is required when enabled")
+		dashboard_dir = repo_root / dashboard_type
+		if not dashboard_dir.exists():
+			raise FileNotFoundError(f"Dashboard directory not found: {dashboard_dir}")
+
+		if args.clean:
+			remove_dir_if_exists(dashboard_dir / "conf")
+			#remove dashboard_dir / "provisioning/datasources/*.yaml" if exists
+			datasources_dir = dashboard_dir / "provisioning" / "datasources"
+			if datasources_dir.exists():
+				for item in datasources_dir.iterdir():
+					if item.is_file() and item.suffix == ".yaml":
+						item.unlink()
+		else:
+			copytree_if_missing(dashboard_dir / "conf.example", dashboard_dir / "conf")
+
+			if datastore_type:
+				export_src_dir = conf_d / datastore_type
+				if not export_src_dir.exists():
+					raise FileNotFoundError(f"Missing datastore export dir: {export_src_dir}")
+				export_dest_dir = dashboard_dir / "conf" / datastore_type
+				ensure_dir(export_dest_dir)
+				for item in export_src_dir.iterdir():
+					if item.is_file():
+						shutil.copy2(item, export_dest_dir / item.name)
+
+			compose_file = output_path
+			run([
+				"docker",
+				"compose",
+				"-f",
+				str(compose_file),
+				"run",
+				"--rm",
+				f"{dashboard_type}-init",
+			])
 
 
 if __name__ == "__main__":

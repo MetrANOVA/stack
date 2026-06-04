@@ -15,6 +15,7 @@ docker/conf.d/
 !docker/conf.d/.placeholder
 kafka/conf/
 clickhouse/conf/
+grafana/provisioning/datasources/datasource-metranova-clickhouse.yaml
 # Ignore Helm values file
 helm/**/values.yaml
 #anything in caches that isn't .placeholder

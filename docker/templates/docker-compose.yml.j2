@@ -15,3 +15,6 @@ include:
   - {{ stack.type }}/pipeline/docker-compose.yml
 {% endif %}
 {% endfor %}
+{% if dashboard.enabled %}
+  - {{ dashboard.type }}/docker-compose.yml
+{% endif %}

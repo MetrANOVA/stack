@@ -16,4 +16,5 @@ venv:
 	$(PIP) install --quiet -r $(REQUIREMENTS)
 
 clean: deps
+	-docker compose down -v
 	$(PYTHON) docker/build.py --clean
