@@ -173,10 +173,8 @@ static_resources:
                   prefix_rewrite: /api
               - match:
                   prefix: /
-                direct_response:
-                  status: 200
-                  body:
-                    inline_string: "MetrANOVA — authenticated"
+                route:
+                  cluster: portal
 
   - name: http_redirect_listener
     address:
@@ -259,6 +257,20 @@ static_resources:
             address:
               socket_address:
                 address: token-store
+                port_value: 8000
+
+  - name: portal
+    connect_timeout: 5s
+    type: LOGICAL_DNS
+    lb_policy: ROUND_ROBIN
+    load_assignment:
+      cluster_name: portal
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address:
+                address: portal
                 port_value: 8000
 
 admin:
