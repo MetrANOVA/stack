@@ -118,7 +118,7 @@ static_resources:
               - match:
                   prefix: /
                 requires:
-                  allows_missing:
+                  allow_missing:
                     provider_name: keycloak
           - name: envoy.filters.http.router
             typed_config:
