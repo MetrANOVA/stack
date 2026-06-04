@@ -118,7 +118,8 @@ static_resources:
               - match:
                   prefix: /
                 requires:
-                  provider_name: keycloak
+                  allows_missing:
+                    provider_name: keycloak
           - name: envoy.filters.http.router
             typed_config:
               "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
