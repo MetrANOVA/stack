@@ -376,6 +376,16 @@ def bootstrap_auth(auth_dir: Path, conf_d: Path) -> None:
         if ldap_admin_password and ldap_admin_password != "CHANGEME":
             set_env_value(token_store_env_path, "LDAP_BIND_PASSWORD", ldap_admin_password)
 
+    # Portal needs the Keycloak admin password and LDAP bind credentials
+    portal_env_path = conf / "portal.env"
+    if portal_env_path.exists():
+        set_env_value(portal_env_path, "KEYCLOAK_ADMIN_PASSWORD", kc_admin_password)
+        if ldap_admin_password and ldap_admin_password != "CHANGEME":
+            set_env_value(portal_env_path, "LDAP_BIND_PASSWORD", ldap_admin_password)
+        if ldap_base_dn:
+            set_env_value(portal_env_path, "LDAP_BASE_DN", ldap_base_dn)
+            set_env_value(portal_env_path, "LDAP_BIND_DN", f"cn=admin,{ldap_base_dn}")
+
     # ClickHouse auth proxy shares the encryption key and LDAP bind with the token-store
     proxy_env_path = conf / "clickhouse_auth_proxy.env"
     if proxy_env_path.exists():
