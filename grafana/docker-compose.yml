@@ -1,0 +1,51 @@
+services:
+  grafana-init:
+    image: python:3.11-slim
+    container_name: grafana-init
+    entrypoint:
+      - /bin/bash
+      - -lc
+      - >-
+        pip install --no-cache-dir jinja2 &&
+        python /scripts/render_datasource.py &&
+        python /scripts/render_auth.py
+    env_file:
+      - ./conf/grafana.env
+    volumes:
+      - ./conf:/app/conf
+      - ./scripts:/scripts:ro
+      - ./templates:/app/templates:ro
+      - ./provisioning/datasources:/app/provisioning/datasources
+    restart: "no"
+
+  grafana:
+    image: grafana/grafana:13.0
+    ports:
+      - "3000:3000"
+    env_file:
+      - ./conf/grafana.env
+      - ./conf/grafana_auth.env
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./dashboards:/var/lib/metranova/grafana/dashboards:ro
+      - ./provisioning:/etc/grafana/provisioning:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:3000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  grafana-config:
+    image: python:3.11-slim
+    container_name: grafana-config
+    command: ["python", "/scripts/set_home_dashboard.py"]
+    volumes:
+      - ./conf:/app/conf:ro
+      - ./scripts:/scripts:ro
+    depends_on:
+      grafana:
+        condition: service_healthy
+    restart: "no"
+
+volumes:
+  grafana-data: {}

@@ -16,3 +16,7 @@ message_bus:
 datastore:
   type: clickhouse
   enabled: true
+
+dashboard:
+  type: grafana
+  enabled: true
