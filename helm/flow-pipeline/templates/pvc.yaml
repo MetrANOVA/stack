@@ -7,7 +7,7 @@ metadata:
     {{- include "metranova-flow-pipeline.labels" . | nindent 4 }}
 spec:
   accessModes:
-    - ReadWriteMany
+    - ReadWriteOnce
   {{- if .Values.caches.storageClassName }}
   storageClassName: {{ .Values.caches.storageClassName }}
   {{- end }}

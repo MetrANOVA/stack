@@ -1,0 +1,53 @@
+{{- $baseDN := include "metranova-auth.ldapBaseDN" . -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "metranova-auth.fullname" . }}-ldap
+  labels:
+    {{- include "metranova-auth.labels" . | nindent 4 }}
+data:
+  bootstrap.ldif: |
+    dn: ou=users,{{ $baseDN }}
+    objectClass: organizationalUnit
+    ou: users
+
+    dn: ou=groups,{{ $baseDN }}
+    objectClass: organizationalUnit
+    ou: groups
+
+    dn: ou=credentials,{{ $baseDN }}
+    objectClass: organizationalUnit
+    ou: credentials
+
+    dn: cn=clickhouse_admin,ou=groups,{{ $baseDN }}
+    objectClass: groupOfNames
+    cn: clickhouse_admin
+    member: uid=admin1,ou=users,{{ $baseDN }}
+
+    dn: cn=clickhouse_operator,ou=groups,{{ $baseDN }}
+    objectClass: groupOfNames
+    cn: clickhouse_operator
+    member: uid=operator1,ou=users,{{ $baseDN }}
+
+    dn: cn=clickhouse_viewer,ou=groups,{{ $baseDN }}
+    objectClass: groupOfNames
+    cn: clickhouse_viewer
+    member: uid=viewer1,ou=users,{{ $baseDN }}
+
+    dn: uid=admin1,ou=users,{{ $baseDN }}
+    objectClass: inetOrgPerson
+    cn: admin1
+    sn: admin1
+    uid: admin1
+
+    dn: uid=operator1,ou=users,{{ $baseDN }}
+    objectClass: inetOrgPerson
+    cn: operator1
+    sn: operator1
+    uid: operator1
+
+    dn: uid=viewer1,ou=users,{{ $baseDN }}
+    objectClass: inetOrgPerson
+    cn: viewer1
+    sn: viewer1
+    uid: viewer1

@@ -25,10 +25,44 @@ dataFlow:
     pipelineYaml: /app/pipelines/data_flow.yml
     kafkaTopic: metranova_flow
     clickhouseFlowTable: data_flow
+    clickhouseFlowTtl: "30 DAY"
+    clickhouseFlowTtlColumn: "start_time"
+    clickhouseCacherTables: "meta_as,meta_device:@loopback_ip,meta_interface:device_id:flow_index:edge"
+    clickhouseRangedCacherConfigs: "meta_application:meta_application_dict:port_range_min:port_range_max:protocol:id"
     clickhouseCacherRefreshInterval: "3600"
     clickhouseFlowPolicyCommunityScope: "64805:lhcone,64806:lsst,64807:fabric,293:ipt"
+    clickhouseFlowPolicyAutoScopes: "true"
     clickhouseFlowExtensions: "bgp,ipv4,ipv6,mpls"
     clickhouseFlowIpRefExtensions: "scireg"
+    ipCacherBaseUrl: "http://{{ include \"metranova-flow-pipeline.fullname\" . }}-cache-ip-trie"
+    # Policy Settings
+    clickhousePolicyOriginator: "unknown"
+    clickhousePolicyLevel: "tlp:amber"
+    clickhousePolicyScope: ""
+    # Materialized View Configuration
+    # Comma-separated list of aggregation windows (e.g., "5m,1h,1d,1w")
+    # Leave empty to disable that materialized view type
+    clickhouseFlowMvByEdgeAs: ""
+    clickhouseFlowMvByInterface: ""
+    clickhouseFlowMvByIpVersion: ""
+    ipCacherTables: "meta_ip_scireg,meta_ip"
+  # Optional per-window materialized view settings
+  # Format: mvSettings.<type>.<window>.<setting>
+  # Types: edgeAs, interface, ipVersion
+  # Windows: 5m, 1h, 1d, 1w, 1mo, 1y (lowercase)
+  # Settings: table, ttl, ttlColumn, partitionBy, policyLevel, policyScope, policyOverride
+  mvSettings: {}
+    # Example:
+    # edgeAs:
+    #   5m:
+    #     ttl: "90 DAY"
+    #     policyLevel: "tlp:amber"
+    #   1h:
+    #     table: "custom_edge_as_1h"
+    # interface:
+    #   1d:
+    #     partitionBy: "toYYYYMM(start_time)"
+
 
 # Metadata CAIDA Org AS service configuration
 metadataCaidaOrgAs:
@@ -50,6 +84,11 @@ metadataCaidaOrgAs:
     caidaOrgAsConsumerCustomAsFile: /app/caches/custom_as_additions.yml
     caidaOrgAsConsumerCustomOrgFile: /app/caches/custom_org_additions.yml
     caidaOrgAsConsumerUpdateInterval: "86400"
+    # AS Dictionary Settings
+    clickhouseAsDictionaryEnabled: "true"
+    clickhouseAsDictionaryName: "meta_as_dict"
+    clickhouseAsDictionaryLifetimeMin: "600"
+    clickhouseAsDictionaryLifetimeMax: "3600"
 
 # Metadata File Export service configuration
 metadataFileExport:
@@ -65,8 +104,20 @@ metadataFileExport:
   env:
     pipelineYaml: /app/pipelines/metadata_file_export.yml
     clickhouseMetadataForceUpdate: "false"
-    fileConsumerFilePaths: /app/conf/meta_interface.yml,/app/conf/meta_device.yml,/app/conf/meta_circuit.yml,/app/conf/meta_application.yml
+    clickhouseIfMetadataExtensions: "sap,vrtr,vrtr_interface"
+    clickhouseAsMetadataExtensions: "peeringdb"
+    fileConsumerPaths: /app/conf/meta_interface.yml,/app/conf/meta_device.yml,/app/conf/meta_circuit.yml,/app/conf/meta_application.yml
     fileConsumerUpdateInterval: "600"
+    # Application Dictionary Settings
+    clickhouseApplicationDictionaryEnabled: "true"
+    clickhouseApplicationDictionaryName: "meta_application_dict"
+    clickhouseApplicationDictionaryLifetimeMin: "600"
+    clickhouseApplicationDictionaryLifetimeMax: "3600"
+    # AS Dictionary Settings
+    clickhouseAsDictionaryEnabled: "true"
+    clickhouseAsDictionaryName: "meta_as_dict"
+    clickhouseAsDictionaryLifetimeMin: "600"
+    clickhouseAsDictionaryLifetimeMax: "3600"
 
 # Metadata IP Geo service configuration
 metadataIpGeo:
@@ -90,7 +141,7 @@ metadataIpGeo:
     ipGeoCsvConsumerLocationFiles: /app/caches/GeoLite2-City-Locations-en.csv
     ipGeoCsvConsumerIpBlockFiles: /app/caches/GeoLite2-City-Blocks-IPv4.csv,/app/caches/GeoLite2-City-Blocks-IPv6.csv
     ipGeoCsvConsumerCustomIpFile: /app/caches/custom_ip_additions.yml
-    ipGeoCsvConsumerUpdateInterval: "7200"
+    ipGeoCsvConsumerUpdateInterval: "86400"
 
 # Metadata SciReg service configuration
 metadataScireg:
@@ -108,7 +159,26 @@ metadataScireg:
     clickhouseMetadataForceUpdate: "false"
     httpConsumerEnvPrefix: SCIREG
     sciregHttpConsumerUpdateInterval: "3600"
-    sciregHttpConsumerUrls: "https://epoc-rabbitmq.tacc.utexas.edu/NetSage/scireg.json"
+    sciregHttpConsumerUrls: "https://downloads.netsage.io/scireg.json"
+
+# Metadata CRIC service configuration (LHC-specific)
+metadataCric:
+  enabled: false
+  replicaCount: 1
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+  env:
+    pipelineYaml: /app/pipelines/metadata_cric.yml
+    clickhouseMetadataForceUpdate: "false"
+    httpConsumerEnvPrefix: CRIC_IP
+    cricIpHttpConsumerUrls: "https://wlcg-cric.cern.ch/api/core/rcsite/query/list/?json"
+    cricIpHttpConsumerUpdateInterval: "3600"
+    cricUrlMatchPattern: "cric.cern.ch"
 
 # Cache IP Trie service configuration
 cacheIpTrie:
@@ -123,7 +193,9 @@ cacheIpTrie:
       memory: 256Mi
   env:
     pipelineYaml: /app/pipelines/cache_ip_trie.yml
+    clickhouseConsumerTables: "meta_ip_scireg,meta_ip:as_id"
     clickhouseConsumerUpdateInterval: "3600"
+    pickleFileDirectory: /app/caches
 
 # Base configuration (shared across all services)
 config:
@@ -149,6 +221,10 @@ config:
     password: "CHANGEME"
     batchSize: "10000"
     batchTimeout: "5"
+    # clusterName: ""
+    # replication: "false"
+    # replicaPath: "/clickhouse/tables/{shard}/{database}/{table}"
+    # replicaName: "{replica}"
     
     # Metadata tables
     tables:
@@ -188,6 +264,11 @@ configFiles:
   metaDevice: ""
   metaCircuit: ""
   metaApplication: ""
+  caidaAsOrg2Info: ""
+  caidaPeeringDb: ""
+  caidaCustomOrgAdditions: ""
+  caidaCustomAsAdditions: ""
+  ipgeoCustomIpFile: ""
 
 # Service account
 serviceAccount:

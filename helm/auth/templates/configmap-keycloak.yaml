@@ -1,0 +1,271 @@
+{{- $fullname := include "metranova-auth.fullname" . -}}
+{{- $baseDN := include "metranova-auth.ldapBaseDN" . -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $fullname }}-keycloak
+  labels:
+    {{- include "metranova-auth.labels" . | nindent 4 }}
+data:
+  metranova-realm.json: |
+    {
+      "realm": {{ .Values.realm | quote }},
+      "enabled": true,
+      "sslRequired": "none",
+      "registrationAllowed": false,
+      "loginWithEmailAllowed": true,
+      "duplicateEmailsAllowed": false,
+      "resetPasswordAllowed": true,
+      "editUsernameAllowed": false,
+      "bruteForceProtected": true,
+      "clients": [
+        {
+          "clientId": "envoy-proxy",
+          "enabled": true,
+          "protocol": "openid-connect",
+          "publicClient": false,
+          "redirectUris": [
+            "https://{{ .Values.domain }}/oauth2/callback",
+            "https://{{ .Values.domain }}/*"
+          ],
+          "webOrigins": [
+            "https://{{ .Values.domain }}"
+          ],
+          "standardFlowEnabled": true,
+          "implicitFlowEnabled": false,
+          "directAccessGrantsEnabled": true,
+          "serviceAccountsEnabled": false,
+          "authorizationServicesEnabled": false,
+          "fullScopeAllowed": true,
+          "clientAuthenticatorType": "client-secret",
+          "secret": {{ .Values.envoy.oidcClientSecret | quote }},
+          "attributes": {
+            "access.token.lifespan": "3600"
+          },
+          "protocolMappers": [
+            {
+              "name": "realm roles",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-usermodel-realm-role-mapper",
+              "consentRequired": false,
+              "config": {
+                "multivalued": "true",
+                "user.attribute": "foo",
+                "id.token.claim": "true",
+                "access.token.claim": "true",
+                "claim.name": "realm_access.roles",
+                "jsonType.label": "String"
+              }
+            }
+          ]
+        },
+        {
+          "clientId": "grafana",
+          "enabled": true,
+          "protocol": "openid-connect",
+          "publicClient": false,
+          "redirectUris": [
+            "https://{{ .Values.domain }}/grafana/login/generic_oauth"
+          ],
+          "webOrigins": [
+            "https://{{ .Values.domain }}"
+          ],
+          "standardFlowEnabled": true,
+          "implicitFlowEnabled": false,
+          "directAccessGrantsEnabled": false,
+          "serviceAccountsEnabled": false,
+          "authorizationServicesEnabled": false,
+          "fullScopeAllowed": true,
+          "clientAuthenticatorType": "client-secret",
+          "secret": {{ .Values.grafana.oidcClientSecret | quote }},
+          "attributes": {
+            "access.token.lifespan": "3600"
+          }
+        },
+        {
+          "clientId": "cross-instance",
+          "enabled": true,
+          "protocol": "openid-connect",
+          "publicClient": true,
+          "standardFlowEnabled": false,
+          "implicitFlowEnabled": false,
+          "directAccessGrantsEnabled": true,
+          "serviceAccountsEnabled": false,
+          "authorizationServicesEnabled": false,
+          "fullScopeAllowed": true
+        }
+      ],
+      "groups": [
+        {
+          "id": "22222222-0000-0000-0000-000000000001",
+          "name": "clickhouse_admin",
+          "path": "/clickhouse_admin",
+          "realmRoles": ["admin"],
+          "subGroups": []
+        },
+        {
+          "id": "22222222-0000-0000-0000-000000000002",
+          "name": "clickhouse_operator",
+          "path": "/clickhouse_operator",
+          "realmRoles": ["operator"],
+          "subGroups": []
+        },
+        {
+          "id": "22222222-0000-0000-0000-000000000003",
+          "name": "clickhouse_viewer",
+          "path": "/clickhouse_viewer",
+          "realmRoles": ["viewer"],
+          "subGroups": []
+        }
+      ],
+      "users": [
+        {
+          "username": "admin1",
+          "enabled": true,
+          "emailVerified": true,
+          "email": "admin1@example.com",
+          "firstName": "Admin",
+          "lastName": "One",
+          "credentials": [{"type": "password", "value": "admin123", "temporary": false}],
+          "realmRoles": ["admin"]
+        },
+        {
+          "username": "operator1",
+          "enabled": true,
+          "emailVerified": true,
+          "email": "operator1@example.com",
+          "firstName": "Operator",
+          "lastName": "One",
+          "credentials": [{"type": "password", "value": "operator123", "temporary": false}],
+          "realmRoles": ["operator"]
+        },
+        {
+          "username": "viewer1",
+          "enabled": true,
+          "emailVerified": true,
+          "email": "viewer1@example.com",
+          "firstName": "Viewer",
+          "lastName": "One",
+          "credentials": [{"type": "password", "value": "viewer123", "temporary": false}],
+          "realmRoles": ["viewer"]
+        }
+      ],
+      "roles": {
+        "realm": [
+          {"name": "admin", "description": "Full administrative access"},
+          {"name": "operator", "description": "Read-write access to data tables"},
+          {"name": "viewer", "description": "Read-only access to data"}
+        ]
+      },
+      "components": {
+        "org.keycloak.storage.UserStorageProvider": [
+          {
+            "id": "11111111-0000-0000-0000-000000000001",
+            "name": "openldap",
+            "providerId": "ldap",
+            "subComponents": {
+              "org.keycloak.storage.ldap.mappers.LDAPStorageMapper": [
+                {
+                  "id": "11111111-0000-0000-0000-000000000011",
+                  "name": "username",
+                  "providerId": "user-attribute-ldap-mapper",
+                  "subComponents": {},
+                  "config": {
+                    "ldap.attribute": ["uid"],
+                    "user.model.attribute": ["username"],
+                    "read.only": ["false"],
+                    "always.read.value.from.ldap": ["false"],
+                    "is.mandatory.in.ldap": ["true"]
+                  }
+                },
+                {
+                  "id": "11111111-0000-0000-0000-000000000012",
+                  "name": "first name",
+                  "providerId": "user-attribute-ldap-mapper",
+                  "subComponents": {},
+                  "config": {
+                    "ldap.attribute": ["cn"],
+                    "user.model.attribute": ["firstName"],
+                    "read.only": ["false"],
+                    "always.read.value.from.ldap": ["false"],
+                    "is.mandatory.in.ldap": ["true"]
+                  }
+                },
+                {
+                  "id": "11111111-0000-0000-0000-000000000013",
+                  "name": "last name",
+                  "providerId": "user-attribute-ldap-mapper",
+                  "subComponents": {},
+                  "config": {
+                    "ldap.attribute": ["sn"],
+                    "user.model.attribute": ["lastName"],
+                    "read.only": ["false"],
+                    "always.read.value.from.ldap": ["false"],
+                    "is.mandatory.in.ldap": ["true"]
+                  }
+                },
+                {
+                  "id": "11111111-0000-0000-0000-000000000014",
+                  "name": "email",
+                  "providerId": "user-attribute-ldap-mapper",
+                  "subComponents": {},
+                  "config": {
+                    "ldap.attribute": ["mail"],
+                    "user.model.attribute": ["email"],
+                    "read.only": ["false"],
+                    "always.read.value.from.ldap": ["false"],
+                    "is.mandatory.in.ldap": ["false"]
+                  }
+                },
+                {
+                  "id": "11111111-0000-0000-0000-000000000015",
+                  "name": "groups",
+                  "providerId": "group-ldap-mapper",
+                  "subComponents": {},
+                  "config": {
+                    "groups.dn": ["ou=groups,{{ $baseDN }}"],
+                    "group.name.ldap.attribute": ["cn"],
+                    "group.object.classes": ["groupOfNames"],
+                    "preserve.group.inheritance": ["false"],
+                    "membership.ldap.attribute": ["member"],
+                    "membership.attribute.type": ["DN"],
+                    "membership.user.ldap.attribute": ["uid"],
+                    "groups.ldap.filter": [""],
+                    "mode": ["READ_ONLY"],
+                    "user.roles.retrieve.strategy": ["LOAD_GROUPS_BY_MEMBER_ATTRIBUTE"],
+                    "mapped.group.attributes": [""],
+                    "drop.non.existing.groups.during.sync": ["false"],
+                    "ignore.missing.groups": ["false"],
+                    "groups.path": ["/"]
+                  }
+                }
+              ]
+            },
+            "config": {
+              "enabled": ["true"],
+              "priority": ["0"],
+              "editMode": ["WRITABLE"],
+              "syncRegistrations": ["true"],
+              "vendor": ["other"],
+              "usernameLDAPAttribute": ["uid"],
+              "rdnLDAPAttribute": ["uid"],
+              "uuidLDAPAttribute": ["uid"],
+              "userObjectClasses": ["inetOrgPerson"],
+              "connectionUrl": ["ldap://{{ $fullname }}-openldap:389"],
+              "usersDn": ["ou=users,{{ $baseDN }}"],
+              "authType": ["simple"],
+              "bindDn": ["cn=admin,{{ $baseDN }}"],
+              "bindCredential": [{{ .Values.openldap.adminPassword | quote }}],
+              "searchScope": ["1"],
+              "useTruststoreSpi": ["ldapsOnly"],
+              "connectionPooling": ["true"],
+              "pagination": ["true"],
+              "fullSyncPeriod": ["-1"],
+              "changedSyncPeriod": ["-1"],
+              "cachePolicy": ["DEFAULT"],
+              "importEnabled": ["true"]
+            }
+          }
+        ]
+      }
+    }

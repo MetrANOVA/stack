@@ -33,13 +33,13 @@ helm repo update
 #### Install Latest Stable Release
 
 ```bash
-helm install metranova-flow metranova/flow-pipeline
+helm install metranova-flow metranova/metranova-flow-pipeline
 ```
 
 #### Install with Custom Values
 
 ```bash
-helm install metranova-flow metranova/flow-pipeline -f custom-values.yaml
+helm install metranova-flow metranova/metranova-flow-pipeline -f custom-values.yaml
 ```
 
 #### Install Pre-Release Version
@@ -48,16 +48,16 @@ To install a pre-release version (e.g., beta releases from version branches), us
 
 ```bash
 # Install latest pre-release version
-helm install metranova-flow metranova/flow-pipeline --devel
+helm install metranova-flow metranova/metranova-flow-pipeline --devel
 
 # Install specific pre-release version
-helm install metranova-flow metranova/flow-pipeline --version 0.1.0-beta --devel
+helm install metranova-flow metranova/metranova-flow-pipeline --version 0.1.0-beta --devel
 ```
 
 #### Install with Inline Values
 
 ```bash
-helm install metranova-flow metranova/flow-pipeline \
+helm install metranova-flow metranova/metranova-flow-pipeline \
   --set config.clickhouse.password=mypassword \
   --set config.kafka.ssl.keyPassword=mykafkapassword
 ```
@@ -112,6 +112,10 @@ The following table lists the configurable parameters of the chart and their def
 | `config.clickhouse.database` | ClickHouse database | `metranova` |
 | `config.clickhouse.username` | ClickHouse username | `pipeline_user` |
 | `config.clickhouse.password` | ClickHouse password | `CHANGEME` |
+| `config.clickhouse.clusterName` | ClickHouse cluster name (optional) | `""` |
+| `config.clickhouse.replication` | Enable ClickHouse replication | `"false"` |
+| `config.clickhouse.replicaPath` | ClickHouse replica path template | `"/clickhouse/tables/{shard}/{database}/{table}"` |
+| `config.clickhouse.replicaName` | ClickHouse replica name template | `"{replica}"` |
 
 ### Storage
 

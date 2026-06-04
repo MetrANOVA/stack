@@ -1,0 +1,31 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "metranova-auth.fullname" . }}-allow-external
+  labels:
+    {{- include "metranova-auth.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "metranova-auth.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: envoy
+  ingress:
+    - ports:
+        - port: 8080
+        - port: 8443
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "metranova-auth.fullname" . }}-allow-internal
+  labels:
+    {{- include "metranova-auth.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "metranova-auth.selectorLabels" . | nindent 6 }}
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "metranova-auth.selectorLabels" . | nindent 14 }}

@@ -1,0 +1,143 @@
+# Default values for metranova-auth
+
+global:
+  imagePullSecrets: []
+
+# Public hostname of this MetrANOVA instance (no scheme, no trailing slash)
+domain: example.metranova.io
+
+# Keycloak realm name
+realm: metranova
+
+# LDAP domain — sets LDAP_DOMAIN for OpenLDAP and derives base DN (dc=... parts)
+ldap:
+  domain: metranova.io
+
+keycloak:
+  image:
+    repository: quay.io/keycloak/keycloak
+    tag: "26.1.4"
+    pullPolicy: IfNotPresent
+  adminUsername: admin
+  adminPassword: "CHANGEME"
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 250m
+      memory: 512Mi
+
+openldap:
+  image:
+    repository: osixia/openldap
+    tag: "1.5.0"
+    pullPolicy: IfNotPresent
+  adminPassword: "CHANGEME"
+  configPassword: "CHANGEME"
+  persistence:
+    enabled: true
+    storageClass: ""
+    size: 1Gi
+  resources:
+    limits:
+      cpu: 250m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+envoy:
+  image:
+    repository: envoyproxy/envoy
+    tag: "v1.32-latest"
+    pullPolicy: IfNotPresent
+  # OIDC client secret for the envoy-proxy Keycloak client
+  oidcClientSecret: "CHANGEME"
+  # HMAC secret for Envoy OAuth2 session cookies
+  hmacSecret: "CHANGEME"
+  tls:
+    # PEM-encoded certificate and private key for HTTPS termination
+    # Paste the file contents here (newlines preserved), or set existingTLSSecret
+    cert: ""
+    key: ""
+    # Name of an existing Kubernetes Secret with keys server.crt and server.key
+    # Takes precedence over cert/key above
+    existingTLSSecret: ""
+  resources:
+    limits:
+      cpu: 500m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+tokenStore:
+  image:
+    repository: ghcr.io/metranova/token-store
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  # Fernet symmetric encryption key — must be 32 URL-safe base64-encoded bytes
+  # Generate with: python3 -c "import secrets,base64; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())"
+  encryptionKey: "CHANGEME"
+  resources:
+    limits:
+      cpu: 250m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+clickhouseAuthProxy:
+  image:
+    repository: ghcr.io/metranova/clickhouse-auth-proxy
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  oidcClientId: "cross-instance"
+  resources:
+    limits:
+      cpu: 250m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+grafana:
+  image:
+    repository: grafana/grafana
+    tag: "11.5.0"
+    pullPolicy: IfNotPresent
+  adminUser: admin
+  adminPassword: "CHANGEME"
+  # OIDC client secret for the grafana Keycloak client
+  oidcClientSecret: "CHANGEME"
+  # Password for the grafana ClickHouse user (provisioned by clickhouse-init)
+  clickhousePassword: "CHANGEME"
+  persistence:
+    enabled: true
+    storageClass: ""
+    size: 5Gi
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 256Mi
+
+# ClickHouse connection — used by Grafana datasource and Envoy routing
+clickhouse:
+  host: clickhouse
+  port: 8123
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podSecurityContext: {}
+securityContext: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}

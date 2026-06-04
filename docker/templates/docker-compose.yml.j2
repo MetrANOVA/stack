@@ -1,0 +1,20 @@
+include:
+{% if auth is defined and auth.enabled %}
+  - auth/docker-compose.yml
+{% endif %}
+{% if message_bus is defined and message_bus.enabled %}
+  - {{ message_bus.type }}/docker-compose.yml
+{% endif %}
+{% if datastore is defined and datastore.enabled %}
+  - {{ datastore.type }}/docker-compose.yml
+{% endif %}
+{% for stack in stacks %}
+{% if stack.pipeline is defined and stack.pipeline.enabled %}
+  - {{ stack.type }}/pipeline/docker-compose.yml
+{% endif %}
+{% for collector in stack.collectors | default([]) %}
+{% if collector.enabled %}
+  - {{ stack.type }}/collector/{{ collector.type }}/docker-compose.yml
+{% endif %}
+{% endfor %}
+{% endfor %}

@@ -1,0 +1,15 @@
+apiVersion: v2
+name: metranova-auth
+description: A Helm chart for MetrANOVA Authentication and Authorization
+type: application
+version: 0.1.0
+appVersion: "latest"
+keywords:
+  - metranova
+  - auth
+  - keycloak
+  - envoy
+  - ldap
+  - grafana
+maintainers:
+  - name: MetrANOVA Team

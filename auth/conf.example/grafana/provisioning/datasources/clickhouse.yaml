@@ -1,0 +1,29 @@
+apiVersion: 1
+
+datasources:
+  - name: ClickHouse
+    type: grafana-clickhouse-datasource
+    uid: metranova-clickhouse
+    jsonData:
+      host: grafana-ch-proxy
+      port: 8001
+      protocol: http
+      secure: false
+      defaultDatabase: metranova
+      forwardGrafanaHeaders: true
+    isDefault: true
+    editable: false
+
+# To query a remote MetrANOVA instance, add a datasource like this
+# (replace <cred-id> with the UUID returned by POST /token-store/api/credentials):
+#
+#  - name: Remote ClickHouse (instance-B)
+#    type: grafana-clickhouse-datasource
+#    jsonData:
+#      host: clickhouse-auth-proxy
+#      port: 8001
+#      path: <cred-id>
+#      protocol: http
+#      defaultDatabase: metranova
+#      username: ""
+#    editable: false

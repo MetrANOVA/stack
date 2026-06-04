@@ -1,0 +1,21 @@
+
+auth:
+  enabled: true
+
+stacks:
+  - type: flow
+    collectors:
+      - type: nfacctd
+        enabled: true
+      - type: sfacctd
+        enabled: true
+    pipeline:
+      enabled: true
+
+message_bus:
+  type: kafka
+  enabled: true
+
+datastore:
+  type: clickhouse
+  enabled: true

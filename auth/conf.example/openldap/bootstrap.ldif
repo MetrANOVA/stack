@@ -1,0 +1,48 @@
+# Organizational units
+dn: ou=users,dc=metranova,dc=io
+objectClass: organizationalUnit
+ou: users
+
+dn: ou=groups,dc=metranova,dc=io
+objectClass: organizationalUnit
+ou: groups
+
+# ou=credentials holds external instance credentials for the Token Store
+dn: ou=credentials,dc=metranova,dc=io
+objectClass: organizationalUnit
+ou: credentials
+
+# Test users (mirrored from the Keycloak realm)
+dn: uid=admin1,ou=users,dc=metranova,dc=io
+objectClass: inetOrgPerson
+cn: admin1
+sn: admin1
+uid: admin1
+
+dn: uid=operator1,ou=users,dc=metranova,dc=io
+objectClass: inetOrgPerson
+cn: operator1
+sn: operator1
+uid: operator1
+
+dn: uid=viewer1,ou=users,dc=metranova,dc=io
+objectClass: inetOrgPerson
+cn: viewer1
+sn: viewer1
+uid: viewer1
+
+# Role groups — ClickHouse maps these to access profiles
+dn: cn=clickhouse-admin,ou=groups,dc=metranova,dc=io
+objectClass: groupOfNames
+cn: clickhouse-admin
+member: uid=admin1,ou=users,dc=metranova,dc=io
+
+dn: cn=clickhouse-operator,ou=groups,dc=metranova,dc=io
+objectClass: groupOfNames
+cn: clickhouse-operator
+member: uid=operator1,ou=users,dc=metranova,dc=io
+
+dn: cn=clickhouse-viewer,ou=groups,dc=metranova,dc=io
+objectClass: groupOfNames
+cn: clickhouse-viewer
+member: uid=viewer1,ou=users,dc=metranova,dc=io

@@ -1,0 +1,107 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "metranova-auth.fullname" . }}-openldap
+  labels:
+    {{- include "metranova-auth.labels" . | nindent 4 }}
+    app.kubernetes.io/component: openldap
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "metranova-auth.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: openldap
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap-ldap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "metranova-auth.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: openldap
+    spec:
+      {{- include "metranova-auth.imagePullSecrets" . | nindent 6 }}
+      serviceAccountName: {{ include "metranova-auth.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: openldap
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.openldap.image.repository }}:{{ .Values.openldap.image.tag }}"
+          imagePullPolicy: {{ .Values.openldap.image.pullPolicy }}
+          args:
+            - --copy-service
+          env:
+            - name: LDAP_ORGANISATION
+              value: "MetrANOVA"
+            - name: LDAP_DOMAIN
+              value: {{ .Values.ldap.domain | quote }}
+            - name: LDAP_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "metranova-auth.fullname" . }}-secrets
+                  key: LDAP_ADMIN_PASSWORD
+            - name: LDAP_CONFIG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "metranova-auth.fullname" . }}-secrets
+                  key: LDAP_CONFIG_PASSWORD
+            - name: LDAP_REMOVE_CONFIG_AFTER_SETUP
+              value: "false"
+          ports:
+            - name: ldap
+              containerPort: 389
+              protocol: TCP
+          readinessProbe:
+            exec:
+              command:
+                - ldapsearch
+                - -x
+                - -H
+                - ldap://localhost
+                - -b
+                - {{ include "metranova-auth.ldapBaseDN" . | quote }}
+                - -s
+                - base
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 10
+          resources:
+            {{- toYaml .Values.openldap.resources | nindent 12 }}
+          volumeMounts:
+            - name: bootstrap-ldif
+              mountPath: /container/service/slapd/assets/config/bootstrap/ldif/custom
+              readOnly: true
+            {{- if .Values.openldap.persistence.enabled }}
+            - name: ldap-data
+              mountPath: /var/lib/ldap
+            - name: ldap-config
+              mountPath: /etc/ldap/slapd.d
+            {{- end }}
+      volumes:
+        - name: bootstrap-ldif
+          configMap:
+            name: {{ include "metranova-auth.fullname" . }}-ldap
+        {{- if .Values.openldap.persistence.enabled }}
+        - name: ldap-data
+          persistentVolumeClaim:
+            claimName: {{ include "metranova-auth.fullname" . }}-openldap-data
+        - name: ldap-config
+          persistentVolumeClaim:
+            claimName: {{ include "metranova-auth.fullname" . }}-openldap-config
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

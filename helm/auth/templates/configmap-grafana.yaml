@@ -1,0 +1,63 @@
+{{- $fullname := include "metranova-auth.fullname" . -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $fullname }}-grafana
+  labels:
+    {{- include "metranova-auth.labels" . | nindent 4 }}
+data:
+  grafana.ini: |
+    [server]
+    domain = {{ .Values.domain }}
+    root_url = https://{{ .Values.domain }}/grafana/
+    serve_from_sub_path = true
+
+    [auth]
+    disable_login_form = false
+
+    [auth.generic_oauth]
+    enabled = true
+    name = MetrANOVA
+    allow_sign_up = true
+    client_id = grafana
+    client_secret = {{ .Values.grafana.oidcClientSecret }}
+    scopes = openid profile email
+    auth_url = https://{{ .Values.domain }}/realms/{{ .Values.realm }}/protocol/openid-connect/auth
+    token_url = http://{{ $fullname }}-keycloak:8080/realms/{{ .Values.realm }}/protocol/openid-connect/token
+    api_url = http://{{ $fullname }}-keycloak:8080/realms/{{ .Values.realm }}/protocol/openid-connect/userinfo
+    email_attribute_path = email
+    name_attribute_path = preferred_username
+    login_attribute_path = preferred_username
+    role_attribute_path = contains(realm_access.roles[*], 'admin') && 'Admin' || contains(realm_access.roles[*], 'operator') && 'Editor' || 'Viewer'
+    role_attribute_strict = false
+    use_pkce = true
+    auto_login = false
+
+    [security]
+    cookie_secure = true
+    allow_embedding = true
+
+    [users]
+    auto_assign_org = true
+    auto_assign_org_role = Viewer
+
+    [plugins]
+    allow_loading_unsigned_plugins = grafana-clickhouse-datasource
+
+  clickhouse.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: ClickHouse
+        type: grafana-clickhouse-datasource
+        uid: metranova-clickhouse
+        jsonData:
+          host: {{ .Values.clickhouse.host }}
+          port: {{ .Values.clickhouse.port }}
+          protocol: http
+          defaultDatabase: metranova
+          username: grafana
+          sendUserHeader: true
+        secureJsonData:
+          password: "${CH_GRAFANA_PASSWORD}"
+        isDefault: true
+        editable: false

@@ -1,0 +1,193 @@
+services:
+  keycloak:
+    image: ghcr.io/esnet/metranova-auth/keycloak:latest
+    container_name: keycloak
+    env_file:
+      - ./conf/keycloak.env
+    ports:
+      - "8180:8080"
+    volumes:
+      - ./conf/keycloak:/opt/keycloak/data/import:ro
+      - keycloak-data:/opt/keycloak/data
+    command:
+      - start-dev
+      - --import-realm
+      - --health-enabled=true
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 5s bash -c '</dev/tcp/localhost/8080' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  keycloak-init:
+    image: quay.io/keycloak/keycloak:26.1.4
+    container_name: keycloak-init
+    env_file:
+      - ./conf/keycloak.env
+    depends_on:
+      keycloak:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        if [ "$${KEYCLOAK_MASTER_SSL_REQUIRED}" = "none" ]; then
+          /opt/keycloak/bin/kcadm.sh config credentials \
+            --server http://keycloak:8080 \
+            --realm master \
+            --user $${KEYCLOAK_ADMIN} \
+            --password $${KEYCLOAK_ADMIN_PASSWORD}
+          /opt/keycloak/bin/kcadm.sh update realms/master -s sslRequired=none
+        fi
+    restart: "no"
+
+  openldap:
+    image: osixia/openldap:1.5.0
+    container_name: openldap
+    env_file:
+      - ./conf/openldap.env
+    volumes:
+      - ./conf/openldap/bootstrap.ldif:/container/service/slapd/assets/config/bootstrap/ldif/custom/bootstrap.ldif:ro
+      - openldap-data:/var/lib/ldap
+      - openldap-config:/etc/ldap/slapd.d
+      - openldap-run:/var/run/slapd
+    command: ["--copy-service"]
+    healthcheck:
+      test: ["CMD-SHELL", "ldapsearch -x -H ldap://localhost -D cn=admin,dc=metranova,dc=io -w $$LDAP_ADMIN_PASSWORD -b dc=metranova,dc=io -s base"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+  openldap-init:
+    image: osixia/openldap:1.5.0
+    container_name: openldap-init
+    depends_on:
+      openldap:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        printf '%s\n' \
+          'dn: olcDatabase={1}mdb,cn=config' \
+          'changetype: modify' \
+          'replace: olcAccess' \
+          'olcAccess: {0}to * by dn.exact=gidNumber=0+uidNumber=0,cn=peercred,cn=external,cn=auth manage by * break' \
+          'olcAccess: {1}to attrs=userPassword,shadowLastChange by self write by dn="cn=admin,dc=metranova,dc=io" write by anonymous auth by * none' \
+          'olcAccess: {2}to dn.subtree="ou=groups,dc=metranova,dc=io" by users read by dn="cn=admin,dc=metranova,dc=io" write' \
+          'olcAccess: {3}to * by self read by dn="cn=admin,dc=metranova,dc=io" write by * none' \
+          > /tmp/init.ldif
+        ldapmodify -Y EXTERNAL -H "ldapi://%2Fvar%2Frun%2Fslapd%2Fldapi" -f /tmp/init.ldif \
+          && echo "OpenLDAP ACLs configured." \
+          || echo "ACL apply failed (may already be set)"
+    volumes:
+      - openldap-run:/var/run/slapd
+    restart: "no"
+
+  envoy:
+    image: envoyproxy/envoy:v1.32-latest
+    container_name: envoy
+    depends_on:
+      keycloak:
+        condition: service_healthy
+      openldap:
+        condition: service_healthy
+    ports:
+      - "8880:8080"
+      - "8443:8443"
+    volumes:
+      - ./conf/envoy/envoy.yaml:/etc/envoy/envoy.yaml:ro
+      - ./conf/tls:/etc/envoy/tls:ro
+      - ./conf/secrets:/etc/envoy/secrets:ro
+    command: ["envoy", "-c", "/etc/envoy/envoy.yaml", "--log-level", "info"]
+
+  token-store:
+    image: ghcr.io/esnet/metranova-auth/token-store:latest
+    container_name: token-store
+    env_file:
+      - ./conf/token_store.env
+    depends_on:
+      openldap:
+        condition: service_healthy
+
+  portal:
+    image: ghcr.io/esnet/metranova-portal:latest
+    container_name: portal
+    env_file:
+      - ./conf/portal.env
+    depends_on:
+      keycloak:
+        condition: service_healthy
+      openldap:
+        condition: service_healthy
+
+  clickhouse-auth-proxy:
+    image: ghcr.io/esnet/metranova-auth/clickhouse-auth-proxy:latest
+    container_name: clickhouse-auth-proxy
+    env_file:
+      - ./conf/clickhouse_auth_proxy.env
+    depends_on:
+      openldap:
+        condition: service_healthy
+      token-store:
+        condition: service_started
+
+  grafana-ch-proxy:
+    image: ghcr.io/esnet/metranova-auth/clickhouse-auth-proxy:latest
+    container_name: grafana-ch-proxy
+    env_file:
+      - ./conf/grafana_ch_proxy.env
+      - ../clickhouse/conf/clickhouse.env
+    depends_on:
+      openldap:
+        condition: service_healthy
+
+  keycloak-ldap-sync:
+    image: ghcr.io/esnet/metranova-auth/keycloak-ldap-sync:latest
+    container_name: keycloak-ldap-sync
+    env_file:
+      - ./conf/keycloak_ldap_sync.env
+    depends_on:
+      keycloak:
+        condition: service_healthy
+      openldap:
+        condition: service_healthy
+    restart: unless-stopped
+
+  phpldapadmin:
+    image: osixia/phpldapadmin:0.9.0
+    container_name: phpldapadmin
+    environment:
+      PHPLDAPADMIN_LDAP_HOSTS: openldap
+      PHPLDAPADMIN_HTTPS: "false"
+    ports:
+      - "8380:80"
+    depends_on:
+      openldap:
+        condition: service_healthy
+
+  grafana:
+    image: grafana/grafana:11.5.0
+    container_name: grafana
+    env_file:
+      - ./conf/grafana.env
+      # CH_GRAFANA_PASSWORD is generated by clickhouse-init at first startup;
+      # by the time grafana starts (depends_on clickhouse), the file is updated.
+      - ../clickhouse/conf/clickhouse.env
+    depends_on:
+      keycloak:
+        condition: service_healthy
+      openldap:
+        condition: service_healthy
+    volumes:
+      - ./conf/grafana/grafana.ini:/etc/grafana/grafana.ini:ro
+      # provisioning files are static (no secrets) — mount directly from conf.example
+      - ./conf.example/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+
+volumes:
+  keycloak-data:
+  openldap-data:
+  openldap-config:
+  openldap-run:
+  grafana-data:
