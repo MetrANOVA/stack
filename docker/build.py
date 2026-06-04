@@ -386,6 +386,11 @@ def bootstrap_auth(auth_dir: Path, conf_d: Path) -> None:
             set_env_value(portal_env_path, "LDAP_BASE_DN", ldap_base_dn)
             set_env_value(portal_env_path, "LDAP_BIND_DN", f"cn=admin,{ldap_base_dn}")
 
+    # keycloak-ldap-sync needs the Keycloak admin password
+    ldap_sync_env_path = conf / "keycloak_ldap_sync.env"
+    if ldap_sync_env_path.exists():
+        set_env_value(ldap_sync_env_path, "KEYCLOAK_ADMIN_PASSWORD", kc_admin_password)
+
     # ClickHouse auth proxy shares the encryption key and LDAP bind with the token-store
     proxy_env_path = conf / "clickhouse_auth_proxy.env"
     if proxy_env_path.exists():
