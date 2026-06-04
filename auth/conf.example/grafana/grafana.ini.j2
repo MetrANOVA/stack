@@ -15,19 +15,20 @@ allow_sign_up = true
 client_id = grafana
 client_secret = {{ grafana_client_secret }}
 scopes = openid profile email
-# auth_url: browser-facing — goes directly to Keycloak port 8080
-auth_url = http://{{ domain }}:8080/realms/{{ realm }}/protocol/openid-connect/auth
+# auth_url: browser-facing — goes through Envoy at 8443
+auth_url = https://{{ domain }}/realms/{{ realm }}/protocol/openid-connect/auth
 # token_url / api_url: server-side — use internal service name
 token_url = http://keycloak:8080/realms/{{ realm }}/protocol/openid-connect/token
 api_url = http://keycloak:8080/realms/{{ realm }}/protocol/openid-connect/userinfo
 email_attribute_path = email
 name_attribute_path = preferred_username
 login_attribute_path = preferred_username
-# Map Keycloak realm roles to Grafana roles (JMESPath)
-role_attribute_path = contains(realm_access.roles[*], 'admin') && 'Admin' || contains(realm_access.roles[*], 'operator') && 'Editor' || 'Viewer'
+# Map Keycloak groups to Grafana roles (JMESPath)
+role_attribute_path = contains(groups[*], 'grafana-admin') && 'GrafanaAdmin' || 'Viewer'
 role_attribute_strict = false
+allow_assign_grafana_admin = true
 use_pkce = true
-auto_login = false
+auto_login = true
 
 [security]
 cookie_secure = true
