@@ -3,6 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEFAULT_CONF_DIR="$SCRIPT_DIR/../conf"
+DOCKER_COMPOSE_FILE="$SCRIPT_DIR/../../docker-compose.yml"
 CONF_FILE="${CH_CONF_FILE:-$DEFAULT_CONF_DIR/clickhouse.env}"
 
 get_value() {
@@ -40,7 +41,7 @@ if [[ -z "$PASS_VALUE" ]]; then
   exit 1
 fi
 
-docker compose -f clickhouse/docker-compose.yml exec \
+docker compose -f "$DOCKER_COMPOSE_FILE" exec \
   clickhouse clickhouse-client \
   --host "$HOST_VALUE" \
   --secure \

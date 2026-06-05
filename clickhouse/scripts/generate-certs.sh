@@ -7,6 +7,8 @@ KEY_PATH="$CERT_DIR/server.key"
 CA_CERT_PATH="$CERT_DIR/ca.crt"
 CA_KEY_PATH="$CERT_DIR/ca.key"
 CONF_CA_PATH="/config/ca.crt"
+CONF_EXPORT_DIR="/config/export"
+CONF_EXPORT_CA_PATH="$CONF_EXPORT_DIR/ca.crt"
 
 DNS_NAME="${CH_TLS_DNS_NAME:-clickhouse}"
 KEY_ALG="${CH_TLS_KEY_ALG:-RSA}"
@@ -79,6 +81,12 @@ chown "$TLS_UID:$TLS_GID" "$KEY_PATH" "$CERT_PATH" "$CA_CERT_PATH" 2>/dev/null |
 if [[ -w "/config" ]]; then
   cp "$CA_CERT_PATH" "$CONF_CA_PATH"
   chmod 644 "$CONF_CA_PATH" 2>/dev/null || true
+
+  if [[ -w "$CONF_EXPORT_DIR" || ! -e "$CONF_EXPORT_DIR" ]]; then
+    mkdir -p "$CONF_EXPORT_DIR"
+    cp "$CA_CERT_PATH" "$CONF_EXPORT_CA_PATH"
+    chmod 644 "$CONF_EXPORT_CA_PATH" 2>/dev/null || true
+  fi
 fi
 
 echo "TLS certificates created in $CERT_DIR"

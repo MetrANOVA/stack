@@ -25,15 +25,28 @@ if [[ ! -f "$KEYSTORE_PATH" || ! -f "$TRUSTSTORE_PATH" ]]; then
   rm -rf "$WORKDIR"
   mkdir -p "$WORKDIR"
 
-  # Create a local CA
-  openssl req -new -x509 \
-    -keyout "$WORKDIR/ca.key" \
-    -out "$WORKDIR/ca.crt" \
-    -days 3650 \
-    -passout pass:"$TSTORE_PASS" \
-    -subj "/CN=Kafka-Local-CA"
+  # Generate CA keypair in a temporary keystore using only keytool,
+  # avoiding all openssl/Java PKCS12 interop issues.
+  keytool -genkeypair \
+    -alias CARoot \
+    -keyalg "$KEY_ALG" \
+    -keysize "$KEY_SIZE" \
+    -keystore "$WORKDIR/ca.jks" \
+    -storepass "$TSTORE_PASS" \
+    -keypass "$TSTORE_PASS" \
+    -dname "CN=Kafka-Local-CA" \
+    -ext "BasicConstraints:critical=ca:true,pathlen:0" \
+    -validity 3650
 
-  # Create broker keystore and CSR
+  # Export CA cert in PEM format for clients
+  keytool -exportcert \
+    -alias CARoot \
+    -keystore "$WORKDIR/ca.jks" \
+    -storepass "$TSTORE_PASS" \
+    -rfc \
+    -file "$WORKDIR/ca.crt"
+
+  # Generate broker keypair directly into the final keystore
   keytool -genkeypair \
     -alias kafka \
     -keyalg "$KEY_ALG" \
@@ -41,27 +54,29 @@ if [[ ! -f "$KEYSTORE_PATH" || ! -f "$TRUSTSTORE_PATH" ]]; then
     -keystore "$KEYSTORE_PATH" \
     -storepass "$KSTORE_PASS" \
     -keypass "$KEY_PASS" \
-    -dname "CN=$DNS_NAME, OU=Dev, O=Local, L=Local, S=Local, C=US" \
-    -ext SAN=DNS:"$DNS_NAME",IP:127.0.0.1 \
+    -dname "CN=$DNS_NAME, OU=Dev, O=Local, L=Local, ST=Local, C=US" \
     -validity 3650
 
+  # Generate broker CSR
   keytool -certreq \
     -alias kafka \
     -keystore "$KEYSTORE_PATH" \
     -storepass "$KSTORE_PASS" \
     -file "$WORKDIR/kafka.csr"
 
-  # Sign the broker cert with the local CA
-  openssl x509 -req \
-    -CA "$WORKDIR/ca.crt" \
-    -CAkey "$WORKDIR/ca.key" \
-    -in "$WORKDIR/kafka.csr" \
-    -out "$WORKDIR/kafka.crt" \
-    -days 3650 \
-    -CAcreateserial \
-    -passin pass:"$TSTORE_PASS"
+  # Sign broker CSR with the CA entirely within keytool (no openssl signing)
+  keytool -gencert \
+    -alias CARoot \
+    -keystore "$WORKDIR/ca.jks" \
+    -storepass "$TSTORE_PASS" \
+    -infile "$WORKDIR/kafka.csr" \
+    -outfile "$WORKDIR/kafka.crt" \
+    -validity 3650 \
+    -ext "BasicConstraints:critical=ca:false" \
+    -ext "SAN=DNS:${DNS_NAME},IP:127.0.0.1" \
+    -rfc
 
-  # Create truststore with CA cert
+  # Create truststore with the CA cert
   keytool -importcert \
     -alias CARoot \
     -file "$WORKDIR/ca.crt" \
@@ -71,7 +86,7 @@ if [[ ! -f "$KEYSTORE_PATH" || ! -f "$TRUSTSTORE_PATH" ]]; then
 
   cp "$WORKDIR/ca.crt" "$CA_CERT_PATH"
 
-  # Import CA and broker cert into keystore
+  # Import CA cert then signed broker cert into the keystore to complete the chain
   keytool -importcert \
     -alias CARoot \
     -file "$WORKDIR/ca.crt" \

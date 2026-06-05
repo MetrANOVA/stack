@@ -96,7 +96,9 @@ def main() -> None:
 	config = load_config(config_path)
 
 	message_bus = config.get("message_bus", {}) or {}
+	datastore = config.get("datastore", {}) or {}
 	stacks = config.get("stacks", []) or []
+	dashboard = config.get("dashboard", {}) or {}
 
 	conf_d = docker_dir / "conf.d"
 	ensure_dir(conf_d)
@@ -137,6 +139,40 @@ def main() -> None:
 			for item in export_dir.iterdir():
 				if item.is_file():
 					shutil.copy2(item, mb_export_dir / item.name)
+
+	datastore_type = None
+	if datastore.get("enabled"):
+		datastore_type = datastore.get("type")
+		if not datastore_type:
+			raise ValueError("datastore.type is required when enabled")
+		ds_dir = repo_root / datastore_type
+		if not ds_dir.exists():
+			raise FileNotFoundError(f"Datastore directory not found: {ds_dir}")
+
+		if args.clean:
+			remove_dir_if_exists(ds_dir / "conf")
+		else:
+			copytree_if_missing(ds_dir / "conf.example", ds_dir / "conf")
+
+			compose_file = output_path
+			run([
+				"docker",
+				"compose",
+				"-f",
+				str(compose_file),
+				"run",
+				"--rm",
+				f"{datastore_type}-init",
+			])
+
+			export_dir = ds_dir / "conf" / "export"
+			if not export_dir.exists():
+				raise FileNotFoundError(f"Missing datastore export dir: {export_dir}")
+			ds_export_dir = conf_d / datastore_type
+			ensure_dir(ds_export_dir)
+			for item in export_dir.iterdir():
+				if item.is_file():
+					shutil.copy2(item, ds_export_dir / item.name)
 
 	for stack in stacks:
 		stack_type = stack.get("type")
@@ -179,6 +215,89 @@ def main() -> None:
 				"run",
 				"--rm",
 				f"{collector_type}-init",
+			])
+
+		pipeline = stack.get("pipeline", {}) or {}
+		if pipeline.get("enabled"):
+			pipeline_dir = repo_root / stack_type / "pipeline"
+			if not pipeline_dir.exists():
+				raise FileNotFoundError(f"Pipeline directory not found: {pipeline_dir}")
+
+			if args.clean:
+				remove_dir_if_exists(pipeline_dir / "conf")
+			else:
+				copytree_if_missing(pipeline_dir / "conf.example", pipeline_dir / "conf")
+
+				if message_bus_type:
+					export_src_dir = conf_d / message_bus_type
+					if not export_src_dir.exists():
+						raise FileNotFoundError(f"Missing message bus export dir: {export_src_dir}")
+					export_dest_dir = pipeline_dir / "conf" / message_bus_type
+					ensure_dir(export_dest_dir)
+					for item in export_src_dir.iterdir():
+						if item.is_file():
+							shutil.copy2(item, export_dest_dir / item.name)
+
+				if datastore_type:
+					export_src_dir = conf_d / datastore_type
+					if not export_src_dir.exists():
+						raise FileNotFoundError(f"Missing datastore export dir: {export_src_dir}")
+					export_dest_dir = pipeline_dir / "conf" / datastore_type
+					ensure_dir(export_dest_dir)
+					for item in export_src_dir.iterdir():
+						if item.is_file():
+							shutil.copy2(item, export_dest_dir / item.name)
+
+				compose_file = output_path
+				run([
+					"docker",
+					"compose",
+					"-f",
+					str(compose_file),
+					"run",
+					"--rm",
+					"pipeline-init",
+				])
+
+	dashboard_type = None
+	if dashboard.get("enabled"):
+		dashboard_type = dashboard.get("type")
+		if not dashboard_type:
+			raise ValueError("dashboard.type is required when enabled")
+		dashboard_dir = repo_root / dashboard_type
+		if not dashboard_dir.exists():
+			raise FileNotFoundError(f"Dashboard directory not found: {dashboard_dir}")
+
+		if args.clean:
+			remove_dir_if_exists(dashboard_dir / "conf")
+			#remove dashboard_dir / "provisioning/datasources/*.yaml" if exists
+			datasources_dir = dashboard_dir / "provisioning" / "datasources"
+			if datasources_dir.exists():
+				for item in datasources_dir.iterdir():
+					if item.is_file() and item.suffix == ".yaml":
+						item.unlink()
+		else:
+			copytree_if_missing(dashboard_dir / "conf.example", dashboard_dir / "conf")
+
+			if datastore_type:
+				export_src_dir = conf_d / datastore_type
+				if not export_src_dir.exists():
+					raise FileNotFoundError(f"Missing datastore export dir: {export_src_dir}")
+				export_dest_dir = dashboard_dir / "conf" / datastore_type
+				ensure_dir(export_dest_dir)
+				for item in export_src_dir.iterdir():
+					if item.is_file():
+						shutil.copy2(item, export_dest_dir / item.name)
+
+			compose_file = output_path
+			run([
+				"docker",
+				"compose",
+				"-f",
+				str(compose_file),
+				"run",
+				"--rm",
+				f"{dashboard_type}-init",
 			])
 
 

@@ -1,0 +1,19 @@
+apiVersion: 1
+
+datasources:
+  - name: MetrANOVA ClickHouse
+    type: grafana-clickhouse-datasource
+    uid: metranova-clickhouse
+    access: proxy
+    url: ""
+    jsonData:
+      defaultDatabase: {{ ch_database }}
+      host: {{ ch_host }}
+      port: {{ ch_tcp_secure_port }}
+      protocol: native
+      secure: true
+      tlsSkipVerify: true
+      username: {{ ch_grafana_user }}
+    secureJsonData:
+      password: {{ ch_grafana_password }}
+    editable: false
