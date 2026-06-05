@@ -153,6 +153,12 @@ jobs:
 
             CHART_NAME=$(yq eval '.name' "$CHART_DIR/Chart.yaml")
             echo "Verifying packaged content for $CHART_NAME ($CHART_DIR)"
+
+            # Umbrella chart requires local and remote dependencies present before packaging.
+            if [ "$CHART_NAME" = "metranova" ]; then
+              helm dependency build "$CHART_DIR" >/dev/null
+            fi
+
             helm package "$CHART_DIR" --destination .chart-verify >/dev/null
 
             PKG=$(ls -1t .chart-verify/${CHART_NAME}-*.tgz | head -n 1)
