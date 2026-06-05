@@ -190,10 +190,11 @@ jobs:
             --skip-existing
 
           # Regenerate and push index.yaml to gh-pages.
+          mkdir -p .cr-index
           cr index \
             --owner "$OWNER" \
             --git-repo "$REPO" \
             --package-path .cr-release-packages \
-            --index-path .cr-index \
+            --index-path .cr-index/index.yaml \
             --token "$CR_TOKEN" \
             --push
