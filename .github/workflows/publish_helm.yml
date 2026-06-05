@@ -118,6 +118,12 @@ jobs:
           echo "Branch '${{ github.ref_name }}' is not a release-style branch."
           echo "Skipping chart version mutation steps."
 
+      - name: Configure Helm repositories
+        if: steps.version_check.outputs.version_changed != 'true' && steps.prerelease_version.outputs.version_changed != 'true'
+        run: |
+          helm repo add grafana https://grafana.github.io/helm-charts --force-update
+          helm repo update
+
       - name: Run chart-releaser
         if: steps.version_check.outputs.version_changed != 'true' && steps.prerelease_version.outputs.version_changed != 'true'
         uses: helm/chart-releaser-action@v1.7.0
