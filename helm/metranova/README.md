@@ -16,6 +16,11 @@ Included dependencies:
 
 ## Install The Umbrella Chart
 
+Use one of these installation modes:
+
+- Production: install from the published Helm repository.
+- Development: clone this repository and install the chart from a local path.
+
 ### 1) Prerequisites
 
 - Kubernetes cluster + `kubectl` access
@@ -25,7 +30,7 @@ Included dependencies:
 
 The operators must watch the namespace where you install this chart.
 
-### 2) Build chart dependencies
+### 2) Add the published Helm repository
 
 Add the MetraNova Helm repository:
 
@@ -38,6 +43,44 @@ Optional: inspect available versions.
 
 ```bash
 helm search repo metranova/metranova --versions
+helm search repo metranova --versions
+```
+
+Note: install commands in this README use the published chart reference
+`metranova/metranova` from `https://metranova.github.io/stack`.
+
+### Development install from a local checkout
+
+Clone and check out the code you want to test (for example `main`, `0.1.0`,
+or a feature branch):
+
+```bash
+git clone https://github.com/MetrANOVA/stack.git
+cd stack
+git checkout main
+```
+
+Build umbrella dependencies from local chart sources:
+
+```bash
+helm repo add grafana https://grafana.github.io/helm-charts
+helm repo update
+helm dependency build helm/metranova
+```
+
+Export and customize local defaults:
+
+```bash
+helm show values ./helm/metranova > values.local.yaml
+```
+
+Install from the local chart directory:
+
+```bash
+helm upgrade --install metranova ./helm/metranova \
+	--namespace metranova \
+	--create-namespace \
+	-f values.local.yaml
 ```
 
 ### 3) Prepare a values override file
