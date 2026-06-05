@@ -16,8 +16,10 @@ docker/conf.d/
 kafka/conf/
 clickhouse/conf/
 grafana/provisioning/datasources/datasource-metranova-clickhouse.yaml
-# Ignore Helm values file
+# Ignore generated Helm values except tracked chart defaults.
 helm/**/values.yaml
+!helm/charts/**/values.yaml
+!helm/metranova/values.yaml
 #anything in caches that isn't .placeholder
 */pipeline/caches/*
 !*/pipeline/caches/.placeholder

@@ -1,0 +1,60 @@
+replicaCount: 1
+
+image:
+  repository: telegraf
+  tag: "1.37-alpine"
+  pullPolicy: IfNotPresent
+
+serviceAccount:
+  create: true
+  name: ""
+
+podAnnotations: {}
+
+podSecurityContext:
+  fsGroup: 1000
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
+service:
+  enabled: true
+  type: ClusterIP
+
+resources: {}
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+topologySpreadConstraints: []
+
+service:
+  enabled: true
+  type: ClusterIP
+  name: ""  # defaults to release-name-telegraf if empty
+
+inputs:
+  snmp:
+    enabled: false
+  netflow:
+    enabled: false
+
+kafka:
+  clusterName: metranova-kafka
+  namespace: ""
+  port: 9093
+  userName: pipeline-user
+  certSecret: ""
+  clusterCaSecret: ""
+  clusterCaCert: ca.crt
+  userCert: user.crt
+  userKey: user.key

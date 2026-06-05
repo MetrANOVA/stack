@@ -1,0 +1,60 @@
+global:
+  storageClassName: ""
+
+cluster:
+  name: metranova-kafka
+
+kafka:
+  version: "4.1.1"
+  replicas: 3
+  replicationFactor: 3
+  minIsr: 2
+  resources: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+  storage:
+    size: 20Gi
+    class: sc-rbd-multi-cluster
+
+kraft:
+  replicas: 3
+  resources: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+  storage:
+    size: 5Gi
+    class: sc-rbd-multi-cluster
+
+entityOperator:
+  topicOperator:
+    resources: {}
+    tolerations: []
+    affinity: {}
+    topologySpreadConstraints: []
+  userOperator:
+    resources: {}
+    tolerations: []
+    affinity: {}
+    topologySpreadConstraints: []
+
+topics:
+  sflow:
+    partitions: 3
+    replicas: 2
+    retentionMs: 604800000
+    retentionBytes: 2147483648
+    segmentBytes: 268435456
+  netflow:
+    partitions: 5
+    replicas: 2
+    retentionMs: 604800000
+    retentionBytes: 2147483648
+    segmentBytes: 268435456
+  snmp:
+    partitions: 3
+    replicas: 2
+    retentionMs: 604800000
+    retentionBytes: 2147483648
+    segmentBytes: 268435456

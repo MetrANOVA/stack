@@ -1,0 +1,40 @@
+image:
+  repository: pmacct
+  tag: "v1.7.9"
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+nfacctd:
+  enabled: true
+  port: 2055
+  topic: metranova_flow
+  ingress:
+    enabled: true
+    entryPoint: netflow-2055
+
+sfacctd:
+  enabled: true
+  port: 6343
+  topic: metranova_sflow
+  ingress:
+    enabled: true
+    entryPoint: sflow-6343
+
+kafka:
+  clusterName: metranova-kafka
+  namespace: ""
+  port: 9093
+  userName: pipeline-user
+  certSecret: ""
+  clusterCaSecret: ""
+  clusterCaCert: ca.crt
+  userCert: user.crt
+  userKey: user.key
+  keyPassword: ""
+
+resources: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+topologySpreadConstraints: []

@@ -1,0 +1,828 @@
+# Global settings shared by all components.
+global:
+  storageClassName: ""
+  # Preferred: single shared ingress host for path-based routing.
+  # Example: metranova.test.grnoc.iu.edu -> /grafana and /clickhouse
+  ingressHost: ""
+  # Set one base domain for ingress hosts across components.
+  # Examples: "test.example.org" -> grafana.test.example.org, clickhouse.test.example.org
+  baseDomain: ""
+  # Legacy full-host override for ClickHouse ingress. Prefer baseDomain.
+  ingressDomain: ""
+  clickhouseSubdomain: clickhouse
+  grafanaSubdomain: grafana
+  apiSubdomain: api
+  clickhousePath: /clickhouse
+  grafanaPath: /grafana
+  apiPath: /api
+
+clickhouse:
+  enabled: true
+
+  config:
+    tls:
+      enabled: true
+      routes: false
+      cert_name: clickhouse-tls
+      autoGenerate: true
+      commonName: ""
+      altNames: []
+      validDays: 365
+    clickhouse_version: 25.9
+    domains:
+      - metranova.test.example.org
+
+    chk:
+      name: keeper-cluster
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values:
+                      - clickhouse-keeper
+              topologyKey: kubernetes.io/hostname
+      tolerations: []
+      topologySpreadConstraints: []
+      resources:
+        disk_volume_size: 10Gi
+        storageClassName: csi-rbd-sc
+        replicasCount: 3
+        requests:
+          memory: 256M
+          cpu: 1
+        limits:
+          memory: 4Gi
+          cpu: 2
+
+    ch:
+      affinity: {}
+      tolerations: []
+      topologySpreadConstraints: []
+      userSecret:
+        autoCreate: true
+        name: clickhouse-users
+        keys:
+          admin: admin-password
+          readonly: readonly-password
+          backup: backup-password
+        passwords:
+          admin: ""
+          readonly: ""
+          backup: ""
+        passwordSeed: ""
+      profiles:
+        - name: readonly
+          readonly: 2
+          max_memory_usage: "10000000000"
+        - name: default
+          readonly: 0
+          max_memory_usage: "10000000000"
+      files:
+        - name: config.d/distributed_ddl.xml
+          data: |
+            <clickhouse>
+              <distributed_ddl>
+                <path>/clickhouse/task_queue/ddl</path>
+                <task_timeout>600</task_timeout>
+              </distributed_ddl>
+            </clickhouse>
+
+      users:
+        - name: admin
+          password_secret:
+            name: clickhouse-users
+            key: admin-password
+          access_management: 1
+        - name: readonly_user
+          password_secret:
+            name: clickhouse-users
+            key: readonly-password
+          profile: readonly
+        - name: backup_user
+          password_secret:
+            name: clickhouse-users
+            key: backup-password
+          databases:
+            - moo
+            - foo
+            - bar
+      resources:
+        disk_volume_size: 100Gi
+        log_volume_size: 10Gi
+        storageClassName: csi-rbd-sc
+        max_concurrent_queries: 100
+        shardCount: 1
+        replicasCount: 2
+        requests:
+          memory: 8Gi
+          cpu: 4000m
+        limits:
+          memory: 16Gi
+          cpu: 8000m
+
+  extraResources: []
+
+kafka:
+  enabled: true
+
+  cluster:
+    name: metranova-kafka
+
+  kafka:
+    version: 4.1.1
+    replicas: 3
+    replicationFactor: 3
+    minIsr: 2
+    resources: {}
+    tolerations: []
+    affinity: {}
+    topologySpreadConstraints: []
+    storage:
+      size: 20Gi
+      class: ""
+
+  kraft:
+    replicas: 3
+    resources: {}
+    tolerations: []
+    affinity: {}
+    topologySpreadConstraints: []
+    storage:
+      size: 5Gi
+      class: ""
+
+  entityOperator:
+    topicOperator:
+      resources: {}
+      tolerations: []
+      affinity: {}
+      topologySpreadConstraints: []
+    userOperator:
+      resources: {}
+      tolerations: []
+      affinity: {}
+      topologySpreadConstraints: []
+
+  topics:
+    netflow:
+      partitions: 3
+      replicas: 2
+      retentionMs: 604800000
+      retentionBytes: 2147483648
+      segmentBytes: 268435456
+    snmp:
+      partitions: 3
+      replicas: 2
+      retentionMs: 604800000
+      retentionBytes: 2147483648
+      segmentBytes: 268435456
+
+telegraf:
+  enabled: true
+
+  replicaCount: 1
+
+  image:
+    repository: telegraf
+    tag: 1.37-alpine
+    pullPolicy: IfNotPresent
+
+  serviceAccount:
+    create: true
+    name: ""
+
+  podAnnotations: {}
+
+  podSecurityContext:
+    fsGroup: 1000
+
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+
+  service:
+    enabled: true
+    type: ClusterIP
+    name: ""
+
+  resources: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+
+  inputs:
+    snmp:
+      enabled: false
+    netflow:
+      enabled: false
+
+  kafka:
+    clusterName: metranova-kafka
+    namespace: ""
+    port: 9093
+    userName: pipeline-user
+    certSecret: ""
+    clusterCaSecret: ""
+    clusterCaCert: ca.crt
+    userCert: user.crt
+    userKey: user.key
+
+pmacct:
+  enabled: true
+
+  replicaCount: 1
+
+  image:
+    repository: pmacct
+    tag: v1.7.9
+    pullPolicy: IfNotPresent
+
+  nfacctd:
+    enabled: true
+    port: 2055
+    topic: metranova_flow
+
+  sfacctd:
+    enabled: true
+    port: 6343
+    topic: metranova_sflow
+
+  kafka:
+    clusterName: metranova-kafka
+    namespace: ""
+    port: 9093
+    userName: pipeline-user
+    certSecret: ""
+    clusterCaSecret: ""
+    clusterCaCert: ca.crt
+    userCert: user.crt
+    userKey: user.key
+    keyPassword: ""
+
+  resources: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+
+# SNMP pipeline subchart values.
+snmpPipeline:
+  enabled: true
+
+  global:
+    imagePullSecrets: []
+    storageClassName: ""
+
+  image:
+    repository: ghcr.io/metranova/pipeline
+    pullPolicy: IfNotPresent
+    tag: "latest"
+
+  dataSnmp:
+    enabled: true
+    replicaCount: 1
+    resources:
+      limits:
+        cpu: 1000m
+        memory: 1Gi
+      requests:
+        cpu: 250m
+        memory: 256Mi
+    env:
+      pipelineYaml: /app/pipelines/data_snmp.yml
+      kafkaTopic: metranova_snmp
+      clickhouseIfTrafficTable: data_interface_traffic
+
+  metadataCaidaOrgAs:
+    enabled: true
+    replicaCount: 1
+    resources:
+      limits:
+        cpu: 500m
+        memory: 1Gi
+      requests:
+        cpu: 250m
+        memory: 256Mi
+    env:
+      pipelineYaml: /app/pipelines/metadata_caida_org_as.yml
+      clickhouseAsMetadataExtensions: peeringdb
+      clickhouseMetadataForceUpdate: "false"
+      caidaOrgAsConsumerAs2orgFile: /app/caches/caida_as_org2info.jsonl
+      caidaOrgAsConsumerPeeringdbFile: /app/caches/caida_peeringdb.json
+      caidaOrgAsConsumerCustomAsFile: /app/caches/custom_as_additions.yml
+      caidaOrgAsConsumerCustomOrgFile: /app/caches/custom_org_additions.yml
+      caidaOrgAsConsumerUpdateInterval: "86400"
+
+  metadataFileExport:
+    enabled: true
+    replicaCount: 1
+    resources:
+      limits:
+        cpu: 500m
+        memory: 1Gi
+      requests:
+        cpu: 250m
+        memory: 256Mi
+    env:
+      pipelineYaml: /app/pipelines/metadata_file_export.yml
+      clickhouseMetadataForceUpdate: "false"
+      fileConsumerPaths: /app/conf/meta_interface.yml,/app/conf/meta_device.yml,/app/conf/meta_circuit.yml
+      fileConsumerUpdateInterval: "600"
+    caches:
+      existingPvc: ""
+      storageSize: 1Gi
+      storageClassName: ""
+
+  config:
+    debug: "false"
+
+    kafka:
+      bootstrapServers: ""
+      clusterName: metranova-kafka
+      port: 9093
+      consumerGroup: metranova_pipeline
+      ssl:
+        enabled: true
+        caLocation: /etc/ssl/certs/ca-certificates.crt
+        certificateLocation: /app/certificates/kafka_user.crt
+        keyLocation: /app/certificates/kafka_user.key
+        keyPassword: "CHANGEME"
+
+    clickhouse:
+      host: ""
+      serviceName: clickhouse-ch-cluster
+      port: 8123
+      database: metranova
+      username: admin
+      password: ""
+      passwordSecret:
+        name: clickhouse-users
+        key: admin-password
+      batchSize: "10000"
+      batchTimeout: "5"
+      clusterName: "ch-cluster"
+      replication: "true"
+      replicaPath: "/clickhouse/tables/{shard}/{database}/{table}"
+      replicaName: "{replica}"
+      tables:
+        interface: meta_interface
+        device: meta_device
+        organization: meta_organization
+        circuit: meta_circuit
+        as: meta_as
+
+    redis:
+      host: ""
+      serviceName: ""
+      port: 6379
+      db: 0
+
+  certificates:
+    existingSecret: "pipeline-user"
+    kafkaCASubPath: "ca.crt"
+    kafkaCertSubPath: "user.crt"
+    kafkaKeySubPath: "user.key"
+    kafka:
+      ca: ""
+      cert: ""
+      key: ""
+
+  caches:
+    existingPvc: ""
+    storageSize: 1Gi
+    storageClassName: ""
+
+  redis:
+    enabled: true
+    image:
+      repository: redis
+      tag: "8.2.1"
+      pullPolicy: IfNotPresent
+    service:
+      type: ClusterIP
+      port: 6379
+    persistence:
+      enabled: true
+      existingPvc: ""
+      storageSize: 1Gi
+      storageClassName: ""
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 100m
+        memory: 128Mi
+
+  configFiles:
+    existingConfigMap: ""
+    metaInterface: ""
+    metaDevice: ""
+    metaCircuit: ""
+    telegrafMappings: ""
+    customASAdditions: ""
+    customOrgAdditions: ""
+
+  serviceAccount:
+    create: true
+    annotations: {}
+    name: ""
+
+  podAnnotations: {}
+  podSecurityContext: {}
+  securityContext: {}
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+
+# Flow pipeline subchart values.
+flowPipeline:
+  enabled: true
+
+  global:
+    imagePullSecrets: []
+    storageClassName: ""
+
+  image:
+    repository: ghcr.io/metranova/pipeline
+    pullPolicy: IfNotPresent
+    tag: "latest"
+
+  dataFlow:
+    enabled: true
+    replicaCount: 1
+    resources:
+      limits:
+        cpu: 1000m
+        memory: 8Gi
+      requests:
+        cpu: 250m
+        memory: 512Mi
+    env:
+      pipelineYaml: /app/pipelines/data_flow.yml
+      kafkaTopic: metranova_flow
+      clickhouseFlowTable: data_flow
+      clickhouseFlowTtl: "30 DAY"
+      clickhouseFlowTtlColumn: "start_time"
+      clickhouseCacherTables: "meta_as,meta_device:@loopback_ip,meta_interface:device_id:flow_index:edge"
+      clickhouseRangedCacherConfigs: "meta_application:meta_application_dict:port_range_min:port_range_max:protocol:id"
+      clickhouseCacherRefreshInterval: "3600"
+      clickhouseFlowPolicyCommunityScope: "64805:lhcone,64806:lsst,64807:fabric,293:ipt"
+      clickhouseFlowPolicyAutoScopes: "true"
+      clickhouseFlowExtensions: "bgp,ipv4,ipv6,mpls"
+      clickhouseFlowIpRefExtensions: "scireg"
+      ipCacherBaseUrl: ""
+      clickhousePolicyOriginator: "unknown"
+      clickhousePolicyLevel: "tlp:amber"
+      clickhousePolicyScope: ""
+      clickhouseFlowMvByEdgeAs: ""
+      clickhouseFlowMvByInterface: ""
+      clickhouseFlowMvByIpVersion: ""
+      ipCacherTables: "meta_ip_scireg,meta_ip"
+    mvSettings: {}
+
+  metadataCaidaOrgAs:
+    enabled: true
+    replicaCount: 1
+    resources:
+      limits:
+        cpu: 500m
+        memory: 1Gi
+      requests:
+        cpu: 250m
+        memory: 256Mi
+    env:
+      pipelineYaml: /app/pipelines/metadata_caida_org_as.yml
+      clickhouseAsMetadataExtensions: peeringdb
+      clickhouseMetadataForceUpdate: "false"
+      caidaOrgAsConsumerAs2orgFile: /app/caches/caida_as_org2info.jsonl
+      caidaOrgAsConsumerPeeringdbFile: /app/caches/caida_peeringdb.json
+      caidaOrgAsConsumerCustomAsFile: /app/caches/custom_as_additions.yml
+      caidaOrgAsConsumerCustomOrgFile: /app/caches/custom_org_additions.yml
+      caidaOrgAsConsumerUpdateInterval: "86400"
+      clickhouseAsDictionaryEnabled: "true"
+      clickhouseAsDictionaryName: "meta_as_dict"
+      clickhouseAsDictionaryLifetimeMin: "600"
+      clickhouseAsDictionaryLifetimeMax: "3600"
+
+  metadataFileExport:
+    enabled: true
+    replicaCount: 1
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 250m
+        memory: 256Mi
+    env:
+      pipelineYaml: /app/pipelines/metadata_file_export.yml
+      clickhouseMetadataForceUpdate: "false"
+      clickhouseIfMetadataExtensions: "sap,vrtr,vrtr_interface"
+      clickhouseAsMetadataExtensions: "peeringdb"
+      fileConsumerPaths: /app/conf/meta_interface.yml,/app/conf/meta_device.yml,/app/conf/meta_circuit.yml,/app/conf/meta_application.yml
+      fileConsumerUpdateInterval: "600"
+      clickhouseApplicationDictionaryEnabled: "true"
+      clickhouseApplicationDictionaryName: "meta_application_dict"
+      clickhouseApplicationDictionaryLifetimeMin: "600"
+      clickhouseApplicationDictionaryLifetimeMax: "3600"
+      clickhouseAsDictionaryEnabled: "true"
+      clickhouseAsDictionaryName: "meta_as_dict"
+      clickhouseAsDictionaryLifetimeMin: "600"
+      clickhouseAsDictionaryLifetimeMax: "3600"
+
+  metadataIpGeo:
+    enabled: true
+    replicaCount: 1
+    resources:
+      limits:
+        cpu: 500m
+        memory: 8Gi
+      requests:
+        cpu: 250m
+        memory: 512Mi
+    env:
+      pipelineYaml: /app/pipelines/metadata_ip_geo.yml
+      clickhouseMetadataForceUpdate: "false"
+      ipGeoCsvConsumerUseMaxMindDownload: "true"
+      ipGeoCsvConsumerMaxMindAccountId: ""
+      ipGeoCsvConsumerMaxMindLicenseKey: ""
+      ipGeoCsvConsumerAsnFiles: /app/caches/GeoLite2-ASN-Blocks-IPv4.csv,/app/caches/GeoLite2-ASN-Blocks-IPv6.csv
+      ipGeoCsvConsumerLocationFiles: /app/caches/GeoLite2-City-Locations-en.csv
+      ipGeoCsvConsumerIpBlockFiles: /app/caches/GeoLite2-City-Blocks-IPv4.csv,/app/caches/GeoLite2-City-Blocks-IPv6.csv
+      ipGeoCsvConsumerCustomIpFile: /app/caches/custom_ip_additions.yml
+      ipGeoCsvConsumerUpdateInterval: "86400"
+
+  metadataScireg:
+    enabled: true
+    replicaCount: 1
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 250m
+        memory: 256Mi
+    env:
+      pipelineYaml: /app/pipelines/metadata_scireg.yml
+      clickhouseMetadataForceUpdate: "false"
+      httpConsumerEnvPrefix: SCIREG
+      sciregHttpConsumerUpdateInterval: "3600"
+      sciregHttpConsumerUrls: "https://downloads.netsage.io/scireg.json"
+
+  metadataCric:
+    enabled: false
+    replicaCount: 1
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 250m
+        memory: 256Mi
+    env:
+      pipelineYaml: /app/pipelines/metadata_cric.yml
+      clickhouseMetadataForceUpdate: "false"
+      httpConsumerEnvPrefix: CRIC_IP
+      cricIpHttpConsumerUrls: "https://wlcg-cric.cern.ch/api/core/rcsite/query/list/?json"
+      cricIpHttpConsumerUpdateInterval: "3600"
+      cricUrlMatchPattern: "cric.cern.ch"
+
+  cacheIpTrie:
+    enabled: true
+    replicaCount: 1
+    resources:
+      limits:
+        cpu: 500m
+        memory: 8Gi
+      requests:
+        cpu: 250m
+        memory: 256Mi
+    env:
+      pipelineYaml: /app/pipelines/cache_ip_trie.yml
+      clickhouseConsumerTables: "meta_ip_scireg,meta_ip:as_id"
+      clickhouseConsumerUpdateInterval: "3600"
+      pickleFileDirectory: /app/caches
+
+  config:
+    debug: "false"
+
+    kafka:
+      bootstrapServers: ""
+      clusterName: metranova-kafka
+      port: 9093
+      consumerGroup: metranova_pipeline
+      ssl:
+        enabled: true
+        caLocation: /etc/ssl/certs/ca-certificates.crt
+        certificateLocation: /app/certificates/kafka_user.crt
+        keyLocation: /app/certificates/kafka_user.key
+        keyPassword: "CHANGEME"
+
+    clickhouse:
+      host: ""
+      serviceName: clickhouse-ch-cluster
+      port: 8123
+      database: metranova
+      username: admin
+      password: ""
+      passwordSecret:
+        name: clickhouse-users
+        key: admin-password
+      batchSize: "10000"
+      batchTimeout: "5"
+      clusterName: "ch-cluster"
+      replication: "true"
+      replicaPath: "/clickhouse/tables/{shard}/{database}/{table}"
+      replicaName: "{replica}"
+      tables:
+        scireg: meta_ip_scireg
+        interface: meta_interface
+        device: meta_device
+        organization: meta_organization
+        circuit: meta_circuit
+        as: meta_as
+        ip: meta_ip
+
+  certificates:
+    existingSecret: "pipeline-user"
+    kafkaCASubPath: "ca.crt"
+    kafkaCertSubPath: "user.crt"
+    kafkaKeySubPath: "user.key"
+    kafka:
+      ca: ""
+      cert: ""
+      key: ""
+
+  caches:
+    existingPvc: ""
+    storageSize: 5Gi
+    storageClassName: ""
+
+  configFiles:
+    existingConfigMap: ""
+    argocdReplaceLargeConfigMaps: true
+    metaInterface: ""
+    metaDevice: ""
+    metaCircuit: ""
+    metaApplication: ""
+    caidaAsOrg2Info: ""
+    caidaPeeringDb: ""
+    caidaCustomOrgAdditions: ""
+    caidaCustomAsAdditions: ""
+    ipgeoCustomIpFile: ""
+
+  serviceAccount:
+    create: true
+    annotations: {}
+    name: ""
+
+  podAnnotations: {}
+  podSecurityContext: {}
+  securityContext: {}
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+
+# API subchart values.
+api:
+  enabled: true
+
+  replicaCount: 1
+
+  image:
+    repository: ghcr.io/metranova/api
+    pullPolicy: IfNotPresent
+    tag: "dev"
+
+  service:
+    type: ClusterIP
+    port: 8000
+
+  adminApi:
+    host: 0.0.0.0
+    port: 8000
+    logLevel: info
+    rootPath: /api
+    corsRegex: '^(https://((?!-)[A-Za-z0-9-]{1,63}(?!<-)\.)+grnoc\.iu\.edu)$'
+
+  probes:
+    liveness:
+      path: /api/health
+    readiness:
+      path: /api/health
+
+  clickhouse:
+    host: clickhouse-ch-cluster
+    port: 8123
+    database: metranova
+    secure: false
+    username: admin
+    secretName: clickhouse-users
+    passwordKey: admin-password
+
+  ingressRoute:
+    enabled: true
+    entryPoint: websecure
+    host: ""
+    path: /api
+    annotations: {}
+    tls:
+      enabled: false
+      secretName: ""
+
+# Grafana subchart values.
+grafana:
+  enabled: true
+
+  service:
+    type: ClusterIP
+
+  resources: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+
+  ingress:
+    enabled: false
+    ingressClassName: traefik
+    annotations: {}
+    path: /
+    pathType: Prefix
+    hosts:
+      - grafana.metranova.test.example.org
+    tls: []
+
+  # Required for serving Grafana under /grafana via path-based ingress.
+  grafana.ini:
+    server:
+      root_url: "%(protocol)s://%(domain)s/grafana/"
+      serve_from_sub_path: true
+
+  admin:
+    existingSecret: grafana-admin
+    userKey: admin-user
+    passwordKey: admin-password
+
+  plugins:
+    - grafana-clickhouse-datasource
+
+  envValueFrom:
+    CLICKHOUSE_PASSWORD:
+      secretKeyRef:
+        name: clickhouse-users
+        key: readonly-password
+
+  datasources:
+    datasources.yaml:
+      apiVersion: 1
+      datasources:
+        - name: ClickHouse
+          type: grafana-clickhouse-datasource
+          access: proxy
+          isDefault: false
+          jsonData:
+            host: clickhouse-ch-cluster
+            port: 8123
+            protocol: http
+            secure: false
+            username: readonly_user
+          secureJsonData:
+            password: ${CLICKHOUSE_PASSWORD}
+
+# Umbrella-managed Grafana ingress, driven by global.baseDomain.
+grafanaIngress:
+  enabled: true
+  ingressClassName: traefik
+  annotations: {}
+  path: /grafana
+  pathType: Prefix
+  tlsSecretName: ""
+
+# Umbrella-managed API ingress, driven by global.baseDomain.
+apiIngress:
+  enabled: true
+  ingressClassName: traefik
+  annotations: {}
+  path: /api
+  pathType: Prefix
+  tlsSecretName: ""
+
+# Auto-created secret used by grafana.admin.existingSecret.
+grafanaAdminSecret:
+  create: true
+  adminUser: ""
+  adminPassword: ""

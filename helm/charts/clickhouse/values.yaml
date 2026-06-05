@@ -1,0 +1,108 @@
+global:
+  storageClassName: ""
+
+config:
+  tls:
+    enabled: true
+    routes: false # We'll use standard Ingress instead
+    cert_name: clickhouse-tls
+    autoGenerate: true
+    commonName: ""
+    altNames: []
+    validDays: 365
+  clickhouse_version: 25.9
+  domains:
+    - metranova.test.example.org
+
+  chk:
+    name: "keeper-cluster"
+    affinity:
+      podAntiAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                    - clickhouse-keeper
+            topologyKey: kubernetes.io/hostname
+    tolerations: []
+    topologySpreadConstraints: []
+    resources:
+      disk_volume_size: 10Gi
+      storageClassName: "csi-rbd-sc"
+      replicasCount: 3 # 3 keeper nodes for HA quorum
+      requests:
+        memory: 256M
+        cpu: 1
+      limits:
+        memory: 4Gi
+        cpu: 2
+  ch:
+    affinity: {}
+    tolerations: []
+    topologySpreadConstraints: []
+    userSecret:
+      autoCreate: true
+      name: clickhouse-users
+      keys:
+        admin: admin-password
+        readonly: readonly-password
+        backup: backup-password
+      passwords:
+        admin: ""
+        readonly: ""
+        backup: ""
+      # Optional seed to make generated fallback passwords deterministic.
+      passwordSeed: ""
+    profiles:
+      - name: readonly
+        readonly: 2
+        max_memory_usage: "10000000000"
+      - name: "default"
+        readonly: 0
+        max_memory_usage: "10000000000"
+    files:
+      - name: "config.d/distributed_ddl.xml"
+        data: |
+          <clickhouse>
+            <distributed_ddl>
+              <path>/clickhouse/task_queue/ddl</path>
+              <task_timeout>600</task_timeout>
+            </distributed_ddl>
+          </clickhouse>
+
+    users:
+      - name: admin
+        password_secret:
+          name: "clickhouse-users"
+          key: "admin-password"
+        access_management: 1
+      - name: readonly_user
+        password_secret:
+          name: "clickhouse-users"
+          key: "readonly-password"
+        profile: "readonly"
+      - name: backup_user
+        password_secret:
+          name: "clickhouse-users"
+          key: "backup-password"
+        databases:
+          - moo
+          - foo
+          - bar
+    resources:
+      disk_volume_size: 100Gi # Start smaller for test, can increase later
+      log_volume_size: 10Gi
+      storageClassName: "csi-rbd-sc"
+      max_concurrent_queries: 100
+      shardCount: 1 # Single shard for test environment
+      replicasCount: 2 # 2 replicas for high availability
+      requests:
+        memory: 8Gi
+        cpu: 4000m
+      limits:
+        memory: 16Gi
+        cpu: 8000m
+
+extraResources: []
