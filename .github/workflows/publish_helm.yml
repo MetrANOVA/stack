@@ -117,28 +117,14 @@ jobs:
           echo "Branch '${{ github.ref_name }}' is not a release-style branch."
           echo "Skipping chart version mutation steps."
 
-      - name: Prepare release chart tree
-        if: steps.version_check.outputs.version_changed != 'true' && steps.prerelease_version.outputs.version_changed != 'true'
-        run: |
-          rm -rf .cr-release-charts
-          mkdir -p .cr-release-charts/charts
-
-          # Charts to publish (one level under .cr-release-charts)
-          cp -R helm/charts/* .cr-release-charts/
-          cp -R helm/metranova .cr-release-charts/
-
-          # Keep local dependency paths in helm/metranova/Chart.yaml valid
-          # (file://../charts/<name>) during packaging.
-          cp -R helm/charts/* .cr-release-charts/charts/
-
       - name: Run chart-releaser
         if: steps.version_check.outputs.version_changed != 'true' && steps.prerelease_version.outputs.version_changed != 'true'
         uses: helm/chart-releaser-action@v1.7.0
         env:
           CR_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
         with:
-          # Use prepared chart tree to include both component charts and umbrella chart.
-          charts_dir: ./.cr-release-charts
+          # Use tracked repo charts so chart-releaser can detect changes from git history.
+          charts_dir: ./helm
           # if on main, don;t overwrite existing, mark as latest.
           # If on version branch, always publish so that we get new charts as we merge in changes pre-release
           skip_existing: ${{ github.ref_name == 'main' }}
