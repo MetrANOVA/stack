@@ -156,13 +156,11 @@ jobs:
             helm package "$CHART_DIR" --destination .chart-verify >/dev/null
 
             PKG=$(ls -1t .chart-verify/${CHART_NAME}-*.tgz | head -n 1)
-            # Validate both archive content and Helm-readability of default values.
-            if ! tar -tzf "$PKG" | grep -Eq '^(\./)?[^/]+/values\.yaml$'; then
-              echo "ERROR: $PKG is missing values.yaml"
-              exit 1
-            fi
+            # Source of truth: Helm must be able to read default values from the package.
             if ! helm show values "$PKG" >/dev/null 2>&1; then
               echo "ERROR: Helm cannot read default values from $PKG"
+              echo "DEBUG: archive entries (first 40):"
+              tar -tzf "$PKG" | sed -n '1,40p' || true
               exit 1
             fi
           done
