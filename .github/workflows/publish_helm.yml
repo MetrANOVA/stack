@@ -145,9 +145,8 @@ jobs:
           CR_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
         with:
           charts_dir: ./helm/charts
-          # if on main, don;t overwrite existing, mark as latest.
-          # If on version branch, always publish so that we get new charts as we merge in changes pre-release
-          skip_existing: ${{ github.ref_name == 'main' }}
+          # Keep reruns idempotent by not failing when a chart release tag already exists.
+          skip_existing: true
           mark_as_latest: ${{ github.ref_name == 'main' }}
 
       - name: Reset chart-releaser index workspace
@@ -182,18 +181,13 @@ jobs:
           OWNER="${GITHUB_REPOSITORY_OWNER}"
           REPO="${GITHUB_REPOSITORY#*/}"
 
-          SKIP_EXISTING_ARG=""
-          if [[ "${{ github.ref_name }}" == "main" ]]; then
-            SKIP_EXISTING_ARG="--skip-existing"
-          fi
-
           # Upload pre-packaged umbrella chart artifact as a GitHub release asset.
           cr upload \
             --owner "$OWNER" \
             --git-repo "$REPO" \
             --package-path .cr-release-packages \
             --token "$CR_TOKEN" \
-            $SKIP_EXISTING_ARG
+            --skip-existing
 
           # Regenerate and push index.yaml to gh-pages.
           cr index \
