@@ -70,6 +70,13 @@ jobs:
           done
           
           if [ "$CHANGED" = true ]; then
+            # Keep umbrella local dependency versions aligned with branch version.
+            if [ -f ./helm/metranova/Chart.yaml ]; then
+              BRANCH_VERSION="$BRANCH_NAME"
+              yq eval -i '(.dependencies[] | select(.repository | startswith("file://../charts/")) | .version) = strenv(BRANCH_VERSION)' ./helm/metranova/Chart.yaml
+              git add ./helm/metranova/Chart.yaml
+            fi
+
             git commit -m "chore: update chart versions to $BRANCH_NAME"
             git push
             echo "version_changed=true" >> $GITHUB_OUTPUT
@@ -104,6 +111,13 @@ jobs:
 
           # Commit prerelease versions so chart-releaser can detect chart changes from git history.
           if [ "$CHANGED" = true ] && [ "${{ github.actor }}" != "github-actions[bot]" ]; then
+            # Keep umbrella local dependency versions aligned with prerelease version.
+            if [ -f ./helm/metranova/Chart.yaml ]; then
+              METRANOVA_VERSION=$(yq eval '.version' ./helm/metranova/Chart.yaml)
+              yq eval -i '(.dependencies[] | select(.repository | startswith("file://../charts/")) | .version) = strenv(METRANOVA_VERSION)' ./helm/metranova/Chart.yaml
+              git add ./helm/metranova/Chart.yaml
+            fi
+
             git commit -m "chore: set prerelease chart versions for run ${GITHUB_RUN_NUMBER}"
             git push
             echo "version_changed=true" >> "$GITHUB_OUTPUT"
@@ -124,15 +138,33 @@ jobs:
           helm repo add grafana https://grafana.github.io/helm-charts --force-update
           helm repo update
 
-      - name: Run chart-releaser
+      - name: Run chart-releaser (component charts)
         if: steps.version_check.outputs.version_changed != 'true' && steps.prerelease_version.outputs.version_changed != 'true'
         uses: helm/chart-releaser-action@v1.7.0
         env:
           CR_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
         with:
-          # Use tracked repo charts so chart-releaser can detect changes from git history.
-          charts_dir: ./helm
+          charts_dir: ./helm/charts
           # if on main, don;t overwrite existing, mark as latest.
           # If on version branch, always publish so that we get new charts as we merge in changes pre-release
+          skip_existing: ${{ github.ref_name == 'main' }}
+          mark_as_latest: ${{ github.ref_name == 'main' }}
+
+      - name: Package umbrella chart
+        if: steps.version_check.outputs.version_changed != 'true' && steps.prerelease_version.outputs.version_changed != 'true'
+        run: |
+          rm -rf .cr-release-packages
+          mkdir -p .cr-release-packages
+          helm dependency build helm/metranova
+          helm package helm/metranova --destination .cr-release-packages
+
+      - name: Publish umbrella chart package
+        if: steps.version_check.outputs.version_changed != 'true' && steps.prerelease_version.outputs.version_changed != 'true'
+        uses: helm/chart-releaser-action@v1.7.0
+        env:
+          CR_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+        with:
+          charts_dir: ./helm
+          skip_packaging: true
           skip_existing: ${{ github.ref_name == 'main' }}
           mark_as_latest: ${{ github.ref_name == 'main' }}
