@@ -150,6 +150,11 @@ jobs:
           skip_existing: ${{ github.ref_name == 'main' }}
           mark_as_latest: ${{ github.ref_name == 'main' }}
 
+      - name: Reset chart-releaser index workspace
+        if: steps.version_check.outputs.version_changed != 'true' && steps.prerelease_version.outputs.version_changed != 'true'
+        run: |
+          rm -rf .cr-index
+
       - name: Package umbrella chart
         if: steps.version_check.outputs.version_changed != 'true' && steps.prerelease_version.outputs.version_changed != 'true'
         run: |
