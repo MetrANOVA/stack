@@ -2,7 +2,7 @@ apiVersion: v2
 name: metranova
 description: Umbrella chart that deploys the MetraNova stack components
 type: application
-version: 0.1.0-beta.52
+version: 0.1.0-beta.53
 appVersion: "1.0"
 dependencies:
   - name: clickhouse
