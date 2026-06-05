@@ -102,6 +102,8 @@ static_resources:
                       timeout: 5s
                     cache_duration:
                       seconds: 300
+                  from_cookies:
+                  - BearerToken
                   claim_to_headers:
                   - header_name: x-user-id
                     claim_name: preferred_username
