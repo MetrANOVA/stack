@@ -392,7 +392,6 @@ Congratulations! You now have a working MetrANOVA Flow Stack deployment.
 If you encounter issues or have questions:
 
 - **GitHub Issues:** [https://github.com/MetrANOVA/stack/issues](https://github.com/MetrANOVA/stack/issues)
-- **Documentation:** [https://docs.metranova.io](https://docs.metranova.io)
 - **Community Support:** Reach out to MetrANOVA developers and community
 
 ### Roadmap
