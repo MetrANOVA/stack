@@ -9,36 +9,36 @@ appVersion: "1.0"
 dependencies:
   - name: clickhouse
     version: 0.0.3
-    repository: file://../clickhouse
+    repository: file://../charts/clickhouse
     condition: clickhouse.enabled
   - name: kafka
     version: 0.2.0
-    repository: file://../kafka
+    repository: file://../charts/kafka
     condition: kafka.enabled
   - name: telegraf
     version: 0.1.0
-    repository: file://../telegraf
+    repository: file://../charts/telegraf
     condition: telegraf.enabled
   - name: pmacct
     version: 0.1.2
-    repository: file://../pmacct
+    repository: file://../charts/pmacct
     condition: pmacct.enabled
   - name: metranova-snmp-pipeline
     alias: snmpPipeline
     version: 0.1.0
-    repository: file://../snmp-pipeline
+    repository: file://../charts/snmp-pipeline
     condition: snmpPipeline.enabled
   - name: metranova-flow-pipeline
     alias: flowPipeline
     version: 0.1.0
-    repository: file://../flow-pipeline
+    repository: file://../charts/flow-pipeline
     condition: flowPipeline.enabled
   - name: metranova-api
     alias: api
     version: 0.1.0
-    repository: file://../api
+    repository: file://../charts/api
     condition: api.enabled
   - name: grafana
-    version: ^12.3.0
+    version: ^10.4.0
     repository: https://grafana.github.io/helm-charts
     condition: grafana.enabled
