@@ -269,3 +269,45 @@ jobs:
 
           echo "Failed to push gh-pages index.yaml after retries."
           exit 1
+
+      - name: Validate published index entries and assets
+        if: steps.version_check.outputs.version_changed != 'true' && steps.prerelease_version.outputs.version_changed != 'true'
+        run: |
+          set -euo pipefail
+
+          OWNER="${GITHUB_REPOSITORY_OWNER}"
+          REPO="${GITHUB_REPOSITORY#*/}"
+          INDEX_URL="https://${OWNER}.github.io/${REPO}/index.yaml"
+          INDEX_FILE="/tmp/helm-index.yaml"
+
+          curl -fsSL "$INDEX_URL" -o "$INDEX_FILE"
+
+          CHART_FILES=(./helm/charts/*/Chart.yaml ./helm/metranova/Chart.yaml)
+          for CHART_FILE in "${CHART_FILES[@]}"; do
+            if [ ! -f "$CHART_FILE" ]; then
+              continue
+            fi
+
+            CHART_NAME=$(yq eval '.name' "$CHART_FILE")
+            CHART_VERSION=$(yq eval '.version' "$CHART_FILE")
+
+            ENTRY_URL=$(CHART_NAME="$CHART_NAME" CHART_VERSION="$CHART_VERSION" yq eval '.entries[strenv(CHART_NAME)][] | select(.version == strenv(CHART_VERSION)) | .urls[0]' "$INDEX_FILE" 2>/dev/null | head -n1)
+
+            if [ -z "${ENTRY_URL:-}" ] || [ "$ENTRY_URL" = "null" ]; then
+              echo "ERROR: Missing index entry for ${CHART_NAME}-${CHART_VERSION} in ${INDEX_URL}"
+              exit 1
+            fi
+
+            if [[ "$ENTRY_URL" =~ ^https?:// ]]; then
+              RESOLVED_URL="$ENTRY_URL"
+            else
+              RESOLVED_URL="https://${OWNER}.github.io/${REPO}/${ENTRY_URL#./}"
+            fi
+
+            if ! curl -fsSLI "$RESOLVED_URL" >/dev/null; then
+              echo "ERROR: Index URL for ${CHART_NAME}-${CHART_VERSION} is not reachable: ${RESOLVED_URL}"
+              exit 1
+            fi
+
+            echo "OK: ${CHART_NAME}-${CHART_VERSION} -> ${RESOLVED_URL}"
+          done
