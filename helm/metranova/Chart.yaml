@@ -2,15 +2,15 @@ apiVersion: v2
 name: metranova
 description: Umbrella chart that deploys the MetraNova stack components
 type: application
-version: helm-chart
+version: 0.1.0
 appVersion: "1.0"
 dependencies:
   - name: clickhouse
-    version: 0.0.3
+    version: 0.1.0
     repository: file://../charts/clickhouse
     condition: clickhouse.enabled
   - name: kafka
-    version: 0.2.0
+    version: 0.1.0
     repository: file://../charts/kafka
     condition: kafka.enabled
   - name: telegraf
@@ -18,7 +18,7 @@ dependencies:
     repository: file://../charts/telegraf
     condition: telegraf.enabled
   - name: pmacct
-    version: 0.1.2
+    version: 0.1.0
     repository: file://../charts/pmacct
     condition: pmacct.enabled
   - name: metranova-snmp-pipeline

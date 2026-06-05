@@ -7,8 +7,10 @@
 {{- else if .Values.global.baseDomain -}}
 {{- $host = printf "%s.%s" (.Values.global.apiSubdomain | default "api") .Values.global.baseDomain -}}
 {{- end -}}
-{{- if and (eq $host "") .Values.api.ingress.hosts (gt (len .Values.api.ingress.hosts) 0) -}}
-{{- $host = (index .Values.api.ingress.hosts 0).host -}}
+{{- with .Values.api.ingress -}}
+{{- if and (eq $host "") .hosts (gt (len .hosts) 0) -}}
+{{- $host = (index .hosts 0).host -}}
+{{- end -}}
 {{- end -}}
 {{- if $host -}}
 apiVersion: networking.k8s.io/v1
