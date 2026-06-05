@@ -3,10 +3,14 @@ PYTHON := $(VENV)/bin/python
 PIP := $(VENV)/bin/pip
 REQUIREMENTS := docker/requirements.txt
 
-.PHONY: docker venv deps clean test test-integration test-deps
+.PHONY: docker sync venv deps clean test test-integration test-deps
 
 docker: deps
 	$(PYTHON) docker/build.py -o docker-compose.yml
+
+sync:
+	docker compose up -d
+	./auth/scripts/sync-secrets.sh
 
 venv:
 	@test -x $(PYTHON) || python3 -m venv $(VENV)

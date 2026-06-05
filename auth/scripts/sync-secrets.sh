@@ -1,31 +1,152 @@
 #!/usr/bin/env bash
-# Push secrets from auth/conf/*.env into a running Keycloak instance.
+# Configure and sync auth secrets for a running MetrANOVA stack.
 #
-# Keycloak is the authoritative runtime store, but the source of truth for
-# secret *values* is the local conf files. After standing up the stack or
-# rotating a secret, run this script to reconcile them.
-#
-# What it syncs:
-#   envoy.env   ENVOY_CLIENT_SECRET      → Keycloak client "envoy-proxy"
-#   grafana.env GRAFANA_CLIENT_SECRET    → Keycloak client "grafana"
-#   keycloak.env LDAP_BIND_PASSWORD      → Keycloak LDAP UserStorageProvider bindCredential
+# Run this after every `docker compose up` or secret rotation. It:
+#   1. Scans conf files for CHANGEME values and prompts for each one interactively
+#   2. Waits for Keycloak to be ready
+#   3. Pushes client secrets and LDAP bind password into Keycloak
 #
 # Usage:
 #   ./auth/scripts/sync-secrets.sh
 #
 # Environment (all optional — defaults match the dev stack):
-#   KEYCLOAK_URL            Internal Keycloak base URL  (default: http://localhost:8180)
-#   KEYCLOAK_ADMIN          Admin username              (default: admin)
-#   KEYCLOAK_ADMIN_PASSWORD Admin password              (default: read from auth/conf/keycloak.env)
-#   KEYCLOAK_REALM          Target realm                (default: metranova)
+#   KEYCLOAK_URL         Internal Keycloak base URL  (default: http://localhost:8180)
+#   KEYCLOAK_ADMIN       Admin username              (default: admin)
+#   KEYCLOAK_REALM       Target realm                (default: metranova)
+#   SYNC_WAIT_SECONDS    Max seconds to wait for Keycloak (default: 120)
+#   NONINTERACTIVE       Set to 1 to skip prompts and fail on any CHANGEME (for CI)
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 CONF_DIR="$REPO_ROOT/auth/conf"
+NONINTERACTIVE="${NONINTERACTIVE:-0}"
 
-# Source conf files for defaults
+# ── Per-key context strings shown to the operator before prompting ────────────
+
+declare -A KEY_CONTEXT
+KEY_CONTEXT[KC_HOSTNAME]="The public HTTPS URL of this server as seen by browsers (e.g. https://myserver.example.com:8443 or https://localhost:8443). Used by Keycloak to build redirect URIs."
+KEY_CONTEXT[LDAP_DOMAIN]="Your LDAP domain in dot notation (e.g. metranova.io). Used to construct the LDAP base DN (dc=metranova,dc=io)."
+KEY_CONTEXT[LDAP_BASE_DN]="LDAP base DN (e.g. dc=metranova,dc=io). Derived from LDAP_DOMAIN if set."
+KEY_CONTEXT[LDAP_BIND_DN]="LDAP admin bind DN (e.g. cn=admin,dc=metranova,dc=io). Derived from LDAP_DOMAIN if set."
+KEY_CONTEXT[GLOBUS_CLIENT_ID]="Client ID from the Globus developer console (https://app.globus.org/settings/developers). Required for Globus OIDC federation."
+KEY_CONTEXT[GLOBUS_CLIENT_SECRET]="Client secret from the Globus developer console. Required for Globus OIDC federation."
+
+# ── Helper: prompt for a value with context ───────────────────────────────────
+
+prompt_for_value() {
+  local key="$1"
+  local file="$2"
+  local current="$3"
+
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "  Missing required value: $key"
+  echo "  File: ${file#$REPO_ROOT/}"
+  if [[ -n "${KEY_CONTEXT[$key]:-}" ]]; then
+    echo ""
+    echo "  ${KEY_CONTEXT[$key]}"
+  fi
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  printf "  Enter value: "
+  read -r value
+  echo ""
+  echo "$value"
+}
+
+# ── Helper: set a key=value in an env file ────────────────────────────────────
+
+set_env_value() {
+  local file="$1"
+  local key="$2"
+  local value="$3"
+  if grep -q "^${key}=" "$file" 2>/dev/null; then
+    sed -i.bak "s|^${key}=.*|${key}=${value}|" "$file" && rm -f "${file}.bak"
+  else
+    echo "${key}=${value}" >> "$file"
+  fi
+}
+
+# ── Scan for CHANGEMEs and prompt ────────────────────────────────────────────
+
+CHANGEME_FOUND=0
+
+scan_file() {
+  local file="$1"
+  [[ -f "$file" ]] || return 0
+
+  while IFS= read -r line; do
+    # Skip comments and blank lines
+    [[ "$line" =~ ^[[:space:]]*# ]] && continue
+    [[ -z "${line// }" ]] && continue
+
+    if [[ "$line" == *"CHANGEME"* ]]; then
+      local key="${line%%=*}"
+      local current="${line#*=}"
+
+      if [[ "$NONINTERACTIVE" == "1" ]]; then
+        echo "ERROR: $key still set to CHANGEME in ${file#$REPO_ROOT/}" >&2
+        CHANGEME_FOUND=1
+        continue
+      fi
+
+      local new_value
+      new_value=$(prompt_for_value "$key" "$file" "$current")
+      set_env_value "$file" "$key" "$new_value"
+
+      # Special case: LDAP_DOMAIN drives multiple derived values
+      if [[ "$key" == "LDAP_DOMAIN" ]]; then
+        local base_dn
+        base_dn=$(echo "$new_value" | sed 's/\./,dc=/g; s/^/dc=/')
+        for f in "$CONF_DIR"/keycloak_ldap_sync.env "$CONF_DIR"/portal.env \
+                 "$CONF_DIR"/openldap.env "$CONF_DIR"/token_store.env \
+                 "$CONF_DIR"/clickhouse_auth_proxy.env; do
+          [[ -f "$f" ]] || continue
+          set_env_value "$f" "LDAP_BASE_DN" "$base_dn"
+          set_env_value "$f" "LDAP_BIND_DN" "cn=admin,$base_dn"
+        done
+        echo "  → Set LDAP_BASE_DN=$base_dn and LDAP_BIND_DN=cn=admin,$base_dn in all conf files."
+      fi
+
+      # Special case: KC_HOSTNAME must also update grafana.ini auth_url
+      if [[ "$key" == "KC_HOSTNAME" ]]; then
+        local grafana_ini="$CONF_DIR/grafana/grafana.ini"
+        if [[ -f "$grafana_ini" ]]; then
+          local domain="${new_value#https://}"
+          sed -i.bak "s|^domain = .*|domain = $domain|" "$grafana_ini" && rm -f "${grafana_ini}.bak"
+          sed -i.bak "s|^root_url = .*|root_url = ${new_value}/grafana/|" "$grafana_ini" && rm -f "${grafana_ini}.bak"
+          sed -i.bak "s|^auth_url = .*|auth_url = ${new_value}/realms/metranova/protocol/openid-connect/auth|" "$grafana_ini" && rm -f "${grafana_ini}.bak"
+          echo "  → Updated grafana.ini domain, root_url, and auth_url."
+        fi
+      fi
+    fi
+  done < "$file"
+}
+
+echo "Checking for unconfigured values in auth/conf/ ..."
+echo ""
+
+for f in \
+  "$CONF_DIR/keycloak.env" \
+  "$CONF_DIR/openldap.env" \
+  "$CONF_DIR/envoy.env" \
+  "$CONF_DIR/grafana.env" \
+  "$CONF_DIR/grafana_ch_proxy.env" \
+  "$CONF_DIR/portal.env" \
+  "$CONF_DIR/keycloak_ldap_sync.env" \
+  "$CONF_DIR/token_store.env" \
+  "$CONF_DIR/clickhouse_auth_proxy.env"; do
+  scan_file "$f"
+done
+
+if [[ "$CHANGEME_FOUND" == "1" ]]; then
+  echo "" >&2
+  echo "Fix the above CHANGEME values and re-run this script." >&2
+  exit 1
+fi
+
+# Re-source updated conf files
 for f in keycloak.env envoy.env grafana.env; do
   if [[ -f "$CONF_DIR/$f" ]]; then
     set -a; source "$CONF_DIR/$f"; set +a
@@ -36,6 +157,22 @@ KEYCLOAK_URL="${KEYCLOAK_URL:-http://localhost:8180}"
 KEYCLOAK_ADMIN="${KEYCLOAK_ADMIN:-admin}"
 KEYCLOAK_ADMIN_PASSWORD="${KEYCLOAK_ADMIN_PASSWORD:?KEYCLOAK_ADMIN_PASSWORD is required}"
 KEYCLOAK_REALM="${KEYCLOAK_REALM:-metranova}"
+SYNC_WAIT_SECONDS="${SYNC_WAIT_SECONDS:-120}"
+
+# ── Wait for Keycloak ─────────────────────────────────────────────────────────
+
+echo "Waiting for Keycloak at $KEYCLOAK_URL ..."
+START=$(date +%s)
+until curl -sf "$KEYCLOAK_URL/health/ready" -o /dev/null 2>/dev/null; do
+  if (( $(date +%s) - START >= SYNC_WAIT_SECONDS )); then
+    echo "Timed out waiting for Keycloak after ${SYNC_WAIT_SECONDS}s." >&2
+    exit 1
+  fi
+  sleep 3
+done
+echo "Keycloak is ready."
+
+# ── Obtain admin token ────────────────────────────────────────────────────────
 
 echo "Syncing secrets to $KEYCLOAK_URL realm '$KEYCLOAK_REALM' ..."
 
@@ -47,9 +184,10 @@ TOKEN=$(curl -sf \
   -d "password=$KEYCLOAK_ADMIN_PASSWORD" \
   | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
 
-# Fetch all clients once
 CLIENTS=$(curl -sf -H "Authorization: Bearer $TOKEN" \
   "$KEYCLOAK_URL/admin/realms/$KEYCLOAK_REALM/clients")
+
+# ── Patch client secrets ──────────────────────────────────────────────────────
 
 patch_client_secret() {
   local client_id="$1"
@@ -79,10 +217,11 @@ print(match[0] if match else '')
   echo "  $client_id: HTTP $http_code"
 }
 
+# ── Patch LDAP bind password ──────────────────────────────────────────────────
+
 patch_ldap_password() {
   local bind_password="$1"
 
-  # Find the LDAP UserStorageProvider component
   local components
   components=$(curl -sf -H "Authorization: Bearer $TOKEN" \
     "$KEYCLOAK_URL/admin/realms/$KEYCLOAK_REALM/components?type=org.keycloak.storage.UserStorageProvider")
@@ -100,7 +239,6 @@ print(ldap[0] if ldap else '')
     return
   fi
 
-  # Fetch full component, update bindCredential, PUT it back
   local component
   component=$(curl -sf -H "Authorization: Bearer $TOKEN" \
     "$KEYCLOAK_URL/admin/realms/$KEYCLOAK_REALM/components/$uuid")

@@ -12,17 +12,18 @@ OIDC-based authentication and authorization for the MetrANOVA stack.
 ## Quick Start
 
 ```bash
-# 1. Edit auth/conf.example/auth.env if your domain isn't localhost
-#    (AUTH_DOMAIN, AUTH_REALM)
-
-# 2. Run make docker — generates docker-compose.yml and bootstraps auth secrets
+# 1. Generate configs and secrets
 make docker
 
-# 3. Start the stack
-docker compose up -d
+# 2. Start the stack and sync secrets into Keycloak
+#    (prompts for any required values not yet configured, then waits for
+#    Keycloak to be ready and pushes client secrets and LDAP credentials)
+make sync
 
-# 4. Browse https://localhost/ — you'll be redirected to Keycloak login
+# 3. Browse https://localhost:8443/ — you'll be redirected to Keycloak login
 ```
+
+That's it. Re-run `make sync` any time you rotate a secret or restart the stack.
 
 ## Default Credentials
 
@@ -89,13 +90,10 @@ reconstruct the realm.
 Make changes in the Keycloak UI, then re-run `export-realm.sh` and commit the updated export.
 
 **Fresh deployment from the repo:**
-1. Copy `conf.example/` to `conf/` and fill in secrets (client IDs, passwords, etc.)
-2. `docker compose up -d` — Keycloak imports the realm automatically
-3. Sync secrets from your conf files into Keycloak (client secrets and LDAP bind password):
-   ```bash
-   ./auth/scripts/sync-secrets.sh
-   ```
-   Re-run this any time you rotate a secret in `auth/conf/`.
+1. `make docker` — copies `conf.example/` to `conf/` and generates all secrets
+2. `make sync` — starts the stack, prompts for any remaining required values (hostname, LDAP domain, IdP credentials), waits for Keycloak, and pushes secrets in
+
+Re-run `make sync` any time you rotate a secret or restart the stack.
 
 ### Dev vs. production persistence
 
