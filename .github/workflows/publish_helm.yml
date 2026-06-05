@@ -138,6 +138,30 @@ jobs:
           helm repo add grafana https://grafana.github.io/helm-charts --force-update
           helm repo update
 
+      - name: Validate packaged chart contents
+        if: steps.version_check.outputs.version_changed != 'true' && steps.prerelease_version.outputs.version_changed != 'true'
+        run: |
+          set -euo pipefail
+          rm -rf .chart-verify
+          mkdir -p .chart-verify
+
+          CHART_DIRS=(./helm/charts/* ./helm/metranova)
+          for CHART_DIR in "${CHART_DIRS[@]}"; do
+            if [ ! -f "$CHART_DIR/Chart.yaml" ]; then
+              continue
+            fi
+
+            CHART_NAME=$(yq eval '.name' "$CHART_DIR/Chart.yaml")
+            echo "Verifying packaged content for $CHART_NAME ($CHART_DIR)"
+            helm package "$CHART_DIR" --destination .chart-verify >/dev/null
+
+            PKG=$(ls -1t .chart-verify/${CHART_NAME}-*.tgz | head -n 1)
+            if ! tar -tzf "$PKG" | grep -Eq '^[^/]+/values\.yaml$'; then
+              echo "ERROR: $PKG is missing values.yaml"
+              exit 1
+            fi
+          done
+
       - name: Run chart-releaser (component charts)
         if: steps.version_check.outputs.version_changed != 'true' && steps.prerelease_version.outputs.version_changed != 'true'
         uses: helm/chart-releaser-action@v1.7.0
