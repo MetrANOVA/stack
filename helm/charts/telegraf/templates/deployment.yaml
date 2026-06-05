@@ -1,0 +1,98 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-telegraf
+  labels:
+    app.kubernetes.io/name: telegraf
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: telegraf
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: telegraf
+        app.kubernetes.io/instance: {{ .Release.Name }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ if .Values.serviceAccount.create }}{{ default (printf "%s-telegraf" .Release.Name) .Values.serviceAccount.name }}{{ else }}{{ .Values.serviceAccount.name }}{{ end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      initContainers:
+        - name: wait-for-kafka-certs
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - sh
+            - -ec
+            - |
+              until [ -f "/etc/telegraf/certs/{{ .Values.kafka.userCert }}" ] \
+                && [ -f "/etc/telegraf/certs/{{ .Values.kafka.userKey }}" ] \
+                && [ -f "/etc/telegraf/cluster-ca/{{ .Values.kafka.clusterCaCert }}" ]; do
+                echo "waiting for Kafka TLS secrets";
+                sleep 5;
+              done
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - mountPath: /etc/telegraf/certs
+              name: kafka-certs
+            - mountPath: /etc/telegraf/cluster-ca
+              name: kafka-cluster-ca
+      containers:
+        - name: telegraf
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env: 
+            - name: HOSTNAME
+              value: telegraf-polling-service
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: telegraf-config
+              mountPath: /etc/telegraf/telegraf.conf
+              subPath: telegraf.conf
+            - mountPath: /etc/telegraf/certs
+              name: kafka-certs
+            - mountPath: /etc/telegraf/cluster-ca
+              name: kafka-cluster-ca
+      volumes:
+        - name: telegraf-config
+          configMap:
+            name: {{ .Release.Name }}-telegraf-config
+        - name: kafka-certs
+          secret:
+            defaultMode: 420
+            secretName: {{ include "telegraf.kafkaUserSecretName" . }}
+            optional: true
+        - name: kafka-cluster-ca
+          secret:
+            defaultMode: 420
+            secretName: {{ include "telegraf.kafkaClusterCaSecretName" . }}
+            optional: true
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

@@ -1,0 +1,46 @@
+{{- if and .Values.grafana.enabled .Values.grafanaIngress.enabled -}}
+{{- $host := "" -}}
+{{- if .Values.global.ingressHost -}}
+{{- $host = .Values.global.ingressHost -}}
+{{- else if .Values.global.ingressDomain -}}
+{{- $host = .Values.global.ingressDomain -}}
+{{- else if .Values.global.baseDomain -}}
+{{- $host = printf "%s.%s" (.Values.global.grafanaSubdomain | default "grafana") .Values.global.baseDomain -}}
+{{- end -}}
+{{- if and (eq $host "") .Values.grafana.ingress.hosts (gt (len .Values.grafana.ingress.hosts) 0) -}}
+{{- $host = index .Values.grafana.ingress.hosts 0 -}}
+{{- end -}}
+{{- if $host -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .Release.Name }}-grafana
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: grafana
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  {{- with .Values.grafanaIngress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  ingressClassName: {{ .Values.grafanaIngress.ingressClassName | default "traefik" }}
+  {{- if .Values.grafanaIngress.tlsSecretName }}
+  tls:
+    - hosts:
+        - {{ $host }}
+      secretName: {{ .Values.grafanaIngress.tlsSecretName }}
+  {{- end }}
+  rules:
+    - host: {{ $host }}
+      http:
+        paths:
+          - path: {{ .Values.grafanaIngress.path | default (.Values.global.grafanaPath | default "/grafana") }}
+            pathType: {{ .Values.grafanaIngress.pathType | default "Prefix" }}
+            backend:
+              service:
+                name: {{ .Release.Name }}-grafana
+                port:
+                  number: 80
+{{- end }}
+{{- end }}

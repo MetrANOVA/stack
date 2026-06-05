@@ -1,0 +1,6 @@
+apiVersion: v2
+name: pmacct
+description: nfacctd and sfacctd pods for NetFlow/sFlow ingestion to Kafka
+type: application
+version: helm-chart
+appVersion: "1.7.9"

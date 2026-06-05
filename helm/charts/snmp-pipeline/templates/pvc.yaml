@@ -1,0 +1,58 @@
+{{- if not .Values.caches.existingPvc }}
+{{- $cachesStorageClassName := .Values.caches.storageClassName | default .Values.global.storageClassName }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "metranova-snmp-pipeline.fullname" . }}-caches
+  labels:
+    {{- include "metranova-snmp-pipeline.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- if $cachesStorageClassName }}
+  storageClassName: {{ $cachesStorageClassName }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.caches.storageSize }}
+{{- end }}
+---
+{{- if and .Values.metadataFileExport.enabled (not .Values.metadataFileExport.caches.existingPvc) }}
+{{- $metadataFileCachesStorageClassName := .Values.metadataFileExport.caches.storageClassName | default .Values.global.storageClassName }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "metranova-snmp-pipeline.fullname" . }}-metadata-file-caches
+  labels:
+    {{- include "metranova-snmp-pipeline.labels" . | nindent 4 }}
+    app.kubernetes.io/component: metadata-file
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- if $metadataFileCachesStorageClassName }}
+  storageClassName: {{ $metadataFileCachesStorageClassName }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.metadataFileExport.caches.storageSize }}
+{{- end }}
+---
+{{- if and .Values.redis.enabled .Values.redis.persistence.enabled (not .Values.redis.persistence.existingPvc) }}
+{{- $redisStorageClassName := .Values.redis.persistence.storageClassName | default .Values.global.storageClassName }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "metranova-snmp-pipeline.fullname" . }}-redis-data
+  labels:
+    {{- include "metranova-snmp-pipeline.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redis
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- if $redisStorageClassName }}
+  storageClassName: {{ $redisStorageClassName }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.redis.persistence.storageSize }}
+{{- end }}

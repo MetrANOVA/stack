@@ -29,16 +29,28 @@ jobs:
           git config user.name "$GITHUB_ACTOR"
           git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
 
+      - name: Detect release branch pattern
+        id: branch_gate
+        run: |
+          BRANCH_NAME="${{ github.ref_name }}"
+          if [[ "$BRANCH_NAME" =~ ^[0-9]+\.[0-9]+\..+$ ]]; then
+            echo "is_release_branch=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_release_branch=false" >> "$GITHUB_OUTPUT"
+          fi
+
       # Ensure Chart.yaml version matches branch name for non-main branches
       - name: Ensure Chart Version Matches Branch
         id: version_check
-        if: github.ref_name != 'main'
+        if: github.ref_name != 'main' && steps.branch_gate.outputs.is_release_branch == 'true'
         run: |
           BRANCH_NAME="${{ github.ref_name }}"
           CHANGED=false
+
+          CHART_FILES=(./helm/metranova/Chart.yaml ./helm/charts/*/Chart.yaml)
           
-          # Find and process all Chart.yaml files in helm subdirectories
-          for CHART_FILE in ./helm/*/Chart.yaml; do
+          # Process all chart definitions in the repository layout.
+          for CHART_FILE in "${CHART_FILES[@]}"; do
             if [ -f "$CHART_FILE" ]; then
               CURRENT_VERSION=$(yq eval '.version' "$CHART_FILE")
               
@@ -66,14 +78,36 @@ jobs:
 
       # Update Chart.yaml to append -beta to version if not on main
       - name: Update Chart Version for Pre-Releases
-        if: github.ref_name != 'main' && steps.version_check.outputs.version_changed != 'true'
+        if: github.ref_name != 'main' && steps.branch_gate.outputs.is_release_branch == 'true' && steps.version_check.outputs.version_changed != 'true'
         run: |
-          for CHART_FILE in ./helm/*/Chart.yaml; do
+          CHART_FILES=(./helm/metranova/Chart.yaml ./helm/charts/*/Chart.yaml)
+
+          for CHART_FILE in "${CHART_FILES[@]}"; do
             if [ -f "$CHART_FILE" ]; then
               echo "Updating chart version in $CHART_FILE"
               yq eval -i ".version += \"-beta.${GITHUB_RUN_NUMBER}\"" "$CHART_FILE"
             fi
           done
+
+      - name: Skip version mutation on non-release branches
+        if: github.ref_name != 'main' && steps.branch_gate.outputs.is_release_branch != 'true'
+        run: |
+          echo "Branch '${{ github.ref_name }}' is not a release-style branch."
+          echo "Skipping chart version mutation steps."
+
+      - name: Prepare release chart tree
+        if: steps.version_check.outputs.version_changed != 'true'
+        run: |
+          rm -rf .cr-release-charts
+          mkdir -p .cr-release-charts/charts
+
+          # Charts to publish (one level under .cr-release-charts)
+          cp -R helm/charts/* .cr-release-charts/
+          cp -R helm/metranova .cr-release-charts/
+
+          # Keep local dependency paths in helm/metranova/Chart.yaml valid
+          # (file://../charts/<name>) during packaging.
+          cp -R helm/charts/* .cr-release-charts/charts/
 
       - name: Run chart-releaser
         if: steps.version_check.outputs.version_changed != 'true'
@@ -81,8 +115,8 @@ jobs:
         env:
           CR_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
         with:
-          #looks for subdirectoryies with Chart.yaml files, so point at parent dir
-          charts_dir: ./helm
+          # Use prepared chart tree to include both component charts and umbrella chart.
+          charts_dir: ./.cr-release-charts
           # if on main, don;t overwrite existing, mark as latest.
           # If on version branch, always publish so that we get new charts as we merge in changes pre-release
           skip_existing: ${{ github.ref_name == 'main' }}

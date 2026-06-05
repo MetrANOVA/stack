@@ -1,0 +1,183 @@
+---
+# ClickHouse Cluster with configurable shards and replicas
+apiVersion: "clickhouse.altinity.com/v1"
+kind: "ClickHouseInstallation"
+metadata:
+  name: ch-cluster
+spec:
+  configuration:
+    zookeeper:
+      nodes:
+        - host: chk-keeper-cluster-{{ .Values.config.chk.name }}-0-0.{{ .Release.Namespace }}.svc.cluster.local
+          port: 2181
+        - host: chk-keeper-cluster-{{ .Values.config.chk.name }}-0-1.{{ .Release.Namespace }}.svc.cluster.local
+          port: 2181
+        - host: chk-keeper-cluster-{{ .Values.config.chk.name }}-0-2.{{ .Release.Namespace }}.svc.cluster.local
+          port: 2181
+    clusters:
+      - name: ch-cluster
+        layout:
+          shardsCount: {{ .Values.config.ch.resources.shardCount | default 1 }}
+          replicasCount: {{ .Values.config.ch.resources.replicasCount | default 1 }}
+        schemaPolicy:
+          replica: None
+          shard: None
+
+{{- if .Values.config.ch.users }}
+    # User configuration
+    users:
+{{- range .Values.config.ch.users }}
+      {{ .name }}/password:
+        valueFrom:
+          secretKeyRef:
+            name: {{ .password_secret.name }}
+            key: {{ .password_secret.key }}
+      {{ .name }}/networks/ip: {{ .allowed_ips | default "::/0" | quote }}
+      {{ .name }}/profile: {{ .profile | default "default" | quote }}
+      {{ .name }}/quota: {{ .quota | default "default" | quote }}
+{{- if .access_management }}
+      {{ .name }}/access_management: {{ .access_management }}
+{{- end }}
+{{- if .databases }}
+      {{ .name }}/allow_databases/database:
+{{- range .databases }}
+        - {{ . | quote }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+    # Profiles
+    profiles:
+      {{- if .Values.config.ch.profiles}}
+      {{- range .Values.config.ch.profiles }}
+      {{- if .readonly }}
+      {{ .name }}/readonly: {{ .readonly | quote }}
+      {{- end }}
+      {{- if .max_memory_usage }}
+      {{ .name }}/max_memory_usage: {{ .max_memory_usage | quote }}
+      {{- end }}
+      {{- end }}
+      {{- else }}
+      default/max_memory_usage: "20000000000"
+      {{- end }}
+
+    settings:
+      # Performance settings
+      max_concurrent_queries: {{ .Values.config.ch.resources.max_concurrent_queries }}
+      # Compression
+      compression/case/method: zstd
+      # Logging
+      logger/level: information
+      logger/console: "true"
+      # Allow backups
+      allow_experimental_database_replicated: "1"
+{{- if .Values.config.tls.enabled }}
+      # TLS/SSL Settings
+      openSSL/server/certificateFile: /etc/clickhouse-server/certs/tls.crt
+      openSSL/server/privateKeyFile: /etc/clickhouse-server/certs/tls.key
+      openSSL/server/verificationMode: none
+      openSSL/server/cacheSessions: "true"
+      openSSL/server/disableProtocols: sslv2,sslv3
+      openSSL/server/preferServerCiphers: "true"
+{{- end }}
+
+    files:
+      {{- if and .Values.config.ch.files }}
+      {{- range .Values.config.ch.files }}
+      {{ .name }}: |
+{{ .data | indent 8 }}
+      {{- end }}
+      {{- end }}
+
+{{- if .Values.config.tls.enabled }}
+      # TLS configuration
+      config.d/ssl.xml: |
+        <clickhouse>
+          <https_port>8443</https_port>
+          <tcp_port_secure>9440</tcp_port_secure>
+        </clickhouse>
+{{- end }}
+
+  defaults:
+    templates:
+      podTemplate: clickhouse-pod-template
+      dataVolumeClaimTemplate: data-volume
+      logVolumeClaimTemplate: log-volume
+      serviceTemplate: chi-service-template
+  templates:
+    serviceTemplates:
+      - name: chi-service-template
+        generateName: "clickhouse-{chi}"
+        spec:
+          ports:
+            - name: http
+              port: 8123
+              targetPort: 8123
+            - name: https
+              port: 8443
+              targetPort: 8443
+            - name: tcp
+              port: 9000
+              targetPort: 9000
+            - name: tcp-secure
+              port: 9440
+              targetPort: 9440
+            - name: interserver
+              port: 9009
+              targetPort: 9009
+          type: ClusterIP
+    podTemplates:
+      - name: clickhouse-pod-template
+        spec:
+          {{- with .Values.config.ch.affinity }}
+          affinity:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.config.ch.tolerations }}
+          tolerations:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.config.ch.topologySpreadConstraints }}
+          topologySpreadConstraints:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          containers:
+            - name: clickhouse
+              image: clickhouse/clickhouse-server:{{ .Values.config.clickhouse_version }}
+              resources:
+                requests:
+                  memory: "{{ .Values.config.ch.resources.requests.memory }}"
+                  cpu:  "{{ .Values.config.ch.resources.requests.cpu}}"
+                limits:
+                  memory: "{{ .Values.config.ch.resources.limits.memory }}"
+                  cpu:  "{{ .Values.config.ch.resources.limits.cpu}}"
+{{- if .Values.config.tls.enabled }}
+              volumeMounts:
+                - name: tls-certs
+                  mountPath: /etc/clickhouse-server/certs
+                  readOnly: true
+          volumes:
+            - name: tls-certs
+              secret:
+                secretName: {{ .Values.config.tls.cert_name }}
+{{- end }}
+
+    {{- $chStorageClassName := coalesce .Values.config.ch.resources.storageClassName .Values.global.storageClassName }}
+    volumeClaimTemplates:
+      - name: data-volume
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          storageClassName: {{ required "Set config.ch.resources.storageClassName or global.storageClassName" $chStorageClassName | quote }}
+          resources:
+            requests:
+              storage: {{ .Values.config.ch.resources.disk_volume_size | default "1000Gi" }}
+      - name: log-volume
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          storageClassName: {{ required "Set config.ch.resources.storageClassName or global.storageClassName" $chStorageClassName | quote }}
+          resources:
+            requests:
+              storage: {{ .Values.config.ch.resources.log_volume_size | default "10Gi" }}
