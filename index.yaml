@@ -2,7 +2,7 @@ apiVersion: v1
 entries:
   clickhouse:
   - apiVersion: v2
-    created: "2026-06-05T17:13:36.809573219Z"
+    created: "2026-06-05T17:13:48.551058743Z"
     description: Clickhouse Cluster Configuration. This assumes a the affinity CH
       operator (https://docs.altinity.com/clickhouse-operator/ ) has already been
       installed.
@@ -17,7 +17,7 @@ entries:
   kafka:
   - apiVersion: v2
     appVersion: 4.1.1
-    created: "2026-06-05T17:13:36.835980677Z"
+    created: "2026-06-05T17:13:48.57846047Z"
     description: MetraNova Kafka cluster using Strimzi operator
     digest: 4e39f14083182de40c7061092b94cb1b9e3a9d0b6ec066917aedfa47a3bb6b18
     name: kafka
@@ -28,7 +28,7 @@ entries:
   metranova:
   - apiVersion: v2
     appVersion: "1.0"
-    created: "2026-06-05T17:13:36.919571928Z"
+    created: "2026-06-05T17:13:48.665061789Z"
     dependencies:
     - condition: clickhouse.enabled
       name: clickhouse
@@ -75,7 +75,7 @@ entries:
   metranova-api:
   - apiVersion: v2
     appVersion: dev
-    created: "2026-06-05T17:13:36.945680843Z"
+    created: "2026-06-05T17:13:48.691841806Z"
     description: MetrANOVA Admin API
     digest: 374cb969d53835b11c8dc813e10bdb1f7a5418c5e9e735b850ca52854fb44cc4
     name: metranova-api
@@ -1465,7 +1465,7 @@ entries:
   pmacct:
   - apiVersion: v2
     appVersion: 1.7.9
-    created: "2026-06-05T17:13:37.032309435Z"
+    created: "2026-06-05T17:13:48.785030243Z"
     description: nfacctd and sfacctd pods for NetFlow/sFlow ingestion to Kafka
     digest: da1d7f6dacce459a9572504f428d762a3cfd76abc73500994efccb507915adca
     name: pmacct
@@ -1476,7 +1476,7 @@ entries:
   telegraf:
   - apiVersion: v2
     appVersion: "1.31"
-    created: "2026-06-05T17:13:37.05857164Z"
+    created: "2026-06-05T17:13:48.811084718Z"
     description: Telegraf deployment for MetrANOVA
     digest: 8c372381ce7c556927c1a4d675fecdf1df561f510d9aea28a6bcab323fda2b69
     name: telegraf
@@ -1484,4 +1484,4 @@ entries:
     urls:
     - https://github.com/MetrANOVA/stack/releases/download/telegraf-0.1.0/telegraf-0.1.0.tgz
     version: 0.1.0
-generated: "2026-06-05T17:13:37.059113926Z"
+generated: "2026-06-05T17:13:48.811911805Z"
