@@ -163,13 +163,43 @@ jobs:
           helm dependency build helm/metranova
           helm package helm/metranova --destination .cr-release-packages
 
+      - name: Install chart-releaser CLI
+        if: steps.version_check.outputs.version_changed != 'true' && steps.prerelease_version.outputs.version_changed != 'true'
+        run: |
+          CR_VERSION="v1.7.0"
+          curl -sSL -o cr.tar.gz "https://github.com/helm/chart-releaser/releases/download/${CR_VERSION}/chart-releaser_${CR_VERSION#v}_linux_amd64.tar.gz"
+          tar -xzf cr.tar.gz cr
+          chmod +x cr
+          mv cr "$RUNNER_TEMP/cr"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+
       - name: Publish umbrella chart package
         if: steps.version_check.outputs.version_changed != 'true' && steps.prerelease_version.outputs.version_changed != 'true'
-        uses: helm/chart-releaser-action@v1.7.0
         env:
           CR_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
-        with:
-          charts_dir: ./helm
-          skip_packaging: true
-          skip_existing: ${{ github.ref_name == 'main' }}
-          mark_as_latest: ${{ github.ref_name == 'main' }}
+        run: |
+          set -euo pipefail
+          OWNER="${GITHUB_REPOSITORY_OWNER}"
+          REPO="${GITHUB_REPOSITORY#*/}"
+
+          SKIP_EXISTING_ARG=""
+          if [[ "${{ github.ref_name }}" == "main" ]]; then
+            SKIP_EXISTING_ARG="--skip-existing"
+          fi
+
+          # Upload pre-packaged umbrella chart artifact as a GitHub release asset.
+          cr upload \
+            --owner "$OWNER" \
+            --git-repo "$REPO" \
+            --package-path .cr-release-packages \
+            --token "$CR_TOKEN" \
+            $SKIP_EXISTING_ARG
+
+          # Regenerate and push index.yaml to gh-pages.
+          cr index \
+            --owner "$OWNER" \
+            --git-repo "$REPO" \
+            --package-path .cr-release-packages \
+            --index-path .cr-index \
+            --token "$CR_TOKEN" \
+            --push
