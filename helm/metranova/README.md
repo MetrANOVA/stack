@@ -27,20 +27,25 @@ The operators must watch the namespace where you install this chart.
 
 ### 2) Build chart dependencies
 
-From repository root:
+Add the MetraNova Helm repository:
 
 ```bash
-helm dependency build helm/metranova
+helm repo add metranova https://metranova.github.io/stack
+helm repo update
 ```
 
-This populates `helm/metranova/charts/*.tgz`.
+Optional: inspect available versions.
+
+```bash
+helm search repo metranova/metranova --versions
+```
 
 ### 3) Prepare a values override file
 
-Create a custom values file from the defaults:
+Export default values and customize:
 
 ```bash
-cp helm/metranova/values.yaml helm/metranova/values.local.yaml
+helm show values metranova/metranova > values.local.yaml
 ```
 
 At minimum, review and set:
@@ -70,6 +75,9 @@ NAMESPACE=metranova bash helm/metranova/scripts/manage-secrets.sh check
 NAMESPACE=metranova bash helm/metranova/scripts/manage-secrets.sh bootstrap
 ```
 
+Note: the helper script is available in this repository checkout at
+`helm/metranova/scripts/manage-secrets.sh`.
+
 Notes:
 
 - `bootstrap` prompts securely and creates/updates in-cluster secrets.
@@ -79,20 +87,20 @@ Notes:
 ### 5) (Recommended) Dry-run render
 
 ```bash
-helm upgrade --install metranova helm/metranova \
+helm upgrade --install metranova metranova/metranova \
 	--namespace metranova \
 	--create-namespace \
-	-f helm/metranova/values.local.yaml \
+	-f values.local.yaml \
 	--dry-run
 ```
 
 ### 6) Install
 
 ```bash
-helm upgrade --install metranova helm/metranova \
+helm upgrade --install metranova metranova/metranova \
 	--namespace metranova \
 	--create-namespace \
-	-f helm/metranova/values.local.yaml
+	-f values.local.yaml
 ```
 
 ### 7) Verify rollout
@@ -106,10 +114,10 @@ helm -n metranova status metranova
 ## Upgrade
 
 ```bash
-helm dependency build helm/metranova
-helm upgrade metranova helm/metranova \
+helm repo update
+helm upgrade metranova metranova/metranova \
 	--namespace metranova \
-	-f helm/metranova/values.local.yaml
+	-f values.local.yaml
 ```
 
 ## Uninstall
@@ -120,7 +128,13 @@ helm uninstall metranova -n metranova
 
 ## Configuration Reference
 
-All top-level component values are in `helm/metranova/values.yaml`:
+All top-level component values are available via:
+
+```bash
+helm show values metranova/metranova
+```
+
+Primary top-level keys:
 
 - `clickhouse.*`
 - `kafka.*`
