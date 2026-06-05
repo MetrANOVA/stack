@@ -222,12 +222,50 @@ jobs:
             --token "$CR_TOKEN" \
             --skip-existing
 
-          # Regenerate and push index.yaml to gh-pages.
-          mkdir -p .cr-index
+      - name: Update gh-pages index with umbrella chart
+        if: steps.version_check.outputs.version_changed != 'true' && steps.prerelease_version.outputs.version_changed != 'true'
+        env:
+          CR_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+        run: |
+          set -euo pipefail
+          OWNER="${GITHUB_REPOSITORY_OWNER}"
+          REPO="${GITHUB_REPOSITORY#*/}"
+
+          # Work on an isolated gh-pages checkout to avoid clobbering the main workspace.
+          rm -rf .gh-pages-work
+          git clone --branch gh-pages --single-branch "https://x-access-token:${CR_TOKEN}@github.com/${OWNER}/${REPO}.git" .gh-pages-work
+
+          # Merge new package metadata into existing index.yaml from gh-pages.
           cr index \
             --owner "$OWNER" \
             --git-repo "$REPO" \
             --package-path .cr-release-packages \
-            --index-path .cr-index/index.yaml \
-            --token "$CR_TOKEN" \
-            --push
+            --index-path .gh-pages-work/index.yaml \
+            --charts-repo "https://${OWNER}.github.io/${REPO}"
+
+          cd .gh-pages-work
+          git config user.name "$GITHUB_ACTOR"
+          git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
+
+          if git diff --quiet -- index.yaml; then
+            echo "No index.yaml changes to publish."
+            exit 0
+          fi
+
+          git add index.yaml
+          git commit -m "chore(helm): update index.yaml for ${GITHUB_SHA}"
+
+          # Retry push in case another run updated gh-pages concurrently.
+          for attempt in 1 2 3; do
+            if git push origin gh-pages; then
+              echo "Pushed gh-pages index update on attempt ${attempt}."
+              exit 0
+            fi
+
+            echo "Push failed (attempt ${attempt}); rebasing on latest origin/gh-pages and retrying."
+            git fetch origin gh-pages
+            git rebase origin/gh-pages
+          done
+
+          echo "Failed to push gh-pages index.yaml after retries."
+          exit 1
