@@ -1,0 +1,51 @@
+services:
+  clickhouse-init:
+    image: clickhouse/clickhouse-server:26.2.4.23
+    container_name: clickhouse-init
+    entrypoint: ["/bin/bash", "-lc", "CH_CONF_FILE=/config/clickhouse.env /scripts/init-conf.sh && /scripts/generate-certs.sh"]
+    env_file:
+      - ./conf/clickhouse.env
+    volumes:
+      - clickhouse-secrets:/var/lib/clickhouse/certs
+      - ./scripts:/scripts:ro
+      - ./conf:/config
+    restart: "no"
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:26.2.4.23
+    container_name: clickhouse
+    depends_on:
+      clickhouse-init:
+        condition: service_completed_successfully
+    env_file:
+      - ./conf/clickhouse.env
+    ports:
+      - "8443:8443"
+      - "9440:9440"
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - clickhouse-secrets:/var/lib/clickhouse/certs
+      - ./conf/config.d:/etc/clickhouse-server/config.d:ro
+      - ./conf/users.d:/etc/clickhouse-server/users.d:ro
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+
+  clickhouse-db-init:
+    image: clickhouse/clickhouse-server:26.2.4.23
+    container_name: clickhouse-db-init
+    depends_on:
+      clickhouse:
+        condition: service_started
+    restart: "on-failure:10"
+    env_file:
+      - ./conf/clickhouse.env
+    entrypoint: ["/bin/bash", "/scripts/init-db.sh"]
+    volumes:
+      - ./scripts:/scripts:ro
+      - ./conf/users.d:/etc/clickhouse-server/users.d:ro
+
+volumes:
+  clickhouse-data:
+  clickhouse-secrets:

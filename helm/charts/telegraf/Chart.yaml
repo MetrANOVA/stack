@@ -1,0 +1,6 @@
+apiVersion: v2
+name: telegraf
+description: Telegraf deployment for MetrANOVA
+type: application
+version: helm-chart
+appVersion: "1.31"

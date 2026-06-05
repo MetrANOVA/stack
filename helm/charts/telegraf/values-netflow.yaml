@@ -1,0 +1,6 @@
+inputs:
+  netflow:
+    enabled: true
+
+service:
+  name: telegraf

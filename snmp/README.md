@@ -21,13 +21,13 @@ helm repo update
 #### Install Latest Stable Release
 
 ```bash
-helm install metranova-snmp metranova/snmp-pipeline
+helm install metranova-snmp metranova/metranova-snmp-pipeline
 ```
 
 #### Install with Custom Values
 
 ```bash
-helm install metranova-snmp metranova/snmp-pipeline -f custom-values.yaml
+helm install metranova-snmp metranova/metranova-snmp-pipeline -f custom-values.yaml
 ```
 
 #### Install Pre-Release Version
@@ -36,17 +36,17 @@ To install a pre-release version (e.g., beta releases from version branches), us
 
 ```bash
 # Install latest pre-release version
-helm install metranova-snmp metranova/snmp-pipeline --devel
+helm install metranova-snmp metranova/metranova-snmp-pipeline --devel
 
 # Install specific pre-release version
-helm install metranova-snmp metranova/snmp-pipeline --version 0.1.0-beta --devel
+helm install metranova-snmp metranova/metranova-snmp-pipeline --version 0.1.0-beta --devel
 ```
 
 For detailed configuration options, see the chart's README or use:
 
 ```bash
-helm show readme metranova/snmp-pipeline
-helm show values metranova/snmp-pipeline
+helm show readme metranova/metranova-snmp-pipeline
+helm show values metranova/metranova-snmp-pipeline
 ```
 
 ### Pipeline Configuration (Docker Compose)

@@ -1,0 +1,19 @@
+{{- $sfacctd := .Values.sfacctd | default dict -}}
+{{- $ingress := $sfacctd.ingress | default dict -}}
+{{- if ($ingress.enabled | default false) }}
+apiVersion: traefik.io/v1alpha1
+kind: IngressRouteUDP
+metadata:
+  name: {{ .Release.Name }}-sflow-ingress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: sfacctd
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  entryPoints:
+    - {{ $ingress.entryPoint | default "sflow-6343" }}
+  routes:
+    - services:
+        - name: {{ .Release.Name }}-sfacctd
+          port: {{ $sfacctd.port | default 6343 }}
+{{- end }}

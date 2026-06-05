@@ -1,0 +1,27 @@
+services:
+  sfacctd-init:
+    image: python:3.11-slim
+    container_name: sfacctd-init
+    entrypoint:
+      - /bin/bash
+      - -lc
+      - >-
+        pip install --no-cache-dir jinja2 &&
+        python /scripts/render_configs.py --collector sfacctd
+    volumes:
+      - ./conf:/etc/pmacct
+      - ../shared/templates:/etc/pmacct/shared_templates:ro
+      - ../shared/scripts:/scripts:ro
+    restart: "no"
+
+  sfacctd:
+    image: pmacct/sfacctd:v1.7.9
+    restart: always
+    depends_on:
+      sfacctd-init:
+        condition: service_completed_successfully
+    ports:
+      - "9997:9997/udp"
+    volumes:
+      - ./conf:/etc/pmacct:ro
+      - ./conf/kafka/ca.crt:/etc/pmacct_certificates/ca.crt:ro

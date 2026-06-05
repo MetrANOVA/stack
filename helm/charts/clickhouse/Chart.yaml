@@ -1,0 +1,7 @@
+apiVersion: v2
+name: clickhouse
+description: Clickhouse Cluster Configuration. This assumes a the affinity CH operator (https://docs.altinity.com/clickhouse-operator/ ) has already been installed.
+version: helm-chart
+maintainers:
+  - name: esnet
+    email: "esnet-seg-ma@lbl.gov"

@@ -1,0 +1,29 @@
+{{- if .Values.nfacctd.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-nfacctd-config
+  namespace: {{ .Release.Namespace }}
+data:
+  nfacctd.conf: |
+{{ tpl (.Files.Get "configs/nfacctd.conf") . | indent 4 }}
+  kafka.csv: |
+{{ tpl (.Files.Get "configs/kafka.csv") . | indent 4 }}
+  pretag.map: |
+{{ .Files.Get "configs/pretag-nfacctd.map" | indent 4 }}
+---
+{{- end }}
+{{- if .Values.sfacctd.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-sfacctd-config
+  namespace: {{ .Release.Namespace }}
+data:
+  sfacctd.conf: |
+{{ tpl (.Files.Get "configs/sfacctd.conf") . | indent 4 }}
+  kafka.csv: |
+{{ tpl (.Files.Get "configs/kafka.csv") . | indent 4 }}
+  pretag.map: |
+{{ .Files.Get "configs/pretag-sfacctd.map" | indent 4 }}
+{{- end }}

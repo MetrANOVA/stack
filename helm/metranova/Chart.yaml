@@ -1,0 +1,42 @@
+apiVersion: v2
+name: metranova
+description: Umbrella chart that deploys the MetraNova stack components
+type: application
+version: helm-chart
+appVersion: "1.0"
+dependencies:
+  - name: clickhouse
+    version: 0.0.3
+    repository: file://../charts/clickhouse
+    condition: clickhouse.enabled
+  - name: kafka
+    version: 0.2.0
+    repository: file://../charts/kafka
+    condition: kafka.enabled
+  - name: telegraf
+    version: 0.1.0
+    repository: file://../charts/telegraf
+    condition: telegraf.enabled
+  - name: pmacct
+    version: 0.1.2
+    repository: file://../charts/pmacct
+    condition: pmacct.enabled
+  - name: metranova-snmp-pipeline
+    alias: snmpPipeline
+    version: 0.1.0
+    repository: file://../charts/snmp-pipeline
+    condition: snmpPipeline.enabled
+  - name: metranova-flow-pipeline
+    alias: flowPipeline
+    version: 0.1.0
+    repository: file://../charts/flow-pipeline
+    condition: flowPipeline.enabled
+  - name: metranova-api
+    alias: api
+    version: 0.1.0
+    repository: file://../charts/api
+    condition: api.enabled
+  - name: grafana
+    version: ^10.4.0
+    repository: https://grafana.github.io/helm-charts
+    condition: grafana.enabled

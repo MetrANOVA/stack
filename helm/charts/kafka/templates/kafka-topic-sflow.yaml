@@ -1,0 +1,15 @@
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: metranova-sflow
+  namespace: {{ .Release.Namespace }}
+  labels:
+    strimzi.io/cluster: {{ .Values.cluster.name }}
+spec:
+  topicName: metranova_sflow
+  partitions: {{ .Values.topics.sflow.partitions | default 3 }}
+  replicas: {{ .Values.topics.sflow.replicas | default 2 }}
+  config:
+    retention.ms: {{ .Values.topics.sflow.retentionMs | default 604800000 }}
+    retention.bytes: {{ .Values.topics.sflow.retentionBytes | default 2147483648 }}
+    segment.bytes: {{ .Values.topics.sflow.segmentBytes | default 268435456 }}
