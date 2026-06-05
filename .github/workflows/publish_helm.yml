@@ -89,7 +89,7 @@ jobs:
       # Update Chart.yaml to append -beta to version if not on main
       - name: Update Chart Version for Pre-Releases
         id: prerelease_version
-        if: github.ref_name != 'main' && steps.branch_gate.outputs.is_release_branch == 'true' && steps.version_check.outputs.version_changed != 'true' && github.actor != 'github-actions[bot]'
+        if: github.ref_name != 'main' && steps.branch_gate.outputs.is_release_branch != 'true' && steps.version_check.outputs.version_changed != 'true' && github.actor != 'github-actions[bot]'
         run: |
           CHANGED=false
           CHART_FILES=(./helm/metranova/Chart.yaml ./helm/charts/*/Chart.yaml)

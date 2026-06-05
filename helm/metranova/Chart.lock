@@ -1,27 +1,27 @@
 dependencies:
 - name: clickhouse
   repository: file://../charts/clickhouse
-  version: 0.1.0-beta.56
+  version: 0.1.0
 - name: kafka
   repository: file://../charts/kafka
-  version: 0.1.0-beta.56
+  version: 0.1.0
 - name: telegraf
   repository: file://../charts/telegraf
-  version: 0.1.0-beta.56
+  version: 0.1.0
 - name: pmacct
   repository: file://../charts/pmacct
-  version: 0.1.0-beta.56
+  version: 0.1.0
 - name: metranova-snmp-pipeline
   repository: file://../charts/snmp-pipeline
-  version: 0.1.0-beta.56
+  version: 0.1.0
 - name: metranova-flow-pipeline
   repository: file://../charts/flow-pipeline
-  version: 0.1.0-beta.56
+  version: 0.1.0
 - name: metranova-api
   repository: file://../charts/api
-  version: 0.1.0-beta.56
+  version: 0.1.0
 - name: grafana
   repository: https://grafana.github.io/helm-charts
   version: 10.5.15
-digest: sha256:500b90a433564f22ce6cbee7d0aa0361e08def979124a4cb43767a183dea7388
-generated: "2026-06-05T16:50:12.14714843Z"
+digest: sha256:166c7333a937300874bc641a6bf2114a89e33f3e29e887ea0ec88fc724de734a
+generated: "2026-06-05T17:08:54.722891556Z"

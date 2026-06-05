@@ -2,7 +2,7 @@ apiVersion: v2
 name: metranova-snmp-pipeline
 description: A Helm chart for MetrANOVA SNMP Pipeline
 type: application
-version: "0.1.0-beta.56"
+version: "0.1.0"
 appVersion: "latest"
 keywords:
   - metranova
