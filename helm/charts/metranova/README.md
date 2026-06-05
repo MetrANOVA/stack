@@ -1,143 +1,57 @@
 # MetraNova Umbrella Chart
 
-This chart installs the MetraNova stack using one Helm release by including the
-existing charts in this repository as dependencies:
+This chart installs the MetraNova stack as a single Helm release by composing
+the component charts in this repository.
+
+Included dependencies:
 
 - `clickhouse`
 - `kafka`
 - `telegraf`
-- `metranova-snmp-pipeline`
-- `metranova-flow-pipeline`
+- `pmacct`
+- `metranova-snmp-pipeline` (aliased as `snmpPipeline`)
+- `metranova-flow-pipeline` (aliased as `flowPipeline`)
+- `metranova-api` (aliased as `api`)
 - `grafana`
 
-## Layout
+## Install The Umbrella Chart
 
-The chart is in `charts/metranova` and references local dependency charts:
+### 1) Prerequisites
 
-- `file://../clickhouse`
-- `file://../kafka`
-- `file://../telegraf`
-- `file://../snmp-pipeline`
-- `file://../flow-pipeline`
-- `https://grafana.github.io/helm-charts`
+- Kubernetes cluster + `kubectl` access
+- Helm 3
+- Altinity ClickHouse Operator installed and healthy
+- Strimzi Kafka Operator installed and healthy
 
-## Build Dependencies
+The operators must watch the namespace where you install this chart.
 
-From the repository root:
+### 2) Build chart dependencies
 
-```bash
-helm dependency build charts/metranova
-```
-
-This creates `charts/metranova/charts/*.tgz`.
-
-## Operator Prerequisites
-
-This umbrella chart assumes the following operators are already installed,
-healthy, and configured to watch your target deployment namespace:
-
-- Altinity ClickHouse Operator
-- Strimzi Kafka Operator
-
-If either operator is not installed or not watching the target namespace,
-ClickHouse/Kafka custom resources may render in Argo but not reconcile
-correctly.
-
-## Install
+From repository root:
 
 ```bash
-helm install metranova charts/metranova -n metranova --create-namespace
+helm dependency build helm/charts/metranova
 ```
 
-## Upgrade
+This populates `helm/charts/metranova/charts/*.tgz`.
+
+### 3) Prepare a values override file
+
+Create a custom values file from the defaults:
 
 ```bash
-helm upgrade metranova charts/metranova -n metranova
+cp helm/charts/metranova/values.yaml helm/charts/metranova/values.local.yaml
 ```
 
-## Configure Components
+At minimum, review and set:
 
-All component values are under top-level keys in
-`charts/metranova/values.yaml`:
+- `global.baseDomain` (or `global.ingressHost` for shared host/path routing)
+- `global.storageClassName`
+- component-level storage class overrides where needed
+- replica counts and resources for your cluster size
+- ingress settings (`grafanaIngress.*`, `apiIngress.*`, and chart-specific ingress settings)
 
-- `clickhouse.*`
-- `kafka.*`
-- `telegraf.*`
-- `snmpPipeline.*`
-- `flowPipeline.*`
-- `grafana.*`
-
-Each component can be toggled on/off with:
-
-- `clickhouse.enabled`
-- `kafka.enabled`
-- `telegraf.enabled`
-- `snmpPipeline.enabled`
-- `flowPipeline.enabled`
-- `grafana.enabled`
-
-The umbrella chart now mirrors the full values trees for both pipeline
-subcharts under:
-
-- `snmpPipeline.*`
-- `flowPipeline.*`
-
-Examples:
-
-- `snmpPipeline.config.clickhouse.batchSize`
-- `snmpPipeline.config.clickhouse.batchTimeout`
-- `flowPipeline.config.clickhouse.batchSize`
-- `flowPipeline.config.clickhouse.batchTimeout`
-
-## Global Storage Class
-
-You can set one storage class for the entire stack and let component-specific
-settings override it only when needed.
-
-Set in `charts/metranova/values.yaml`:
-
-```yaml
-global:
-	storageClassName: your-default-storage-class
-```
-
-Fallback behavior:
-
-- component-specific storage class (if set)
-- `global.storageClassName` (if set)
-- cluster default storage class (if neither is set)
-
-## Workload Scheduling And Resources
-
-Deployments/stateful workloads can be tuned from `values.yaml`:
-
-- `telegraf.resources`, `telegraf.tolerations`, `telegraf.affinity`
-- `telegraf.topologySpreadConstraints`
-- `snmpPipeline.dataSnmp.replicaCount`, `snmpPipeline.metadataCaidaOrgAs.replicaCount`, `snmpPipeline.metadataFileExport.replicaCount`
-- `snmpPipeline.*.resources` (per component), `snmpPipeline.tolerations`, `snmpPipeline.affinity`, `snmpPipeline.topologySpreadConstraints`
-- `flowPipeline.dataFlow.replicaCount`, `flowPipeline.metadataCaidaOrgAs.replicaCount`, `flowPipeline.metadataFileExport.replicaCount`, `flowPipeline.metadataIpGeo.replicaCount`, `flowPipeline.metadataScireg.replicaCount`, `flowPipeline.metadataCric.replicaCount`, `flowPipeline.cacheIpTrie.replicaCount`
-- `flowPipeline.*.resources` (per component), `flowPipeline.tolerations`, `flowPipeline.affinity`, `flowPipeline.topologySpreadConstraints`
-- `kafka.kafka.resources|tolerations|affinity|topologySpreadConstraints`
-- `kafka.kraft.resources|tolerations|affinity|topologySpreadConstraints`
-- `kafka.entityOperator.topicOperator.resources|tolerations|affinity|topologySpreadConstraints`
-- `kafka.entityOperator.userOperator.resources|tolerations|affinity|topologySpreadConstraints`
-- `clickhouse.config.ch.resources|tolerations|affinity|topologySpreadConstraints`
-- `clickhouse.config.chk.resources|tolerations|affinity|topologySpreadConstraints`
-- `grafana.resources`, `grafana.tolerations`, `grafana.affinity`, `grafana.topologySpreadConstraints`
-
-## Grafana ClickHouse Plugin
-
-Grafana is configured to install the ClickHouse datasource plugin by default:
-
-- `grafana.plugins: [grafana-clickhouse-datasource]`
-
-A default ClickHouse datasource definition is included under
-`grafana.datasources.datasources.yaml` and points to `clickhouse-ch-cluster:8123`.
-
-A default Grafana ingress is enabled and points to host
-`grafana.metranova.test.example.org` using ingress class `traefik`.
-
-## Secret Management
+### 4) Prepare required secrets
 
 Required external secrets:
 
@@ -146,24 +60,99 @@ Required external secrets:
 - `pipeline-user`
 - `metranova-kafka-cluster-ca-cert`
 
-By default this chart now auto-creates `grafana-admin` using keys
-`admin-user` and `admin-password` when `grafanaAdminSecret.create=true`.
+`grafana-admin` is auto-created by default when
+`grafanaAdminSecret.create=true`.
 
-To avoid plaintext credentials in `values.yaml`, use the helper script:
+Use the helper script to validate/bootstrap secrets:
 
 ```bash
-NAMESPACE=metranova bash charts/metranova/scripts/manage-secrets.sh check
-NAMESPACE=metranova bash charts/metranova/scripts/manage-secrets.sh bootstrap
+NAMESPACE=metranova bash helm/charts/metranova/scripts/manage-secrets.sh check
+NAMESPACE=metranova bash helm/charts/metranova/scripts/manage-secrets.sh bootstrap
 ```
 
 Notes:
 
-- `bootstrap` securely prompts for passwords and creates/updates secrets in-cluster.
-- `clickhouse-tls` can be created by setting `CLICKHOUSE_TLS_CERT` and `CLICKHOUSE_TLS_KEY` env vars before running `bootstrap`.
-- `pipeline-user` and `metranova-kafka-cluster-ca-cert` are typically created by Strimzi/Kafka workflows and are checked by the script.
+- `bootstrap` prompts securely and creates/updates in-cluster secrets.
+- `clickhouse-tls` can be created by exporting `CLICKHOUSE_TLS_CERT` and
+	`CLICKHOUSE_TLS_KEY` before `bootstrap`.
 
-For production use, verify these secrets before install:
+### 5) (Recommended) Dry-run render
 
-- Ensure `grafana-admin` exists (auto-created by default, or set
-	`grafanaAdminSecret.create=false` and create it externally)
-- Ensure `clickhouse-users` contains `readonly-password` (Grafana datasource uses this via secret reference)
+```bash
+helm upgrade --install metranova helm/charts/metranova \
+	--namespace metranova \
+	--create-namespace \
+	-f helm/charts/metranova/values.local.yaml \
+	--dry-run
+```
+
+### 6) Install
+
+```bash
+helm upgrade --install metranova helm/charts/metranova \
+	--namespace metranova \
+	--create-namespace \
+	-f helm/charts/metranova/values.local.yaml
+```
+
+### 7) Verify rollout
+
+```bash
+kubectl -n metranova get pods
+kubectl -n metranova get pvc
+helm -n metranova status metranova
+```
+
+## Upgrade
+
+```bash
+helm dependency build helm/charts/metranova
+helm upgrade metranova helm/charts/metranova \
+	--namespace metranova \
+	-f helm/charts/metranova/values.local.yaml
+```
+
+## Uninstall
+
+```bash
+helm uninstall metranova -n metranova
+```
+
+## Configuration Reference
+
+All top-level component values are in `helm/charts/metranova/values.yaml`:
+
+- `clickhouse.*`
+- `kafka.*`
+- `telegraf.*`
+- `pmacct.*`
+- `snmpPipeline.*`
+- `flowPipeline.*`
+- `api.*`
+- `grafana.*`
+
+Enable/disable components:
+
+- `clickhouse.enabled`
+- `kafka.enabled`
+- `telegraf.enabled`
+- `pmacct.enabled`
+- `snmpPipeline.enabled`
+- `flowPipeline.enabled`
+- `api.enabled`
+- `grafana.enabled`
+
+Helpful global keys:
+
+- `global.storageClassName`
+- `global.baseDomain`
+- `global.ingressHost`
+- `global.clickhouseSubdomain`
+- `global.grafanaSubdomain`
+- `global.apiSubdomain`
+
+Storage class fallback order:
+
+- component-specific storage class
+- `global.storageClassName`
+- cluster default storage class
