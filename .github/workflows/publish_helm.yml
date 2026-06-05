@@ -82,7 +82,7 @@ jobs:
       # Update Chart.yaml to append -beta to version if not on main
       - name: Update Chart Version for Pre-Releases
         id: prerelease_version
-        if: github.ref_name != 'main' && steps.branch_gate.outputs.is_release_branch == 'true' && steps.version_check.outputs.version_changed != 'true'
+        if: github.ref_name != 'main' && steps.branch_gate.outputs.is_release_branch == 'true' && steps.version_check.outputs.version_changed != 'true' && github.actor != 'github-actions[bot]'
         run: |
           CHANGED=false
           CHART_FILES=(./helm/metranova/Chart.yaml ./helm/charts/*/Chart.yaml)
@@ -92,7 +92,8 @@ jobs:
               CURRENT_VERSION=$(yq eval '.version' "$CHART_FILE")
               BASE_VERSION="${CURRENT_VERSION%%-beta*}"
               NEW_VERSION="${BASE_VERSION}-beta.${GITHUB_RUN_NUMBER}"
-              if [ "$CURRENT_VERSION" != "$NEW_VERSION" ]; then
+              # Only set a prerelease suffix once. If already beta, keep it.
+              if [[ "$CURRENT_VERSION" == "$BASE_VERSION" ]]; then
                 echo "Updating chart version in $CHART_FILE to $NEW_VERSION"
                 yq eval -i ".version = \"$NEW_VERSION\"" "$CHART_FILE"
                 git add "$CHART_FILE"
@@ -106,7 +107,7 @@ jobs:
             git commit -m "chore: set prerelease chart versions for run ${GITHUB_RUN_NUMBER}"
             git push
             echo "version_changed=true" >> "$GITHUB_OUTPUT"
-            echo "Prerelease versions committed. Stopping workflow - new run will be triggered."
+            echo "Prerelease versions committed. This run will stop before publishing."
           else
             echo "version_changed=false" >> "$GITHUB_OUTPUT"
           fi
