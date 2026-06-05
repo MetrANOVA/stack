@@ -1,0 +1,17 @@
+<clickhouse>
+  <user_directories>
+    <users_xml>
+      <path>users.xml</path>
+    </users_xml>
+    <ldap>
+      <server>openldap</server>
+      <role_mapping>
+        <base_dn>ou=groups,dc=metranova,dc=io</base_dn>
+        <attribute>cn</attribute>
+        <scope>subtree</scope>
+        <search_filter>(&amp;(objectClass=groupOfNames)(member={bind_dn}))</search_filter>
+        <prefix/>
+      </role_mapping>
+    </ldap>
+  </user_directories>
+</clickhouse>

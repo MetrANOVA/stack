@@ -1,0 +1,36 @@
+<clickhouse>
+  <users>
+    <default>
+      <password>CHANGEME</password>
+      <networks>
+        <ip>::/0</ip>
+      </networks>
+      <profile>default</profile>
+      <quota>default</quota>
+    </default>
+    <pipeline>
+      <password>CHANGEME</password>
+      <networks>
+        <ip>::/0</ip>
+      </networks>
+      <profile>default</profile>
+      <quota>default</quota>
+      <readonly>0</readonly>
+      <allow_databases>
+        <database>metranova</database>
+      </allow_databases>
+    </pipeline>
+    <grafana>
+      <password>CHANGEME</password>
+      <networks>
+        <ip>::/0</ip>
+      </networks>
+      <profile>default</profile>
+      <quota>default</quota>
+      <readonly>1</readonly>
+      <allow_databases>
+        <database>metranova</database>
+      </allow_databases>
+    </grafana>
+  </users>
+</clickhouse>

@@ -1,0 +1,46 @@
+<clickhouse>
+  <!--
+    Profiles for OIDC-authenticated users. Authentication happens at the Envoy
+    trust boundary (OIDC/JWT); ClickHouse sees these as no-password users whose
+    identity is injected via the X-ClickHouse-User header.
+
+    admin/operator have full access; viewer is read-only.
+    Row-level policies (Phase 3+) provide finer-grained per-user control.
+  -->
+  <profiles>
+    <oidc_admin>
+    </oidc_admin>
+    <oidc_operator>
+    </oidc_operator>
+    <oidc_viewer>
+      <readonly>1</readonly>
+    </oidc_viewer>
+  </profiles>
+
+  <users>
+    <admin1>
+      <no_password/>
+      <networks>
+        <ip>::/0</ip>
+      </networks>
+      <profile>oidc_admin</profile>
+      <quota>default</quota>
+    </admin1>
+    <operator1>
+      <no_password/>
+      <networks>
+        <ip>::/0</ip>
+      </networks>
+      <profile>oidc_operator</profile>
+      <quota>default</quota>
+    </operator1>
+    <viewer1>
+      <no_password/>
+      <networks>
+        <ip>::/0</ip>
+      </networks>
+      <profile>oidc_viewer</profile>
+      <quota>default</quota>
+    </viewer1>
+  </users>
+</clickhouse>

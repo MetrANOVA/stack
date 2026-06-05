@@ -1,0 +1,8 @@
+<clickhouse>
+  <openSSL>
+    <server>
+      <certificateFile>/var/lib/clickhouse/certs/server.crt</certificateFile>
+      <privateKeyFile>/var/lib/clickhouse/certs/server.key</privateKeyFile>
+    </server>
+  </openSSL>
+</clickhouse>
