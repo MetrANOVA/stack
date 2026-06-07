@@ -1,0 +1,52 @@
+flows:
+    - source_ip:
+        - 198.129.56.0/24
+      destination_ip:
+        - 198.125.56.0/24
+      source_port:
+        - min: 32768
+          max: 60999
+      destination_port:
+        - min: 5201
+          max: 5201
+      protocol:
+        - tcp
+        - udp
+      in_interface_index: 1
+      out_interface_index: 2
+      traffic:
+        speed:
+          min: "1Mbps"
+          max: "100Gbps"
+        packet_size:
+          min: 1
+          max: 9000
+        duration:
+          min: 1.0
+          max: 30.0
+
+    - source_ip:
+        - 2001:400:ee00:20::0/64
+      destination_ip:
+        - 2001:400:ee00:20::0/64
+      source_port:
+        - min: 32768
+          max: 60999
+      destination_port:
+        - min: 5201
+          max: 5201
+      protocol:
+        - tcp
+        - udp
+      in_interface_index: 1
+      out_interface_index: 2
+      traffic:
+        speed:
+          min: "1Mbps"
+          max: "100Gbps"
+        packet_size:
+          min: 1
+          max: 9000
+        duration:
+          min: 1.0
+          max: 30.0
