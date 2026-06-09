@@ -1,4 +1,4 @@
-# MetraNova Umbrella Chart
+# MetrANOVA Umbrella Chart
 
 This chart installs the MetraNova stack as a single Helm release by composing
 the component charts in this repository.
