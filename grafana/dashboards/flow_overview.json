@@ -1180,7 +1180,7 @@
                         },
                         "pluginVersion": "4.17.0",
                         "queryType": "table",
-                        "rawSql": "SELECT\n  dst_as_id,\n  dictGet('meta_as_dict', 'name', src_as_id) AS dst_as_name,\n  SUM(bit_count)/8 AS volume\nFROM\n  data_flow AS flow\nWHERE\n  device_id='${device_id}'\n  AND $__timeFilter(start_time)\nGROUP BY\n  dst_as_id, dst_as_name\nORDER BY\n  volume DESC\nLIMIT 1000"
+                        "rawSql": "SELECT\n  dst_as_id,\n  dictGet('meta_as_dict', 'name', dst_as_id) AS dst_as_name,\n  SUM(bit_count)/8 AS volume\nFROM\n  data_flow AS flow\nWHERE\n  device_id='${device_id}'\n  AND $__timeFilter(start_time)\nGROUP BY\n  dst_as_id, dst_as_name\nORDER BY\n  volume DESC\nLIMIT 1000"
                       }
                     },
                     "refId": "By AS",
