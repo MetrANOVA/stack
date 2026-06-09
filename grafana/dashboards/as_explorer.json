@@ -2468,8 +2468,8 @@
     "tags": [],
     "timeSettings": {
       "timezone": "browser",
-      "from": "2026-06-08T09:05:11.092Z",
-      "to": "2026-06-08T09:07:38.409Z",
+      "from": "now-15m",
+      "to": "now",
       "autoRefresh": "",
       "autoRefreshIntervals": [
         "5s",
@@ -2492,10 +2492,6 @@
         "kind": "QueryVariable",
         "spec": {
           "name": "as",
-          "current": {
-            "text": "293:Energy Sciences Network (ESnet)",
-            "value": "293"
-          },
           "label": "AS",
           "hide": "dontHide",
           "refresh": "onTimeRangeChanged",

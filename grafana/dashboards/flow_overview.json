@@ -2273,8 +2273,8 @@
     "tags": [],
     "timeSettings": {
       "timezone": "browser",
-      "from": "2026-06-08T09:06:50.850Z",
-      "to": "2026-06-08T09:08:18.262Z",
+      "from": "now-15m",
+      "to": "now",
       "autoRefresh": "",
       "autoRefreshIntervals": [
         "5s",
@@ -2297,10 +2297,6 @@
         "kind": "QueryVariable",
         "spec": {
           "name": "device_id",
-          "current": {
-            "text": "losa-cr6",
-            "value": "losa-cr6"
-          },
           "label": "Exporting Router",
           "hide": "dontHide",
           "refresh": "onDashboardLoad",
