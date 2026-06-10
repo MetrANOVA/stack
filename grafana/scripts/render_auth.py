@@ -11,13 +11,15 @@ from jinja2 import Environment, FileSystemLoader
 
 def generate_password(length: int = 32) -> str:
     """Generate a secure random password."""
-    alphabet = string.ascii_letters + string.digits + string.punctuation
+    # Exclude characters that break shell/env contexts: $ ` \ and quotes
+    safe_punctuation = '!#%&()*+,-./:;<=>?@[]^_{|}~'
+    alphabet = string.ascii_letters + string.digits + safe_punctuation
     # Ensure the password has at least one of each type
     password = [
         secrets.choice(string.ascii_lowercase),
         secrets.choice(string.ascii_uppercase),
         secrets.choice(string.digits),
-        secrets.choice(string.punctuation),
+        secrets.choice(safe_punctuation),
     ]
     # Fill the rest randomly
     password.extend(secrets.choice(alphabet) for _ in range(length - 4))
