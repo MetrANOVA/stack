@@ -292,7 +292,7 @@
                         "in_interface_id": "Incoming Interface",
                         "src_as_name": "Source AS Name",
                         "src_ip": "Source IP",
-                        "volume": "Traffic"
+                        "volume": "Traffic Volume"
                       }
                     }
                   }
@@ -313,7 +313,7 @@
               },
               "fieldConfig": {
                 "defaults": {
-                  "unit": "bps",
+                  "unit": "decbytes",
                   "thresholds": {
                     "mode": "absolute",
                     "steps": [
@@ -342,7 +342,7 @@
                     "matcher": {
                       "id": "byName",
                       "scope": "series",
-                      "options": "Traffic"
+                      "options": "Traffic Volume"
                     },
                     "properties": [
                       {
@@ -419,7 +419,7 @@
                         "out_interface_id": "Outgoing Interface",
                         "src_as_name": "Source AS Name",
                         "src_ip": "Source IP",
-                        "volume": "Traffic"
+                        "volume": "Traffic Volume"
                       }
                     }
                   }
@@ -440,7 +440,7 @@
               },
               "fieldConfig": {
                 "defaults": {
-                  "unit": "bps",
+                  "unit": "decbytes",
                   "thresholds": {
                     "mode": "absolute",
                     "steps": [
@@ -469,7 +469,7 @@
                     "matcher": {
                       "id": "byName",
                       "scope": "series",
-                      "options": "Traffic"
+                      "options": "Traffic Volume"
                     },
                     "properties": [
                       {
@@ -544,7 +544,7 @@
                       "renameByName": {
                         "src_as_name": "Source AS Name",
                         "src_ip": "Source IP",
-                        "volume": "Traffic"
+                        "volume": "Traffic Volume"
                       }
                     }
                   }
@@ -565,7 +565,7 @@
               },
               "fieldConfig": {
                 "defaults": {
-                  "unit": "bps",
+                  "unit": "decbytes",
                   "thresholds": {
                     "mode": "absolute",
                     "steps": [
@@ -594,7 +594,7 @@
                     "matcher": {
                       "id": "byName",
                       "scope": "series",
-                      "options": "Traffic"
+                      "options": "Traffic Volume"
                     },
                     "properties": [
                       {
@@ -669,7 +669,7 @@
                       "renameByName": {
                         "src_as_name": "Source AS Name",
                         "src_ip": "Source IP",
-                        "volume": "Traffic"
+                        "volume": "Traffic Volume"
                       }
                     }
                   }
@@ -690,7 +690,7 @@
               },
               "fieldConfig": {
                 "defaults": {
-                  "unit": "bps",
+                  "unit": "decbytes",
                   "thresholds": {
                     "mode": "absolute",
                     "steps": [
@@ -719,7 +719,7 @@
                     "matcher": {
                       "id": "byName",
                       "scope": "series",
-                      "options": "Traffic"
+                      "options": "Traffic Volume"
                     },
                     "properties": [
                       {
@@ -794,7 +794,7 @@
                       "renameByName": {
                         "src_as_name": "Source AS Name",
                         "src_ip": "Source IP",
-                        "volume": "Traffic"
+                        "volume": "Traffic Volume"
                       }
                     }
                   }
@@ -815,7 +815,7 @@
               },
               "fieldConfig": {
                 "defaults": {
-                  "unit": "bps",
+                  "unit": "decbytes",
                   "thresholds": {
                     "mode": "absolute",
                     "steps": [
@@ -844,7 +844,7 @@
                     "matcher": {
                       "id": "byName",
                       "scope": "series",
-                      "options": "Traffic"
+                      "options": "Traffic Volume"
                     },
                     "properties": [
                       {
@@ -940,7 +940,7 @@
               },
               "fieldConfig": {
                 "defaults": {
-                  "unit": "bps",
+                  "unit": "decbytes",
                   "thresholds": {
                     "mode": "absolute",
                     "steps": [
@@ -969,7 +969,7 @@
                     "matcher": {
                       "id": "byName",
                       "scope": "series",
-                      "options": "Traffic"
+                      "options": "Traffic Volume"
                     },
                     "properties": [
                       {
@@ -1044,7 +1044,7 @@
                       "renameByName": {
                         "src_as_id": "Source ASN",
                         "src_as_name": "Source AS Name",
-                        "volume": "Traffic"
+                        "volume": "Traffic Volume"
                       }
                     }
                   }
@@ -1065,7 +1065,7 @@
               },
               "fieldConfig": {
                 "defaults": {
-                  "unit": "bps",
+                  "unit": "decbytes",
                   "thresholds": {
                     "mode": "absolute",
                     "steps": [
@@ -1100,7 +1100,7 @@
                     "matcher": {
                       "id": "byName",
                       "scope": "series",
-                      "options": "Traffic"
+                      "options": "Traffic Volume"
                     },
                     "properties": [
                       {
@@ -1201,7 +1201,7 @@
                         "dst_as_id": "Destination ASN",
                         "dst_as_name": "Destination AS",
                         "src_as_name": "Source AS Name",
-                        "volume": "Traffic"
+                        "volume": "Traffic Volume"
                       }
                     }
                   }
@@ -1222,7 +1222,7 @@
               },
               "fieldConfig": {
                 "defaults": {
-                  "unit": "bps",
+                  "unit": "decbytes",
                   "thresholds": {
                     "mode": "absolute",
                     "steps": [
@@ -1257,7 +1257,7 @@
                     "matcher": {
                       "id": "byName",
                       "scope": "series",
-                      "options": "Traffic"
+                      "options": "Traffic Volume"
                     },
                     "properties": [
                       {
@@ -1671,7 +1671,7 @@
                       "renameByName": {
                         "src_as_name": "Source AS Name",
                         "src_ip": "Source IP",
-                        "volume": "Traffic"
+                        "volume": "Traffic Volume"
                       }
                     }
                   }
@@ -1692,7 +1692,7 @@
               },
               "fieldConfig": {
                 "defaults": {
-                  "unit": "bps",
+                  "unit": "decbytes",
                   "thresholds": {
                     "mode": "absolute",
                     "steps": [
@@ -1721,7 +1721,7 @@
                     "matcher": {
                       "id": "byName",
                       "scope": "series",
-                      "options": "Traffic"
+                      "options": "Traffic Volume"
                     },
                     "properties": [
                       {
@@ -1797,7 +1797,7 @@
                         "dst_ip": "Destination IP",
                         "src_as_name": "Source AS Name",
                         "src_ip": "Source IP",
-                        "volume": "Traffic"
+                        "volume": "Traffic Volume"
                       }
                     }
                   }
@@ -1818,7 +1818,7 @@
               },
               "fieldConfig": {
                 "defaults": {
-                  "unit": "bps",
+                  "unit": "decbytes",
                   "thresholds": {
                     "mode": "absolute",
                     "steps": [
@@ -1847,7 +1847,7 @@
                     "matcher": {
                       "id": "byName",
                       "scope": "series",
-                      "options": "Traffic"
+                      "options": "Traffic Volume"
                     },
                     "properties": [
                       {
