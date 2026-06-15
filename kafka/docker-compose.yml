@@ -2,6 +2,8 @@ services:
   kafka-init:
     image: confluentinc/cp-kafka:7.9.6
     container_name: kafka-init
+    #run as root so it can write on linux. only one-off run to initialize the config
+    user: "0:0"
     entrypoint: ["/bin/bash", "-lc", "KAFKA_CONF_FILE=/config/kafka.env /scripts/init-conf.sh"]
     env_file:
       - ./conf/kafka.env
