@@ -63,6 +63,8 @@ spec:
           value: {{ .Values.dataFlow.env.clickhouseFlowExtensions | quote }}
         - name: CLICKHOUSE_FLOW_IP_REF_EXTENSIONS
           value: {{ .Values.dataFlow.env.clickhouseFlowIpRefExtensions | quote }}
+        - name: CLICKHOUSE_FLOW_IP_TO_AS_LOOKUP_ORDER
+          value: {{ .Values.dataFlow.env.clickhouseFlowIpToAsLookupOrder | default "meta_ip" | quote }}
         - name: CLICKHOUSE_POLICY_ORIGINATOR
           value: {{ .Values.dataFlow.env.clickhousePolicyOriginator | default "unknown" | quote }}
         - name: CLICKHOUSE_POLICY_LEVEL
