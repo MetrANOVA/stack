@@ -74,7 +74,8 @@ jobs:
             if [ -f ./helm/metranova/Chart.yaml ]; then
               BRANCH_VERSION="$BRANCH_NAME"
               yq eval -i '(.dependencies[] | select(.repository | test("^file://../charts/")) | .version) = strenv(BRANCH_VERSION)' ./helm/metranova/Chart.yaml
-              git add ./helm/metranova/Chart.yaml
+              rm -f ./helm/metranova/Chart.lock
+              git add ./helm/metranova/Chart.yaml ./helm/metranova/Chart.lock
             fi
 
             git commit -m "chore: update chart versions to $BRANCH_NAME"
@@ -115,7 +116,8 @@ jobs:
             if [ -f ./helm/metranova/Chart.yaml ]; then
               METRANOVA_VERSION=$(yq eval '.version' ./helm/metranova/Chart.yaml)
               yq eval -i '(.dependencies[] | select(.repository | test("^file://../charts/")) | .version) = strenv(METRANOVA_VERSION)' ./helm/metranova/Chart.yaml
-              git add ./helm/metranova/Chart.yaml
+              rm -f ./helm/metranova/Chart.lock
+              git add ./helm/metranova/Chart.yaml ./helm/metranova/Chart.lock
             fi
 
             git commit -m "chore: set prerelease chart versions for run ${GITHUB_RUN_NUMBER}"
