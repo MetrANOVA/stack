@@ -73,7 +73,7 @@ jobs:
             # Keep umbrella local dependency versions aligned with branch version.
             if [ -f ./helm/metranova/Chart.yaml ]; then
               BRANCH_VERSION="$BRANCH_NAME"
-              yq eval -i '(.dependencies[] | select(.repository | startsWith("file://../charts/")) | .version) = strenv(BRANCH_VERSION)' ./helm/metranova/Chart.yaml
+              yq eval -i '(.dependencies[] | select(.repository | test("^file://../charts/")) | .version) = strenv(BRANCH_VERSION)' ./helm/metranova/Chart.yaml
               git add ./helm/metranova/Chart.yaml
             fi
 
@@ -114,7 +114,7 @@ jobs:
             # Keep umbrella local dependency versions aligned with prerelease version.
             if [ -f ./helm/metranova/Chart.yaml ]; then
               METRANOVA_VERSION=$(yq eval '.version' ./helm/metranova/Chart.yaml)
-              yq eval -i '(.dependencies[] | select(.repository | startsWith("file://../charts/")) | .version) = strenv(METRANOVA_VERSION)' ./helm/metranova/Chart.yaml
+              yq eval -i '(.dependencies[] | select(.repository | test("^file://../charts/")) | .version) = strenv(METRANOVA_VERSION)' ./helm/metranova/Chart.yaml
               git add ./helm/metranova/Chart.yaml
             fi
 
