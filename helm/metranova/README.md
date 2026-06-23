@@ -51,7 +51,7 @@ Note: install commands in this README use the published chart reference
 
 ### Development install from a local checkout
 
-Clone and check out the code you want to test (for example `main`, `0.1.0`,
+Clone and check out the code you want to test (for example `main`, `0.2.0`,
 or a feature branch):
 
 ```bash

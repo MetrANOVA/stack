@@ -51,7 +51,7 @@ To install a pre-release version (e.g., beta releases from version branches), us
 helm install metranova-flow metranova/metranova-flow-pipeline --devel
 
 # Install specific pre-release version
-helm install metranova-flow metranova/metranova-flow-pipeline --version 0.1.0-beta --devel
+helm install metranova-flow metranova/metranova-flow-pipeline --version 0.2.0-beta --devel
 ```
 
 #### Install with Inline Values
