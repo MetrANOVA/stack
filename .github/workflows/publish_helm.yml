@@ -73,7 +73,7 @@ jobs:
             # Keep umbrella local dependency versions aligned with branch version.
             if [ -f ./helm/metranova/Chart.yaml ]; then
               BRANCH_VERSION="$BRANCH_NAME"
-              yq eval -i '(.dependencies[] | select(.repository | test("^file://../charts/")) | .version) = strenv(BRANCH_VERSION)' ./helm/metranova/Chart.yaml
+              BRANCH_VERSION="$BRANCH_VERSION" yq eval -i '(.dependencies[] | select(.repository | test("^file://../charts/")) | .version) = strenv(BRANCH_VERSION)' ./helm/metranova/Chart.yaml
               rm -f ./helm/metranova/Chart.lock
               git add ./helm/metranova/Chart.yaml ./helm/metranova/Chart.lock
             fi
@@ -113,8 +113,9 @@ jobs:
             CURRENT_VERSION=$(yq eval '.version' ./helm/metranova/Chart.yaml)
             BASE_VERSION="${CURRENT_VERSION%%-beta*}"
             NEW_VERSION="${BASE_VERSION}-beta.${GITHUB_RUN_NUMBER}"
-            #Note the repository is file://../charts/ so we don't update extrenal dependencies like Grafana
-            yq eval -i '(.dependencies[] | select(.repository | test("^file://../charts/")) | .version) = strenv(NEW_VERSION)' ./helm/metranova/Chart.yaml
+            echo "Updating umbrella chart local dependencies to version $NEW_VERSION"
+            #Note the repository is file://../charts/ so we don't update external dependencies like Grafana
+            NEW_VERSION="$NEW_VERSION" yq eval -i '(.dependencies[] | select(.repository | test("^file://../charts/")) | .version) = strenv(NEW_VERSION)' ./helm/metranova/Chart.yaml
             rm -f ./helm/metranova/Chart.lock
           fi
 
