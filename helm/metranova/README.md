@@ -1,6 +1,6 @@
 # MetrANOVA Umbrella Chart
 
-This chart installs the MetraNova stack as a single Helm release by composing
+This chart installs the MetrANOVA stack as a single Helm release by composing
 the component charts in this repository.
 
 Included dependencies:
@@ -32,7 +32,7 @@ The operators must watch the namespace where you install this chart.
 
 ### 2) Add the published Helm repository
 
-Add the MetraNova Helm repository:
+Add the MetrANOVA Helm repository:
 
 ```bash
 helm repo add metranova https://metranova.github.io/stack
@@ -51,7 +51,7 @@ Note: install commands in this README use the published chart reference
 
 ### Development install from a local checkout
 
-Clone and check out the code you want to test (for example `main`, `0.1.0`,
+Clone and check out the code you want to test (for example `main`, `0.2.0`,
 or a feature branch):
 
 ```bash

@@ -1,6 +1,6 @@
-# ClickHouse Cluster Installation Guide for MetraNova
+# ClickHouse Cluster Installation Guide for MetrANOVA
 
-This document describes how to install and configure the ClickHouse database cluster for the MetraNova network measurement and monitoring stack in the test Kubernetes environment.
+This document describes how to install and configure the ClickHouse database cluster for the MetrANOVA network measurement and monitoring stack in the test Kubernetes environment.
 
 ## Overview
 
@@ -63,7 +63,7 @@ helm install clickhouse-operator clickhouse-operator/altinity-clickhouse-operato
   --set "watch.namespaces={TARGET_NAMESPACE}"
 ```
 
-Replace `TARGET_NAMESPACE` with the namespace where you plan to deploy MetraNova (the same namespace you'll use for `helm install metranova`).
+Replace `TARGET_NAMESPACE` with the namespace where you plan to deploy MetrANOVA (the same namespace you'll use for `helm install metranova`).
 
 **Important**: The `watch.namespaces` parameter tells the operator which namespaces to monitor. The operator must watch the same namespace where you deploy the ClickHouse resources.
 
@@ -157,7 +157,7 @@ openssl genrsa -out tls.key 2048
 
 # Generate self-signed certificate (valid for 1 year)
 openssl req -new -x509 -key tls.key -out tls.crt -days 365 \
-  -subj "/CN=metranova.test.grnoc.iu.edu/O=MetraNova"
+  -subj "/CN=metranova.test.grnoc.iu.edu/O=MetrANOVA"
 
 # Create Kubernetes TLS secret
 kubectl create secret tls clickhouse-tls \
@@ -533,6 +533,6 @@ After successful deployment, the following integrations need to be configured:
 
 ## Support
 
-For issues specific to this deployment, contact the MetraNova team.
+For issues specific to this deployment, contact the MetrANOVA team.
 
 For ClickHouse operator issues, see the [Altinity GitHub repository](https://github.com/Altinity/clickhouse-operator).

@@ -39,7 +39,7 @@ To install a pre-release version (e.g., beta releases from version branches), us
 helm install metranova-snmp metranova/metranova-snmp-pipeline --devel
 
 # Install specific pre-release version
-helm install metranova-snmp metranova/metranova-snmp-pipeline --version 0.1.0-beta --devel
+helm install metranova-snmp metranova/metranova-snmp-pipeline --version 0.2.0-beta --devel
 ```
 
 For detailed configuration options, see the chart's README or use:

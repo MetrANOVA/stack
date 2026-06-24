@@ -1,5 +1,16 @@
 # MetrANOVA Stack
-The MetrANOVA Stack brings together collectors, the message bus, pipelines and data stores for specific data sets.  
+The MetrANOVA Stack brings together collectors, the message bus, pipelines and data stores for specific data sets. These are available for:
+
+- **Docker Compose** - We provide a set of utilites that will allow you to select components and run various stack in docker compose
+- **Kubernetes** - We provide a set of helm charts that bring up all the components needed for a given stack in a kubernetes environment.
+
+
+## Docker Compose
+
+Documentation on bringing up individual MetrANOVA stacks in docker can be find below:
+
+- [Flow Stack](flow/README.md)
+
 
 ## Helm Charts
 
