@@ -2,6 +2,19 @@ apiVersion: v1
 entries:
   clickhouse:
   - apiVersion: v2
+    created: "2026-06-24T15:24:48.854960729Z"
+    description: Clickhouse Cluster Configuration. This assumes a the affinity CH
+      operator (https://docs.altinity.com/clickhouse-operator/ ) has already been
+      installed.
+    digest: 36ea69c498b32c8e13faa5eb782272ac18ab3b0217a80c66de7dd385f5a9d6e8
+    maintainers:
+    - email: esnet-seg-ma@lbl.gov
+      name: esnet
+    name: clickhouse
+    urls:
+    - https://github.com/MetrANOVA/stack/releases/download/clickhouse-0.2.0-build.94/clickhouse-0.2.0-build.94.tgz
+    version: 0.2.0-build.94
+  - apiVersion: v2
     created: "2026-06-24T15:21:25.638998143Z"
     description: Clickhouse Cluster Configuration. This assumes a the affinity CH
       operator (https://docs.altinity.com/clickhouse-operator/ ) has already been
@@ -80,6 +93,16 @@ entries:
     - https://github.com/MetrANOVA/stack/releases/download/clickhouse-0.1.0/clickhouse-0.1.0.tgz
     version: 0.1.0
   kafka:
+  - apiVersion: v2
+    appVersion: 4.1.1
+    created: "2026-06-24T15:24:49.105467166Z"
+    description: MetrANOVA Kafka cluster using Strimzi operator
+    digest: 9b212b7b3c192cb55a51d4ff6b1904ca28d05a864bdb61b1e29fff72239a55ae
+    name: kafka
+    type: application
+    urls:
+    - https://github.com/MetrANOVA/stack/releases/download/kafka-0.2.0-build.94/kafka-0.2.0-build.94.tgz
+    version: 0.2.0-build.94
   - apiVersion: v2
     appVersion: 4.1.1
     created: "2026-06-24T15:21:25.806790841Z"
@@ -328,6 +351,16 @@ entries:
   metranova-api:
   - apiVersion: v2
     appVersion: dev
+    created: "2026-06-24T15:24:49.38414007Z"
+    description: MetrANOVA Admin API
+    digest: ecc924188a093b608052bb64320baa81d14c02ebe19f6c46ca200efb0ec5ef88
+    name: metranova-api
+    type: application
+    urls:
+    - https://github.com/MetrANOVA/stack/releases/download/metranova-api-0.2.0-build.94/metranova-api-0.2.0-build.94.tgz
+    version: 0.2.0-build.94
+  - apiVersion: v2
+    appVersion: dev
     created: "2026-06-24T15:21:26.019967367Z"
     description: MetrANOVA Admin API
     digest: 3b4da734388487c9fcf2a96c00ef7f147c79538ac59508b42c95754cc6b2482f
@@ -387,6 +420,23 @@ entries:
     - https://github.com/MetrANOVA/stack/releases/download/metranova-api-0.1.0/metranova-api-0.1.0.tgz
     version: 0.1.0
   metranova-flow-pipeline:
+  - apiVersion: v2
+    appVersion: latest
+    created: "2026-06-24T15:24:49.602053837Z"
+    description: A Helm chart for MetrANOVA Flow Pipeline
+    digest: 6c580a6bfa5915018aa7e956641c2006bd5ac40e7b9b76ea4190183804d45dca
+    keywords:
+    - metranova
+    - flow
+    - pipeline
+    - monitoring
+    maintainers:
+    - name: MetrANOVA Team
+    name: metranova-flow-pipeline
+    type: application
+    urls:
+    - https://github.com/MetrANOVA/stack/releases/download/metranova-flow-pipeline-0.2.0-build.94/metranova-flow-pipeline-0.2.0-build.94.tgz
+    version: 0.2.0-build.94
   - apiVersion: v2
     appVersion: latest
     created: "2026-06-24T15:21:26.231237004Z"
@@ -1153,6 +1203,23 @@ entries:
     - https://github.com/MetrANOVA/stack/releases/download/metranova-flow-pipeline-0.1.0-beta/metranova-flow-pipeline-0.1.0-beta.tgz
     version: 0.1.0-beta
   metranova-snmp-pipeline:
+  - apiVersion: v2
+    appVersion: latest
+    created: "2026-06-24T15:24:49.885505199Z"
+    description: A Helm chart for MetrANOVA SNMP Pipeline
+    digest: 79182bdd718f6607e737932ba8516fd9940a7f091890b942bb2f4a3acb2844a7
+    keywords:
+    - metranova
+    - snmp
+    - pipeline
+    - monitoring
+    maintainers:
+    - name: MetrANOVA Team
+    name: metranova-snmp-pipeline
+    type: application
+    urls:
+    - https://github.com/MetrANOVA/stack/releases/download/metranova-snmp-pipeline-0.2.0-build.94/metranova-snmp-pipeline-0.2.0-build.94.tgz
+    version: 0.2.0-build.94
   - apiVersion: v2
     appVersion: latest
     created: "2026-06-24T15:21:26.43805599Z"
@@ -1938,6 +2005,16 @@ entries:
   pmacct:
   - apiVersion: v2
     appVersion: 1.7.9
+    created: "2026-06-24T15:24:50.133956712Z"
+    description: nfacctd and sfacctd pods for NetFlow/sFlow ingestion to Kafka
+    digest: 14bc47768fdee1bfe00cc4c5fba9bddeac83761cb7e18ec1f9c67d7a3cd58fbe
+    name: pmacct
+    type: application
+    urls:
+    - https://github.com/MetrANOVA/stack/releases/download/pmacct-0.2.0-build.94/pmacct-0.2.0-build.94.tgz
+    version: 0.2.0-build.94
+  - apiVersion: v2
+    appVersion: 1.7.9
     created: "2026-06-24T15:21:26.653102491Z"
     description: nfacctd and sfacctd pods for NetFlow/sFlow ingestion to Kafka
     digest: c0932cedd4896c94040a09163c90b12b5e629cf469a3bf01bf0f065d754f8cc2
@@ -1999,6 +2076,16 @@ entries:
   telegraf:
   - apiVersion: v2
     appVersion: "1.31"
+    created: "2026-06-24T15:24:50.414191239Z"
+    description: Telegraf deployment for MetrANOVA
+    digest: 53097162a8ae8734761a8e6e3b1e77276601f7b97755f39f85a548a95df1f4a6
+    name: telegraf
+    type: application
+    urls:
+    - https://github.com/MetrANOVA/stack/releases/download/telegraf-0.2.0-build.94/telegraf-0.2.0-build.94.tgz
+    version: 0.2.0-build.94
+  - apiVersion: v2
+    appVersion: "1.31"
     created: "2026-06-24T15:21:26.842749205Z"
     description: Telegraf deployment for MetrANOVA
     digest: ff671ab13f15d5f8a2de6a4c7a7bc9bc8ca0f652eec7a12987450b6d8e5fda73
@@ -2057,4 +2144,4 @@ entries:
     urls:
     - https://github.com/MetrANOVA/stack/releases/download/telegraf-0.1.0/telegraf-0.1.0.tgz
     version: 0.1.0
-generated: "2026-06-24T15:21:32.619100329Z"
+generated: "2026-06-24T15:24:50.415409776Z"
