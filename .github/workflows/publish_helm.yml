@@ -10,7 +10,10 @@ name: Release Helm Charts
 #
 # 1. VERSION BRANCHES (e.g., 1.0.0, 2.1.3):
 #    - Validates that all Chart.yaml versions match the branch name
-#    - If versions don't match, updates them and commits (stops workflow, new run handles publishing)
+#    - If versions don't match, updates them and commits (stops workflow)
+#      NOTE: The version update commit does NOT trigger a new workflow run (GitHub security feature).
+#      The first actual build will occur on the next commit to the branch, which is acceptable
+#      since there are no real changes to build until then anyway.
 #    - If versions match, appends pre-release tag: -build.{RUN_NUMBER}
 #    - Publishes charts with pre-release versions (e.g., 1.0.0-build.92)
 #    - Updates umbrella chart dependencies to reference pre-release component versions
@@ -110,7 +113,9 @@ jobs:
             git commit -m "chore: update chart versions to $BRANCH_NAME"
             git push
             echo "version_changed=true" >> $GITHUB_OUTPUT
-            echo "Versions updated and committed. Stopping workflow - new run will be triggered."
+            echo "Versions updated and committed. Stopping workflow."
+            echo "Note: This commit will not trigger a new run (GitHub security feature)."
+            echo "The first build will occur on the next commit to this branch."
           else
             echo "All chart versions already match branch name"
             echo "version_changed=false" >> $GITHUB_OUTPUT

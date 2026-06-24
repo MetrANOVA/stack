@@ -35,6 +35,8 @@ Version branches follow the pattern `X.Y.Z` (e.g., `1.0.0`, `2.1.3`). When chang
 3. **Dependency Alignment**: The umbrella chart's local dependencies are updated to reference the same pre-release versions
 4. **Automatic Publishing**: Charts are packaged and published to GitHub Releases and the Helm repository index
 
+**Important Note:** When a new version branch is created, if Chart.yaml versions don't match the branch name, the workflow will automatically update and commit the versions. However, this commit will **not** trigger a new workflow run (GitHub security feature to prevent infinite loops). The first actual build will occur on the next commit to the branch, which is acceptable since there are no real changes to build until then anyway.
+
 **Example:**
 - Branch: `1.0.0`
 - Published versions: `1.0.0-build.92` (all component charts and umbrella chart)
