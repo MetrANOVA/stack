@@ -104,7 +104,7 @@ jobs:
               BRANCH_VERSION="$BRANCH_NAME"
               BRANCH_VERSION="$BRANCH_VERSION" yq eval -i '(.dependencies[] | select(.repository | test("^file://../charts/")) | .version) = strenv(BRANCH_VERSION)' ./helm/metranova/Chart.yaml
               rm -f ./helm/metranova/Chart.lock
-              git add ./helm/metranova/Chart.yaml ./helm/metranova/Chart.lock
+              git add ./helm/metranova/Chart.yaml
             fi
 
             git commit -m "chore: update chart versions to $BRANCH_NAME"
