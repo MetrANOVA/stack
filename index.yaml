@@ -235,6 +235,52 @@ entries:
     version: 0.2.0
   - apiVersion: v2
     appVersion: "1.0"
+    created: "2026-06-24T15:38:55.689493599Z"
+    dependencies:
+    - condition: clickhouse.enabled
+      name: clickhouse
+      repository: file://../charts/clickhouse
+      version: 0.2.0-build.95
+    - condition: kafka.enabled
+      name: kafka
+      repository: file://../charts/kafka
+      version: 0.2.0-build.95
+    - condition: telegraf.enabled
+      name: telegraf
+      repository: file://../charts/telegraf
+      version: 0.2.0-build.95
+    - condition: pmacct.enabled
+      name: pmacct
+      repository: file://../charts/pmacct
+      version: 0.2.0-build.95
+    - alias: snmpPipeline
+      condition: snmpPipeline.enabled
+      name: metranova-snmp-pipeline
+      repository: file://../charts/snmp-pipeline
+      version: 0.2.0-build.95
+    - alias: flowPipeline
+      condition: flowPipeline.enabled
+      name: metranova-flow-pipeline
+      repository: file://../charts/flow-pipeline
+      version: 0.2.0-build.95
+    - alias: api
+      condition: api.enabled
+      name: metranova-api
+      repository: file://../charts/api
+      version: 0.2.0-build.95
+    - condition: grafana.enabled
+      name: grafana
+      repository: https://grafana.github.io/helm-charts
+      version: ^10.4.0
+    description: Umbrella chart that deploys the MetrANOVA stack components
+    digest: bb994da9b2e02226bec2235c7971b3f320a1618d0a175e68238aca89b1b98d02
+    name: metranova
+    type: application
+    urls:
+    - https://github.com/MetrANOVA/stack/releases/download/metranova-0.2.0-build.95/metranova-0.2.0-build.95.tgz
+    version: 0.2.0-build.95
+  - apiVersion: v2
+    appVersion: "1.0"
     created: "2026-06-24T15:24:56.317862564Z"
     dependencies:
     - condition: clickhouse.enabled
@@ -2277,4 +2323,4 @@ entries:
     urls:
     - https://github.com/MetrANOVA/stack/releases/download/telegraf-0.1.0/telegraf-0.1.0.tgz
     version: 0.1.0
-generated: "2026-06-24T15:38:50.71930669Z"
+generated: "2026-06-24T15:38:55.689782225Z"
