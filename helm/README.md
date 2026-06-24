@@ -1,6 +1,6 @@
 # Helm Chart Layout
 
-This directory contains Helm charts for the MetraNova stack.
+This directory contains Helm charts for the MetrANOVA stack.
 
 Published Helm repository:
 
