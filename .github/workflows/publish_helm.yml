@@ -194,6 +194,7 @@ jobs:
 
           OWNER="${GITHUB_REPOSITORY_OWNER}"
           REPO="${GITHUB_REPOSITORY#*/}"
+          INDEX_URL="https://${OWNER}.github.io/${REPO}/index.yaml"
           INDEX_FILE="/tmp/helm-index.yaml"
 
           # Fetch index.yaml directly from gh-pages branch to avoid GitHub Pages caching delays
