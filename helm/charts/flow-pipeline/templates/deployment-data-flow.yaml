@@ -133,8 +133,8 @@ spec:
         - name: KAFKA_SSL_KEY_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: {{ .Values.certificates.existingSecret | default "pipeline-user" }}
-              key: user.password
+              name: {{ include "metranova-flow-pipeline.fullname" . }}-secrets
+              key: KAFKA_SSL_KEY_PASSWORD
         - name: CLICKHOUSE_HOST
           value: {{ include "metranova-flow-pipeline.clickhouseHost" . | quote }}
         - name: CLICKHOUSE_PORT
@@ -184,20 +184,20 @@ spec:
           readOnly: true
         - name: kafka-cluster-ca
           mountPath: /etc/ssl/certs/ca-certificates.crt
-          subPath: ca.crt
+          subPath: {{ .Values.certificates.kafkaCASubPath | default "kafka_ca.crt" }}
           readOnly: true
         {{- if or .Values.certificates.kafka.ca .Values.certificates.existingSecret }}
         - name: certificates
-          mountPath: /app/certificates/kafka_ca.crt
-          subPath: {{ .Values.certificates.kafkaCASubPath | default "ca.crt" }}
+          mountPath: /app/conf/certificates/kafka_ca.crt
+          subPath: {{ .Values.certificates.kafkaCASubPath | default "kafka_ca.crt" }}
           readOnly: true
         - name: certificates
-          mountPath: /app/certificates/kafka_user.crt
-          subPath: {{ .Values.certificates.kafkaCertSubPath | default "user.crt" }}
+          mountPath: /app/conf/certificates/kafka_user.crt
+          subPath: {{ .Values.certificates.kafkaCertSubPath | default "kafka_user.crt" }}
           readOnly: true
         - name: certificates
-          mountPath: /app/certificates/kafka_user.key
-          subPath: {{ .Values.certificates.kafkaKeySubPath | default "user.key" }}
+          mountPath: /app/conf/certificates/kafka_user.key
+          subPath: {{ .Values.certificates.kafkaKeySubPath | default "kafka_user.key" }}
           readOnly: true
         {{- end }}
       volumes:
@@ -205,11 +205,11 @@ spec:
         {{- include "metranova-flow-pipeline.configVolumeSource" . | nindent 8 }}
       - name: kafka-cluster-ca
         secret:
-          secretName: metranova-kafka-cluster-ca-cert
+          secretName: {{ .Values.certificates.existingSecret | default (printf "%s-certs" (include "metranova-flow-pipeline.fullname" .)) }}
       {{- if or .Values.certificates.kafka.ca .Values.certificates.existingSecret }}
       - name: certificates
         secret:
-          secretName: {{ .Values.certificates.existingSecret | default "pipeline-user" }}
+          secretName: {{ .Values.certificates.existingSecret | default (printf "%s-certs" (include "metranova-flow-pipeline.fullname" .)) }}
       {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:

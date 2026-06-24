@@ -130,10 +130,10 @@ The following table lists the configurable parameters of the chart and their def
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `certificates.existingSecret` | Use existing secret for Kafka TLS certificates | `pipeline-user` |
-| `certificates.kafkaCASubPath` | Key name in secret for CA certificate | `ca.crt` |
-| `certificates.kafkaCertSubPath` | Key name in secret for client certificate | `user.crt` |
-| `certificates.kafkaKeySubPath` | Key name in secret for client key | `user.key` |
+| `certificates.existingSecret` | Use existing secret for Kafka TLS certificates (empty = chart creates secret) | `""` |
+| `certificates.kafkaCASubPath` | Key name in secret for CA certificate | `kafka_ca.crt` |
+| `certificates.kafkaCertSubPath` | Key name in secret for client certificate | `kafka_user.crt` |
+| `certificates.kafkaKeySubPath` | Key name in secret for client key | `kafka_user.key` |
 | `certificates.kafka.ca` | Kafka CA certificate (base64) | `""` |
 | `certificates.kafka.cert` | Kafka client certificate (base64) | `""` |
 | `certificates.kafka.key` | Kafka client key (base64) | `""` |
