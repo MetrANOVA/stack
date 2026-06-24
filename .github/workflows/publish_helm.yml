@@ -90,9 +90,8 @@ jobs:
       # Update Chart.yaml to append -beta to version if not on main
       - name: Update Chart Version for Pre-Releases
         id: prerelease_version
-        if: github.ref_name != 'main' && steps.branch_gate.outputs.is_release_branch != 'true' && steps.version_check.outputs.version_changed != 'true' && github.actor != 'github-actions[bot]'
+        if: github.ref_name != 'main' && steps.branch_gate.outputs.is_release_branch == 'true' && steps.version_check.outputs.version_changed != 'true'
         run: |
-          CHANGED=false
           CHART_FILES=(./helm/metranova/Chart.yaml ./helm/charts/*/Chart.yaml)
 
           for CHART_FILE in "${CHART_FILES[@]}"; do
@@ -104,28 +103,19 @@ jobs:
               if [[ "$CURRENT_VERSION" == "$BASE_VERSION" ]]; then
                 echo "Updating chart version in $CHART_FILE to $NEW_VERSION"
                 yq eval -i ".version = \"$NEW_VERSION\"" "$CHART_FILE"
-                git add "$CHART_FILE"
                 CHANGED=true
               fi
             fi
           done
 
-          # Commit prerelease versions so chart-releaser can detect chart changes from git history.
-          if [ "$CHANGED" = true ] && [ "${{ github.actor }}" != "github-actions[bot]" ]; then
-            # Keep umbrella local dependency versions aligned with prerelease version.
-            if [ -f ./helm/metranova/Chart.yaml ]; then
-              METRANOVA_VERSION=$(yq eval '.version' ./helm/metranova/Chart.yaml)
-              yq eval -i '(.dependencies[] | select(.repository | test("^file://../charts/")) | .version) = strenv(METRANOVA_VERSION)' ./helm/metranova/Chart.yaml
-              rm -f ./helm/metranova/Chart.lock
-              git add ./helm/metranova/Chart.yaml ./helm/metranova/Chart.lock
-            fi
-
-            git commit -m "chore: set prerelease chart versions for run ${GITHUB_RUN_NUMBER}"
-            git push
-            echo "version_changed=true" >> "$GITHUB_OUTPUT"
-            echo "Prerelease versions committed. This run will stop before publishing."
-          else
-            echo "version_changed=false" >> "$GITHUB_OUTPUT"
+          # Also update umbrella chart's local dependency versions to use beta suffix.
+          if [ -f ./helm/metranova/Chart.yaml ]; then
+            CURRENT_VERSION=$(yq eval '.version' ./helm/metranova/Chart.yaml)
+            BASE_VERSION="${CURRENT_VERSION%%-beta*}"
+            NEW_VERSION="${BASE_VERSION}-beta.${GITHUB_RUN_NUMBER}"
+            #Note the repository is file://../charts/ so we don't update extrenal dependencies like Grafana
+            yq eval -i '(.dependencies[] | select(.repository | test("^file://../charts/")) | .version) = strenv(NEW_VERSION)' ./helm/metranova/Chart.yaml
+            rm -f ./helm/metranova/Chart.lock
           fi
 
       - name: Skip version mutation on non-release branches
@@ -135,13 +125,13 @@ jobs:
           echo "Skipping chart version mutation steps."
 
       - name: Configure Helm repositories
-        if: steps.version_check.outputs.version_changed != 'true' && steps.prerelease_version.outputs.version_changed != 'true'
+        if: steps.version_check.outputs.version_changed != 'true' && (github.ref_name == 'main' || steps.branch_gate.outputs.is_release_branch == 'true')
         run: |
           helm repo add grafana https://grafana.github.io/helm-charts --force-update
           helm repo update
 
       - name: Validate packaged chart contents
-        if: steps.version_check.outputs.version_changed != 'true' && steps.prerelease_version.outputs.version_changed != 'true'
+        if: steps.version_check.outputs.version_changed != 'true' && (github.ref_name == 'main' || steps.branch_gate.outputs.is_release_branch == 'true')
         run: |
           set -euo pipefail
           rm -rf .chart-verify
@@ -174,7 +164,7 @@ jobs:
           done
 
       - name: Run chart-releaser (component charts)
-        if: steps.version_check.outputs.version_changed != 'true' && steps.prerelease_version.outputs.version_changed != 'true'
+        if: steps.version_check.outputs.version_changed != 'true' && (github.ref_name == 'main' || steps.branch_gate.outputs.is_release_branch == 'true')
         uses: helm/chart-releaser-action@v1.7.0
         env:
           CR_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
@@ -184,96 +174,18 @@ jobs:
           skip_existing: true
           mark_as_latest: ${{ github.ref_name == 'main' }}
 
-      - name: Reset chart-releaser index workspace
-        if: steps.version_check.outputs.version_changed != 'true' && steps.prerelease_version.outputs.version_changed != 'true'
-        run: |
-          rm -rf .cr-index
-
-      - name: Package umbrella chart
-        if: steps.version_check.outputs.version_changed != 'true' && steps.prerelease_version.outputs.version_changed != 'true'
-        run: |
-          rm -rf .cr-release-packages
-          mkdir -p .cr-release-packages
-          helm dependency build helm/metranova
-          helm package helm/metranova --destination .cr-release-packages
-
-      - name: Install chart-releaser CLI
-        if: steps.version_check.outputs.version_changed != 'true' && steps.prerelease_version.outputs.version_changed != 'true'
-        run: |
-          CR_VERSION="v1.7.0"
-          curl -sSL -o cr.tar.gz "https://github.com/helm/chart-releaser/releases/download/${CR_VERSION}/chart-releaser_${CR_VERSION#v}_linux_amd64.tar.gz"
-          tar -xzf cr.tar.gz cr
-          chmod +x cr
-          mv cr "$RUNNER_TEMP/cr"
-          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
-
-      - name: Publish umbrella chart package
-        if: steps.version_check.outputs.version_changed != 'true' && steps.prerelease_version.outputs.version_changed != 'true'
+      - name: Run chart-releaser (umbrella chart)
+        if: steps.version_check.outputs.version_changed != 'true' && (github.ref_name == 'main' || steps.branch_gate.outputs.is_release_branch == 'true')
+        uses: helm/chart-releaser-action@v1.7.0
         env:
           CR_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
-        run: |
-          set -euo pipefail
-          OWNER="${GITHUB_REPOSITORY_OWNER}"
-          REPO="${GITHUB_REPOSITORY#*/}"
-
-          # Upload pre-packaged umbrella chart artifact as a GitHub release asset.
-          cr upload \
-            --owner "$OWNER" \
-            --git-repo "$REPO" \
-            --package-path .cr-release-packages \
-            --token "$CR_TOKEN" \
-            --skip-existing
-
-      - name: Update gh-pages index with umbrella chart
-        if: steps.version_check.outputs.version_changed != 'true' && steps.prerelease_version.outputs.version_changed != 'true'
-        env:
-          CR_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
-        run: |
-          set -euo pipefail
-          OWNER="${GITHUB_REPOSITORY_OWNER}"
-          REPO="${GITHUB_REPOSITORY#*/}"
-
-          # Work on an isolated gh-pages checkout to avoid clobbering the main workspace.
-          rm -rf .gh-pages-work
-          git clone --branch gh-pages --single-branch "https://x-access-token:${CR_TOKEN}@github.com/${OWNER}/${REPO}.git" .gh-pages-work
-
-          # Merge new package metadata into existing index.yaml from gh-pages.
-          cr index \
-            --owner "$OWNER" \
-            --git-repo "$REPO" \
-            --package-path .cr-release-packages \
-            --index-path .gh-pages-work/index.yaml \
-            --charts-repo "https://${OWNER}.github.io/${REPO}"
-
-          cd .gh-pages-work
-          git config user.name "$GITHUB_ACTOR"
-          git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
-
-          if git diff --quiet -- index.yaml; then
-            echo "No index.yaml changes to publish."
-            exit 0
-          fi
-
-          git add index.yaml
-          git commit -m "chore(helm): update index.yaml for ${GITHUB_SHA}"
-
-          # Retry push in case another run updated gh-pages concurrently.
-          for attempt in 1 2 3; do
-            if git push origin gh-pages; then
-              echo "Pushed gh-pages index update on attempt ${attempt}."
-              exit 0
-            fi
-
-            echo "Push failed (attempt ${attempt}); rebasing on latest origin/gh-pages and retrying."
-            git fetch origin gh-pages
-            git rebase origin/gh-pages
-          done
-
-          echo "Failed to push gh-pages index.yaml after retries."
-          exit 1
+        with:
+          charts_dir: ./helm/metranova
+          skip_existing: true
+          mark_as_latest: ${{ github.ref_name == 'main' }}
 
       - name: Validate published index entries and assets
-        if: steps.version_check.outputs.version_changed != 'true' && steps.prerelease_version.outputs.version_changed != 'true'
+        if: steps.version_check.outputs.version_changed != 'true' && (github.ref_name == 'main' || steps.branch_gate.outputs.is_release_branch == 'true')
         run: |
           set -euo pipefail
 
