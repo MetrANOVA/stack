@@ -187,15 +187,18 @@ jobs:
 
       - name: Validate published index entries and assets
         if: steps.version_check.outputs.version_changed != 'true' && (github.ref_name == 'main' || steps.branch_gate.outputs.is_release_branch == 'true')
+        env:
+          CR_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
         run: |
           set -euo pipefail
 
           OWNER="${GITHUB_REPOSITORY_OWNER}"
           REPO="${GITHUB_REPOSITORY#*/}"
-          INDEX_URL="https://${OWNER}.github.io/${REPO}/index.yaml"
           INDEX_FILE="/tmp/helm-index.yaml"
 
-          curl -fsSL "$INDEX_URL" -o "$INDEX_FILE"
+          # Fetch index.yaml directly from gh-pages branch to avoid GitHub Pages caching delays
+          git fetch origin gh-pages
+          git show origin/gh-pages:index.yaml > "$INDEX_FILE"
 
           CHART_FILES=(./helm/charts/*/Chart.yaml ./helm/metranova/Chart.yaml)
           for CHART_FILE in "${CHART_FILES[@]}"; do
