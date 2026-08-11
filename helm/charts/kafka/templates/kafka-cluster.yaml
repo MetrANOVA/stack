@@ -1,4 +1,25 @@
 ---
+{{- if .Values.customNodePools }}
+{{- range $poolName, $poolConfig := .Values.customNodePools }}
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaNodePool
+metadata:
+  name: {{ $.Values.cluster.name }}-{{ $poolName }}
+  labels:
+    strimzi.io/cluster: {{ $.Values.cluster.name }}
+spec:
+  replicas: {{ $poolConfig.replicas }}
+  roles:
+    {{- toYaml $poolConfig.roles | nindent 4 }}
+  storage:
+    {{- toYaml $poolConfig.storage | nindent 4 }}
+  {{- if $poolConfig.template }}
+  template:
+    {{- toYaml $poolConfig.template | nindent 4 }}
+  {{- end }}
+---
+{{- end }}
+{{- else }}
 {{- $kraftStorageClass := .Values.kraft.storage.class | default .Values.global.storageClassName }}
 apiVersion: kafka.strimzi.io/v1
 kind: KafkaNodePool
@@ -77,6 +98,7 @@ spec:
     {{- end }}
     deleteClaim: false
 ---
+{{- end }}
 apiVersion: kafka.strimzi.io/v1
 kind: Kafka
 metadata:
@@ -120,11 +142,15 @@ spec:
         authentication:
           type: scram-sha-512
     config:
+      {{- if .Values.customKafkaConfig }}
+      {{- toYaml .Values.customKafkaConfig | nindent 6 }}
+      {{- else }}
       offsets.topic.replication.factor: 3
       transaction.state.log.replication.factor: 3
       transaction.state.log.min.isr: 2
       default.replication.factor: 3
       min.insync.replicas: 2
+      {{- end }}
   entityOperator:
     topicOperator:
       reconciliationIntervalMs: 120000

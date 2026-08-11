@@ -4,6 +4,35 @@ global:
 cluster:
   name: metranova-kafka
 
+# Override the default kraft-controllers + brokers node pools with custom pools.
+# Each key becomes the pool name suffix; values must include replicas, roles, and storage.
+# Example:
+#   customNodePools:
+#     controllers:
+#       replicas: 3
+#       roles: [controller]
+#       storage:
+#         type: persistent-claim
+#         size: 5Gi
+#         class: sc-rbd-multi-cluster
+#         deleteClaim: false
+#     brokers:
+#       replicas: 3
+#       roles: [broker]
+#       storage:
+#         type: persistent-claim
+#         size: 20Gi
+#         class: sc-rbd-multi-cluster
+#         deleteClaim: false
+customNodePools: {}
+
+# Override the default Kafka broker config. When set, replaces the built-in defaults entirely.
+# Example:
+#   customKafkaConfig:
+#     offsets.topic.replication.factor: 3
+#     min.insync.replicas: 2
+customKafkaConfig: {}
+
 kafka:
   version: "4.1.1"
   image:
