@@ -87,6 +87,16 @@ metadata:
 spec:
   kafka:
     version: {{ .Values.kafka.version }}
+    {{- $kafkaImage := get .Values.kafka "image" }}
+    {{- if $kafkaImage }}
+    {{- $kafkaImageRepository := get $kafkaImage "repository" }}
+    {{- $kafkaImageTag := get $kafkaImage "tag" }}
+    {{- if and $kafkaImageRepository $kafkaImageTag }}
+    image: {{ printf "%s:%s" $kafkaImageRepository $kafkaImageTag | quote }}
+    {{- else if $kafkaImageRepository }}
+    image: {{ $kafkaImageRepository | quote }}
+    {{- end }}
+    {{- end }}
     authorization:
       type: simple
       superUsers:
@@ -118,6 +128,16 @@ spec:
   entityOperator:
     topicOperator:
       reconciliationIntervalMs: 120000
+      {{- $topicOperatorImage := get .Values.entityOperator.topicOperator "image" }}
+      {{- if $topicOperatorImage }}
+      {{- $topicOperatorImageRepository := get $topicOperatorImage "repository" }}
+      {{- $topicOperatorImageTag := get $topicOperatorImage "tag" }}
+      {{- if and $topicOperatorImageRepository $topicOperatorImageTag }}
+      image: {{ printf "%s:%s" $topicOperatorImageRepository $topicOperatorImageTag | quote }}
+      {{- else if $topicOperatorImageRepository }}
+      image: {{ $topicOperatorImageRepository | quote }}
+      {{- end }}
+      {{- end }}
       {{- if .Values.entityOperator.topicOperator.resources }}
       resources:
         {{- toYaml .Values.entityOperator.topicOperator.resources | nindent 8 }}
@@ -140,6 +160,16 @@ spec:
       {{- end }}
     userOperator:
       reconciliationIntervalMs: 120000
+      {{- $userOperatorImage := get .Values.entityOperator.userOperator "image" }}
+      {{- if $userOperatorImage }}
+      {{- $userOperatorImageRepository := get $userOperatorImage "repository" }}
+      {{- $userOperatorImageTag := get $userOperatorImage "tag" }}
+      {{- if and $userOperatorImageRepository $userOperatorImageTag }}
+      image: {{ printf "%s:%s" $userOperatorImageRepository $userOperatorImageTag | quote }}
+      {{- else if $userOperatorImageRepository }}
+      image: {{ $userOperatorImageRepository | quote }}
+      {{- end }}
+      {{- end }}
       {{- if .Values.entityOperator.userOperator.resources }}
       resources:
         {{- toYaml .Values.entityOperator.userOperator.resources | nindent 8 }}

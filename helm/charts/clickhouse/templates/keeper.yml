@@ -45,10 +45,17 @@ spec:
           topologySpreadConstraints:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+          {{- $chkImage := get .Values.config.chk "image" }}
+          {{- $chkImageRepository := "clickhouse/clickhouse-keeper" }}
+          {{- $chkImageTag := toString .Values.config.clickhouse_version }}
+          {{- if $chkImage }}
+          {{- $chkImageRepository = coalesce (get $chkImage "repository") $chkImageRepository }}
+          {{- $chkImageTag = coalesce (get $chkImage "tag") $chkImageTag }}
+          {{- end }}
           containers:
             - name: clickhouse-keeper
               imagePullPolicy: IfNotPresent
-              image: "clickhouse/clickhouse-keeper:{{ .Values.config.clickhouse_version }}"
+              image: {{ printf "%s:%s" $chkImageRepository $chkImageTag | quote }}
               resources:
                 requests:
                   memory: "{{ .Values.config.chk.resources.requests.memory }}"

@@ -205,12 +205,18 @@ config:
   # Keeper configuration (coordination service)
   chk:
     name: "keeper-cluster"
+    image:
+      repository: clickhouse/clickhouse-keeper
+      tag: "" # Optional override; defaults to config.clickhouse_version
     resources:
       disk_volume_size: 10Gi
       replicasCount: 3 # 3 nodes for HA quorum
 
   # ClickHouse configuration
   ch:
+    image:
+      repository: clickhouse/clickhouse-server
+      tag: "" # Optional override; defaults to config.clickhouse_version
     resources:
       disk_volume_size: 100Gi
       log_volume_size: 10Gi

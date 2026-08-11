@@ -16,6 +16,10 @@ config:
 
   chk:
     name: "keeper-cluster"
+    image:
+      repository: clickhouse/clickhouse-keeper
+      # Optional override; when empty, config.clickhouse_version is used.
+      tag: ""
     affinity:
       podAntiAffinity:
         requiredDuringSchedulingIgnoredDuringExecution:
@@ -39,6 +43,10 @@ config:
         memory: 4Gi
         cpu: 2
   ch:
+    image:
+      repository: clickhouse/clickhouse-server
+      # Optional override; when empty, config.clickhouse_version is used.
+      tag: ""
     affinity: {}
     tolerations: []
     topologySpreadConstraints: []

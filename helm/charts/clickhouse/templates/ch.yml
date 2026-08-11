@@ -142,9 +142,16 @@ spec:
           topologySpreadConstraints:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+          {{- $chImage := get .Values.config.ch "image" }}
+          {{- $chImageRepository := "clickhouse/clickhouse-server" }}
+          {{- $chImageTag := toString .Values.config.clickhouse_version }}
+          {{- if $chImage }}
+          {{- $chImageRepository = coalesce (get $chImage "repository") $chImageRepository }}
+          {{- $chImageTag = coalesce (get $chImage "tag") $chImageTag }}
+          {{- end }}
           containers:
             - name: clickhouse
-              image: clickhouse/clickhouse-server:{{ .Values.config.clickhouse_version }}
+              image: {{ printf "%s:%s" $chImageRepository $chImageTag | quote }}
               resources:
                 requests:
                   memory: "{{ .Values.config.ch.resources.requests.memory }}"

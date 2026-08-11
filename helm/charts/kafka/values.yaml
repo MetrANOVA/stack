@@ -6,6 +6,11 @@ cluster:
 
 kafka:
   version: "4.1.1"
+  image:
+    # Optional custom image repository. Leave empty to use Strimzi defaults.
+    repository: ""
+    # Optional custom image tag. If empty and repository is set, repository is used as-is.
+    tag: ""
   replicas: 3
   replicationFactor: 3
   minIsr: 2
@@ -29,11 +34,21 @@ kraft:
 
 entityOperator:
   topicOperator:
+    image:
+      # Optional custom image repository. Leave empty to use Strimzi defaults.
+      repository: ""
+      # Optional custom image tag. If empty and repository is set, repository is used as-is.
+      tag: ""
     resources: {}
     tolerations: []
     affinity: {}
     topologySpreadConstraints: []
   userOperator:
+    image:
+      # Optional custom image repository. Leave empty to use Strimzi defaults.
+      repository: ""
+      # Optional custom image tag. If empty and repository is set, repository is used as-is.
+      tag: ""
     resources: {}
     tolerations: []
     affinity: {}
