@@ -34,7 +34,7 @@ customNodePools: {}
 customKafkaConfig: {}
 
 kafka:
-  version: "4.1.1"
+  version: 4.3.0
   image:
     # Optional custom image repository. Leave empty to use Strimzi defaults.
     repository: ""
