@@ -76,7 +76,6 @@ config:
   kafka:
     # If empty, resolves to: <clusterName>-kafka-bootstrap:<port>
     bootstrapServers: ""
-    clusterName: metranova-kafka
     port: 9093
     consumerGroup: metranova_pipeline
     ssl:

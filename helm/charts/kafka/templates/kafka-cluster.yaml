@@ -1,12 +1,13 @@
 ---
+{{- $clusterName := include "kafka.clusterName" . }}
 {{- if .Values.customNodePools }}
 {{- range $poolName, $poolConfig := .Values.customNodePools }}
 apiVersion: kafka.strimzi.io/v1
 kind: KafkaNodePool
 metadata:
-  name: {{ $.Values.cluster.name }}-{{ $poolName }}
+  name: {{ $clusterName }}-{{ $poolName }}
   labels:
-    strimzi.io/cluster: {{ $.Values.cluster.name }}
+    strimzi.io/cluster: {{ $clusterName }}
 spec:
   replicas: {{ $poolConfig.replicas }}
   roles:
@@ -24,9 +25,9 @@ spec:
 apiVersion: kafka.strimzi.io/v1
 kind: KafkaNodePool
 metadata:
-  name: {{ .Values.cluster.name }}-kraft-controllers
+  name: {{ $clusterName }}-kraft-controllers
   labels:
-    strimzi.io/cluster: {{ .Values.cluster.name }}
+    strimzi.io/cluster: {{ $clusterName }}
 spec:
   replicas: {{ .Values.kraft.replicas }}
   roles:
@@ -63,9 +64,9 @@ spec:
 apiVersion: kafka.strimzi.io/v1
 kind: KafkaNodePool
 metadata:
-  name: {{ .Values.cluster.name }}-brokers
+  name: {{ $clusterName }}-brokers
   labels:
-    strimzi.io/cluster: {{ .Values.cluster.name }}
+    strimzi.io/cluster: {{ $clusterName }}
 spec:
   replicas: {{ .Values.kafka.replicas }}
   roles:
@@ -102,7 +103,7 @@ spec:
 apiVersion: kafka.strimzi.io/v1
 kind: Kafka
 metadata:
-  name: {{ .Values.cluster.name }}
+  name: {{ $clusterName }}
   annotations:
     strimzi.io/kraft: enabled
     strimzi.io/node-pools: enabled
@@ -122,8 +123,8 @@ spec:
     authorization:
       type: simple
       superUsers:
-        - CN={{ .Values.cluster.name }}-entity-topic-operator
-        - CN={{ .Values.cluster.name }}-entity-user-operator
+        - CN={{ $clusterName }}-entity-topic-operator
+        - CN={{ $clusterName }}-entity-user-operator
     listeners:
       - name: plain
         port: 9092

@@ -2,7 +2,7 @@ global:
   storageClassName: ""
 
 cluster:
-  name: metranova-kafka
+  name: ""
 
 # Override the default kraft-controllers + brokers node pools with custom pools.
 # Each key becomes the pool name suffix; values must include replicas, roles, and storage.

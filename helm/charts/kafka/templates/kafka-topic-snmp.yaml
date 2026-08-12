@@ -1,9 +1,10 @@
 apiVersion: kafka.strimzi.io/v1
 kind: KafkaTopic
+{{- $clusterName := include "kafka.clusterName" . }}
 metadata:
   name: metranova-snmp
   labels:
-    strimzi.io/cluster: {{ .Values.cluster.name }}
+    strimzi.io/cluster: {{ $clusterName }}
 spec:
   topicName: metranova_snmp
   partitions: {{ .Values.topics.snmp.partitions | default 3 }}

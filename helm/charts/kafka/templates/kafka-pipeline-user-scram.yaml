@@ -1,9 +1,10 @@
 apiVersion: kafka.strimzi.io/v1
 kind: KafkaUser
+{{- $clusterName := include "kafka.clusterName" . }}
 metadata:
   name: pipeline-user-scram
   labels:
-    strimzi.io/cluster: {{ .Values.cluster.name }}
+    strimzi.io/cluster: {{ $clusterName }}
 spec:
   authentication:
     type: scram-sha-512

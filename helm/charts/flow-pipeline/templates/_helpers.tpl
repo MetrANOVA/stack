@@ -78,7 +78,7 @@ Resolve Kafka bootstrap servers.
 {{- if .Values.config.kafka.bootstrapServers -}}
 {{- .Values.config.kafka.bootstrapServers -}}
 {{- else -}}
-{{- printf "%s-kafka-bootstrap:%v" (.Values.config.kafka.clusterName | default "metranova-kafka") (.Values.config.kafka.port | default 9092) -}}
+{{- printf "%s-kafka-bootstrap:%v" (.Values.config.kafka.clusterName | default .Release.Name) (.Values.config.kafka.port | default 9092) -}}
 {{- end -}}
 {{- end }}
 
