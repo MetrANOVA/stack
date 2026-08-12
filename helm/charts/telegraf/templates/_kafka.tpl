@@ -7,11 +7,11 @@
 {{- end }}
 
 {{- define "telegraf.kafkaClusterCaSecretName" -}}
-{{- .Values.kafka.clusterCaSecret | default (printf "%s-cluster-ca-cert" (.Values.kafka.clusterName | default "metranova-kafka")) -}}
+{{- .Values.kafka.clusterCaSecret | default (printf "%s-cluster-ca-cert" (.Values.kafka.clusterName | default .Release.Name)) -}}
 {{- end }}
 
 {{- define "telegraf.kafkaBootstrapHost" -}}
-{{- printf "%s-kafka-bootstrap.%s.svc" (.Values.kafka.clusterName | default "metranova-kafka") (include "telegraf.kafkaNamespace" .) -}}
+{{- printf "%s-kafka-bootstrap.%s.svc" (.Values.kafka.clusterName | default .Release.Name) (include "telegraf.kafkaNamespace" .) -}}
 {{- end }}
 
 {{- define "telegraf.kafkaOutput" -}}

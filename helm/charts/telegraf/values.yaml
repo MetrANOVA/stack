@@ -49,7 +49,6 @@ inputs:
     enabled: false
 
 kafka:
-  clusterName: metranova-kafka
   namespace: ""
   port: 9093
   userName: pipeline-user

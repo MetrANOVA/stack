@@ -205,7 +205,7 @@ spec:
         {{- include "metranova-flow-pipeline.configVolumeSource" . | nindent 8 }}
       - name: kafka-cluster-ca
         secret:
-          secretName: metranova-kafka-cluster-ca-cert
+          secretName: {{ include "metranova-flow-pipeline.kafkaClusterCaSecretName" . }}
       {{- if or .Values.certificates.kafka.ca .Values.certificates.existingSecret }}
       - name: certificates
         secret:

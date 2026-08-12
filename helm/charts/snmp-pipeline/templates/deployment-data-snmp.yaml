@@ -135,7 +135,7 @@ spec:
           name: {{ .Values.configFiles.existingConfigMap | default (printf "%s-config" (include "metranova-snmp-pipeline.fullname" .)) }}
       - name: kafka-cluster-ca
         secret:
-          secretName: metranova-kafka-cluster-ca-cert
+          secretName: {{ include "metranova-snmp-pipeline.kafkaClusterCaSecretName" . }}
       {{- if or .Values.certificates.kafka.ca .Values.certificates.existingSecret }}
       - name: certificates
         secret:

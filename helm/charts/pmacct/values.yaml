@@ -22,7 +22,6 @@ sfacctd:
     entryPoint: sflow-6343
 
 kafka:
-  clusterName: metranova-kafka
   namespace: ""
   port: 9093
   userName: pipeline-user

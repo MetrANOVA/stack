@@ -7,9 +7,9 @@
 {{- end }}
 
 {{- define "pmacct.kafkaClusterCaSecretName" -}}
-{{- .Values.kafka.clusterCaSecret | default (printf "%s-cluster-ca-cert" (.Values.kafka.clusterName | default "metranova-kafka")) -}}
+{{- .Values.kafka.clusterCaSecret | default (printf "%s-cluster-ca-cert" (.Values.kafka.clusterName | default .Release.Name)) -}}
 {{- end }}
 
 {{- define "pmacct.kafkaBootstrapHost" -}}
-{{- printf "%s-kafka-bootstrap.%s.svc" (.Values.kafka.clusterName | default "metranova-kafka") (include "pmacct.kafkaNamespace" .) -}}
+{{- printf "%s-kafka-bootstrap.%s.svc" (.Values.kafka.clusterName | default .Release.Name) (include "pmacct.kafkaNamespace" .) -}}
 {{- end }}

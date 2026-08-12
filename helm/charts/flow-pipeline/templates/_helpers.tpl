@@ -83,6 +83,13 @@ Resolve Kafka bootstrap servers.
 {{- end }}
 
 {{/*
+Resolve Kafka cluster CA secret.
+*/}}
+{{- define "metranova-flow-pipeline.kafkaClusterCaSecretName" -}}
+{{- .Values.config.kafka.clusterCaSecret | default (printf "%s-cluster-ca-cert" (.Values.config.kafka.clusterName | default .Release.Name)) -}}
+{{- end }}
+
+{{/*
 Resolve ClickHouse service host.
 */}}
 {{- define "metranova-flow-pipeline.clickhouseHost" -}}

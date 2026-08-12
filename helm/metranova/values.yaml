@@ -225,7 +225,6 @@ telegraf:
       enabled: false
 
   kafka:
-    clusterName: metranova-kafka
     namespace: ""
     port: 9093
     userName: pipeline-user
@@ -256,7 +255,6 @@ pmacct:
     topic: metranova_sflow
 
   kafka:
-    clusterName: metranova-kafka
     namespace: ""
     port: 9093
     userName: pipeline-user
