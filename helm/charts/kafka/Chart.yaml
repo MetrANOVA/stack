@@ -3,4 +3,4 @@ name: kafka
 description: MetrANOVA Kafka cluster using Strimzi operator
 type: application
 version: "0.2.1"
-appVersion: "4.1.1"
+appVersion: "4.3.0"

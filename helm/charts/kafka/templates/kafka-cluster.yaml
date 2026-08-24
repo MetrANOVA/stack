@@ -60,7 +60,7 @@ spec:
     {{- end }}
     deleteClaim: false
 ---
-{{- $kafkaStorageClass := .Values.kafka.storage.class | default .Values.global.storageClassName }}
+{{- $kafkaStorageClass := .Values.storage.class | default .Values.global.storageClassName }}
 apiVersion: kafka.strimzi.io/v1
 kind: KafkaNodePool
 metadata:
@@ -68,32 +68,32 @@ metadata:
   labels:
     strimzi.io/cluster: {{ $clusterName }}
 spec:
-  replicas: {{ .Values.kafka.replicas }}
+  replicas: {{ .Values.replicas }}
   roles:
     - broker
-  {{- with .Values.kafka.resources }}
+  {{- with .Values.resources }}
   resources:
     {{- toYaml . | nindent 4 }}
   {{- end }}
-  {{- if or .Values.kafka.affinity .Values.kafka.tolerations .Values.kafka.topologySpreadConstraints }}
+  {{- if or .Values.affinity .Values.tolerations .Values.topologySpreadConstraints }}
   template:
     pod:
-      {{- with .Values.kafka.affinity }}
+      {{- with .Values.affinity }}
       affinity:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.kafka.tolerations }}
+      {{- with .Values.tolerations }}
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.kafka.topologySpreadConstraints }}
+      {{- with .Values.topologySpreadConstraints }}
       topologySpreadConstraints:
         {{- toYaml . | nindent 8 }}
       {{- end }}
   {{- end }}
   storage:
     type: persistent-claim
-    size: {{ .Values.kafka.storage.size }}
+    size: {{ .Values.storage.size }}
     {{- if $kafkaStorageClass }}
     class: {{ $kafkaStorageClass }}
     {{- end }}
@@ -109,8 +109,8 @@ metadata:
     strimzi.io/node-pools: enabled
 spec:
   kafka:
-    version: {{ .Values.kafka.version }}
-    {{- $kafkaImage := get .Values.kafka "image" }}
+    version: {{ .Values.version }}
+    {{- $kafkaImage := get .Values "image" }}
     {{- if $kafkaImage }}
     {{- $kafkaImageRepository := get $kafkaImage "repository" }}
     {{- $kafkaImageTag := get $kafkaImage "tag" }}

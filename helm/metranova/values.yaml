@@ -131,7 +131,7 @@ kafka:
   cluster:
 
   kafka:
-    version: 4.1.1
+    version: 4.3.0
     replicas: 3
     replicationFactor: 3
     minIsr: 2
