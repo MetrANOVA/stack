@@ -1,6 +1,15 @@
+# values-netflow.yaml
 inputs:
+  snmp:
+    enabled: false      # now required: snmp defaults to true
   netflow:
     enabled: true
+
+outputs:
+  kafka:
+    topics:
+      - topic: metranova_netflow
+        namepass: ["netflow"]
 
 service:
   name: telegraf

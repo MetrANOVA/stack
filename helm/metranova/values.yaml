@@ -219,10 +219,28 @@ telegraf:
   topologySpreadConstraints: []
 
   inputs:
+    # On by default. Ships with agents = [] so it polls nothing until configured.
     snmp:
-      enabled: false
+      enabled: true
     netflow:
       enabled: false
+
+  outputs:
+    # Default: Kafka over TLS as the Strimzi-provisioned pipeline user.
+    # Connection details come from the kafka: block below.
+    kafka:
+      enabled: true
+      dataFormat: json
+      brokers: []          # empty = derive from kafka.clusterName/namespace/port
+      tls:
+        enabled: true
+      topics:              # one [[outputs.kafka]] block per entry
+        - topic: metranova_snmp
+          namepass: ["snmp_*"]
+
+    # Raw TOML appended verbatim. Set kafka.enabled=false and use this to
+    # replace the default output entirely.
+  extraConfig: ""
 
   kafka:
     namespace: ""

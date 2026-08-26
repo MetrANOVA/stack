@@ -7,13 +7,16 @@ metadata:
     app.kubernetes.io/instance: {{ .Release.Name }}
 data:
   telegraf.conf: |
-{{ .Files.Get "configs/agent.conf" | nindent 4 }}
+{{ .Files.Get "configs/agent.conf" | trim | nindent 4 }}
+{{- if .Values.outputs.kafka.enabled }}
+{{ include "telegraf.kafkaOutputs" . | trim | nindent 4 }}
+{{- end }}
+{{- with .Values.outputs.extraConfig }}
+{{ tpl . $ | trim | nindent 4 }}
+{{- end }}
 {{- if .Values.inputs.snmp.enabled }}
-{{ include "telegraf.kafkaOutput" (merge (dict "topic" "metranova_snmp" "metric" "snmp_if") .) | nindent 4 }}
-{{ .Files.Get "configs/input-snmp.conf" | nindent 4 }}
+{{ .Files.Get "configs/input-snmp.conf" | trim | nindent 4 }}
 {{- end }}
 {{- if .Values.inputs.netflow.enabled }}
-{{ include "telegraf.kafkaOutput" (merge (dict "topic" "metranova_netflow" "metric" "netflow") .) | nindent 4 }}
-{{ .Files.Get "configs/input-netflow.conf" | nindent 4 }}
+{{ .Files.Get "configs/input-netflow.conf" | trim | nindent 4 }}
 {{- end }}
-

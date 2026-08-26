@@ -24,6 +24,7 @@ spec:
       serviceAccountName: {{ if .Values.serviceAccount.create }}{{ default (printf "%s-telegraf" .Release.Name) .Values.serviceAccount.name }}{{ else }}{{ .Values.serviceAccount.name }}{{ end }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
+{{- if and .Values.outputs.kafka.enabled .Values.outputs.kafka.tls.enabled }}
       initContainers:
         - name: wait-for-kafka-certs
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -47,6 +48,7 @@ spec:
               name: kafka-certs
             - mountPath: /etc/telegraf/cluster-ca
               name: kafka-cluster-ca
+{{- end }}
       containers:
         - name: telegraf
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
