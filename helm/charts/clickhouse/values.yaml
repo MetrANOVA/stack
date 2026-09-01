@@ -1,5 +1,9 @@
 global:
   storageClassName: ""
+  kafka:
+    clusterName: ""
+  clickhouse:
+    name: "ch-cluster"
 
 config:
   tls:

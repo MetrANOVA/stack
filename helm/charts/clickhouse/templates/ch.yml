@@ -8,12 +8,11 @@ spec:
   configuration:
     zookeeper:
       nodes:
-        - host: chk-keeper-cluster-{{ .Values.config.chk.name }}-0-0.{{ .Release.Namespace }}.svc.cluster.local
+{{- $root := . }}
+{{- range $i := until (int (.Values.config.chk.resources.replicasCount | default 3)) }}
+        - host: {{ include "clickhouse.chkHost" (dict "root" $root "replica" $i) }}.{{ $.Release.Namespace }}.svc.cluster.local
           port: 2181
-        - host: chk-keeper-cluster-{{ .Values.config.chk.name }}-0-1.{{ .Release.Namespace }}.svc.cluster.local
-          port: 2181
-        - host: chk-keeper-cluster-{{ .Values.config.chk.name }}-0-2.{{ .Release.Namespace }}.svc.cluster.local
-          port: 2181
+{{- end }}
     clusters:
       - name: ch-cluster
         layout:
