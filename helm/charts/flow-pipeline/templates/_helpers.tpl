@@ -71,6 +71,11 @@ imagePullSecrets:
 {{- end }}
 {{- end }}
 
+{{- define "metranova-flow-pipeline.kafkaClusterName" -}}
+{{- $g := dig "kafka" "clusterName" "" (.Values.global | default dict) -}}
+{{- .Values.config.kafka.clusterName | default $g | default .Release.Name -}}
+{{- end }}
+
 {{/*
 Resolve Kafka bootstrap servers.
 */}}
@@ -78,7 +83,7 @@ Resolve Kafka bootstrap servers.
 {{- if .Values.config.kafka.bootstrapServers -}}
 {{- .Values.config.kafka.bootstrapServers -}}
 {{- else -}}
-{{- printf "%s-kafka-bootstrap:%v" (.Values.config.kafka.clusterName | default .Release.Name) (.Values.config.kafka.port | default 9092) -}}
+{{- printf "%s-kafka-bootstrap:%v" (include "metranova-flow-pipeline.kafkaClusterName" .) (.Values.config.kafka.port | default 9092) -}}
 {{- end -}}
 {{- end }}
 
@@ -86,7 +91,7 @@ Resolve Kafka bootstrap servers.
 Resolve Kafka cluster CA secret.
 */}}
 {{- define "metranova-flow-pipeline.kafkaClusterCaSecretName" -}}
-{{- .Values.config.kafka.clusterCaSecret | default (printf "%s-cluster-ca-cert" (.Values.config.kafka.clusterName | default .Release.Name)) -}}
+{{- .Values.config.kafka.clusterCaSecret | default (printf "%s-cluster-ca-cert" (include "metranova-flow-pipeline.kafkaClusterName" .)) -}}
 {{- end }}
 
 {{/*
@@ -96,7 +101,7 @@ Resolve ClickHouse service host.
 {{- if .Values.config.clickhouse.host -}}
 {{- .Values.config.clickhouse.host -}}
 {{- else -}}
-{{- .Values.config.clickhouse.serviceName | default "clickhouse-ch-cluster" -}}
+{{- .Values.config.clickhouse.serviceName | default (printf "clickhouse-%s" (dig "clickhouse" "name" "ch-cluster" (.Values.global | default dict))) -}}
 {{- end -}}
 {{- end }}
 

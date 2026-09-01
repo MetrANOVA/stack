@@ -2,16 +2,21 @@
 {{- .Values.kafka.namespace | default .Release.Namespace -}}
 {{- end }}
 
+{{- define "telegraf.kafkaClusterName" -}}
+{{- $g := dig "kafka" "clusterName" "" (.Values.global | default dict) -}}
+{{- .Values.kafka.clusterName | default $g | default .Release.Name -}}
+{{- end }}
+
 {{- define "telegraf.kafkaUserSecretName" -}}
 {{- .Values.kafka.certSecret | default (.Values.kafka.userName | default "pipeline-user") -}}
 {{- end }}
 
 {{- define "telegraf.kafkaClusterCaSecretName" -}}
-{{- .Values.kafka.clusterCaSecret | default (printf "%s-cluster-ca-cert" (.Values.kafka.clusterName | default .Release.Name)) -}}
+{{- .Values.kafka.clusterCaSecret | default (printf "%s-cluster-ca-cert" (include "telegraf.kafkaClusterName" .)) -}}
 {{- end }}
 
 {{- define "telegraf.kafkaBootstrapHost" -}}
-{{- printf "%s-kafka-bootstrap.%s.svc" (.Values.kafka.clusterName | default .Release.Name) (include "telegraf.kafkaNamespace" .) -}}
+{{- printf "%s-kafka-bootstrap.%s.svc" (include "telegraf.kafkaClusterName" .) (include "telegraf.kafkaNamespace" .) -}}
 {{- end }}
 
 {{- define "telegraf.kafkaBrokers" -}}
