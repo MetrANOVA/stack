@@ -488,6 +488,52 @@ entries:
   metranova:
   - apiVersion: v2
     appVersion: "1.0"
+    created: "2026-09-03T14:39:05.231902142Z"
+    dependencies:
+    - condition: clickhouse.enabled
+      name: clickhouse
+      repository: file://../charts/clickhouse
+      version: 0.2.1-build.110
+    - condition: kafka.enabled
+      name: kafka
+      repository: file://../charts/kafka
+      version: 0.2.1-build.110
+    - condition: telegraf.enabled
+      name: telegraf
+      repository: file://../charts/telegraf
+      version: 0.2.1-build.110
+    - condition: pmacct.enabled
+      name: pmacct
+      repository: file://../charts/pmacct
+      version: 0.2.1-build.110
+    - alias: snmpPipeline
+      condition: snmpPipeline.enabled
+      name: metranova-snmp-pipeline
+      repository: file://../charts/snmp-pipeline
+      version: 0.2.1-build.110
+    - alias: flowPipeline
+      condition: flowPipeline.enabled
+      name: metranova-flow-pipeline
+      repository: file://../charts/flow-pipeline
+      version: 0.2.1-build.110
+    - alias: api
+      condition: api.enabled
+      name: metranova-api
+      repository: file://../charts/api
+      version: 0.2.1-build.110
+    - condition: grafana.enabled
+      name: grafana
+      repository: https://grafana.github.io/helm-charts
+      version: ^10.4.0
+    description: Umbrella chart that deploys the MetrANOVA stack components
+    digest: 47fce25d43a8f1b8e19ad7affc7442b2932460549d96ae889093a38ccc28dd15
+    name: metranova
+    type: application
+    urls:
+    - https://github.com/MetrANOVA/stack/releases/download/metranova-0.2.1-build.110/metranova-0.2.1-build.110.tgz
+    version: 0.2.1-build.110
+  - apiVersion: v2
+    appVersion: "1.0"
     created: "2026-09-03T01:58:29.135054428Z"
     dependencies:
     - condition: clickhouse.enabled
@@ -3960,4 +4006,4 @@ entries:
     urls:
     - https://github.com/MetrANOVA/stack/releases/download/telegraf-0.1.0/telegraf-0.1.0.tgz
     version: 0.1.0
-generated: "2026-09-03T14:38:59.537684508Z"
+generated: "2026-09-03T14:39:05.232443969Z"
