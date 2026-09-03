@@ -23,6 +23,9 @@ helm/**/values.yaml
 /docker-compose.yml
 .venv/
 scripts/gen_flows.py
+scripts/md2gdoc.py
+scripts/gdoc2md.py
+authz-spec.html
 
 # Beads / Dolt files (added by bd init)
 .dolt/
