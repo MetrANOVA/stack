@@ -12,7 +12,7 @@
 {{- end }}
 
 {{- define "pmacct.kafkaClusterCaSecretName" -}}
-{{- .Values.kafka.clusterCaSecret | default (printf "%s-cluster-ca-cert" (include "pmacct.kafkaClusterName" .) -}}
+{{- .Values.kafka.clusterCaSecret | default (printf "%s-cluster-ca-cert" (include "pmacct.kafkaClusterName" .)) -}}
 {{- end }}
 
 {{- define "pmacct.kafkaBootstrapHost" -}}
