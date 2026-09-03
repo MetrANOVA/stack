@@ -9,7 +9,7 @@ import pytest
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-CHART_DIR = REPO_ROOT / "helm" / "auth"
+CHART_DIR = REPO_ROOT / "helm" / "charts" / "auth"
 VALUES_FILE = CHART_DIR / "values.yaml.example"
 
 
