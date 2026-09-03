@@ -3,8 +3,8 @@
 {{- end }}
 
 {{- define "telegraf.kafkaClusterName" -}}
-{{- $g := dig "kafka" "clusterName" "" (.Values.global | default dict) -}}
-{{- .Values.kafka.clusterName | default $g | default .Release.Name -}}
+{{- $g := dig "global" "kafka" "clusterName" "" .Values -}}
+{{- dig "config" "kafka" "clusterName" $g .Values | default .Release.Name -}}
 {{- end }}
 
 {{- define "telegraf.kafkaUserSecretName" -}}
