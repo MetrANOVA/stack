@@ -72,8 +72,8 @@ imagePullSecrets:
 {{- end }}
 
 {{- define "metranova-snmp-pipeline.kafkaClusterName" -}}
-{{- $g := dig "global" "kafka" "clusterName" "" .Values -}}
-{{- dig "config" "kafka" "clusterName" $g .Values | default .Release.Name -}}
+{{- $g := dig "kafka" "clusterName" "" (.Values.global | default dict) -}}
+{{- dig "kafka" "clusterName" $g (.Values.config | default dict) | default .Release.Name -}}
 {{- end }}
 
 {{/*
