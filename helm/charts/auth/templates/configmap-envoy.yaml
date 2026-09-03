@@ -6,6 +6,9 @@ metadata:
     {{- include "metranova-auth.labels" . | nindent 4 }}
 data:
   envoy.yaml: |
+    node:
+      id: envoy
+      cluster: metranova-auth
     static_resources:
       listeners:
       - name: https_listener
