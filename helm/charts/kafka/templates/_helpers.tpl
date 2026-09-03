@@ -1,4 +1,4 @@
 {{- define "kafka.clusterName" -}}
-{{- $g := dig "kafka" "clusterName" "" (.Values.global | default dict) -}}
-{{- .Values.Cluster.Name | default $g | default .Release.Name -}}
+{{- $g := dig "global" "kafka" "clusterName" "" .Values -}}
+{{- dig "Cluster" "Name" $g .Values | default .Release.Name -}}
 {{- end }}
