@@ -134,13 +134,13 @@ data:
                       prefix: /clickhouse
                     route:
                       cluster: clickhouse
-                      request_headers_to_add:
-                      - header:
-                          key: X-ClickHouse-User
-                          value: "%REQ(x-user-id)%"
-                        keep_empty_value: false
-                      request_headers_to_remove:
-                      - X-ClickHouse-User
+                    request_headers_to_add:
+                    - header:
+                        key: X-ClickHouse-User
+                        value: "%REQ(x-user-id)%"
+                      keep_empty_value: false
+                    request_headers_to_remove:
+                    - X-ClickHouse-User
                   - match:
                       prefix: /token-store/api
                     route:
