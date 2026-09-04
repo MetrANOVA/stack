@@ -326,6 +326,17 @@ EOF
 }
 
 bootstrap() {
+  plan
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "  IMPORTANT: Store every value you enter below in"
+  echo "  a password manager or secret vault BEFORE"
+  echo "  proceeding. These secrets cannot be recovered"
+  echo "  from the cluster after bootstrap."
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  read -r -p "Ready to proceed? [y/N] " confirm
+  [[ "$confirm" =~ ^[Yy]$ ]] || { echo "Aborted."; exit 0; }
+  echo ""
   create_clickhouse_users_secret
   create_grafana_admin_secret
   create_clickhouse_tls_secret
