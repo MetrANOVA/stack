@@ -215,8 +215,12 @@ def box(win):
 # ── List screen ────────────────────────────────────────────────────────────────
 
 def draw_list(stdscr, fields, current, scroll, namespace):
-    stdscr.erase()
     sh, sw = stdscr.getmaxyx()
+    # Fill background
+    try:
+        stdscr.bkgd(" ", curses.color_pair(C_NORMAL))
+    except curses.error:
+        pass
 
     # Centered window dimensions
     win_h = min(sh - 2, 30)
@@ -322,6 +326,8 @@ def open_modal(stdscr, f: SecretField) -> bool:
     modal_x = max(0, (sw - modal_w) // 2)
 
     while True:
+        stdscr.clear()
+        stdscr.refresh()
         win = curses.newwin(modal_h, modal_w, modal_y, modal_x)
         box(win)
 
@@ -427,11 +433,14 @@ def run_tui(stdscr, fields, namespace):
     curses.curs_set(0)
     curses.noecho()
     init_colors()
+    stdscr.clear()
+    stdscr.refresh()
 
     current = 0
     scroll = 0
 
     while True:
+        stdscr.clear()
         scroll = draw_list(stdscr, fields, current, scroll, namespace)
         key = stdscr.getch()
 
