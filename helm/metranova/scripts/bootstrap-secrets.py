@@ -178,6 +178,8 @@ C_WARN    = 7   # red — warnings/hints
 C_VALUE   = 8   # bright cyan — displayed values
 C_SHADOW  = 9   # dark shadow
 C_INNER   = 10  # white on black — window interior
+C_ACCENT_B= 11  # cyan on black — group headers inside black body
+C_BODY    = 12  # white on black — normal text inside black body
 
 
 def init_colors():
@@ -185,14 +187,16 @@ def init_colors():
     curses.use_default_colors()
     curses.init_pair(C_BG,     curses.COLOR_WHITE,  curses.COLOR_BLUE)
     curses.init_pair(C_TITLE,  curses.COLOR_YELLOW, curses.COLOR_BLUE)
-    curses.init_pair(C_ACCENT, curses.COLOR_CYAN,   curses.COLOR_BLACK)
-    curses.init_pair(C_NORMAL, curses.COLOR_WHITE,  curses.COLOR_BLACK)
-    curses.init_pair(C_DONE,   curses.COLOR_WHITE,  curses.COLOR_BLACK)
-    curses.init_pair(C_CURSOR, curses.COLOR_BLACK,  curses.COLOR_CYAN)
-    curses.init_pair(C_WARN,   curses.COLOR_RED,    curses.COLOR_BLACK)
-    curses.init_pair(C_VALUE,  curses.COLOR_CYAN,   curses.COLOR_BLACK)
-    curses.init_pair(C_SHADOW, curses.COLOR_BLACK,  curses.COLOR_BLACK)
-    curses.init_pair(C_INNER,  curses.COLOR_WHITE,  curses.COLOR_BLACK)
+    curses.init_pair(C_ACCENT,  curses.COLOR_CYAN,   curses.COLOR_BLUE)   # cyan on blue — header/footer
+    curses.init_pair(C_NORMAL,  curses.COLOR_WHITE,  curses.COLOR_BLUE)   # white on blue — header/footer text
+    curses.init_pair(C_DONE,    curses.COLOR_WHITE,  curses.COLOR_BLACK)  # bold white on black — confirmed
+    curses.init_pair(C_CURSOR,  curses.COLOR_BLACK,  curses.COLOR_CYAN)   # selected row
+    curses.init_pair(C_WARN,    curses.COLOR_RED,    curses.COLOR_BLACK)  # warnings in body
+    curses.init_pair(C_VALUE,   curses.COLOR_CYAN,   curses.COLOR_BLACK)  # values in body
+    curses.init_pair(C_SHADOW,  curses.COLOR_BLACK,  curses.COLOR_BLACK)
+    curses.init_pair(C_INNER,   curses.COLOR_WHITE,  curses.COLOR_BLACK)  # body text
+    curses.init_pair(C_ACCENT_B,curses.COLOR_CYAN,   curses.COLOR_BLACK)  # cyan on black — group headers in body
+    curses.init_pair(C_BODY,    curses.COLOR_WHITE,  curses.COLOR_BLACK)  # white on black — body text
 
 
 def W(win, y, x, s, attr=0):
@@ -223,20 +227,22 @@ def make_win(stdscr, h, w, y, x):
     stdscr.refresh()
 
     win = curses.newwin(h, w, y, x)
-    # Border uses blue background (matches outer frame)
     win.bkgd(" ", curses.color_pair(C_BG))
     try:
         win.border()
     except curses.error:
         pass
-    # Fill interior with black background
+    return win
+
+
+def fill_body_black(win, body_top, body_bot, w):
+    """Fill only the content rows with a black background."""
     inner_attr = curses.color_pair(C_INNER)
-    for row in range(1, h - 1):
+    for row in range(body_top, body_bot):
         try:
             win.addstr(row, 1, " " * (w - 2), inner_attr)
         except curses.error:
             pass
-    return win
 
 
 # ── List screen ────────────────────────────────────────────────────────────────
@@ -288,6 +294,8 @@ def draw_list(stdscr, fields, current, scroll, namespace):
     body_bot = win_h - 4
     visible = body_bot - body_top
 
+    fill_body_black(win, body_top, body_bot, win_w)
+
     cur_pos = next(j for j, r in enumerate(rows) if r == ("field", current))
     if cur_pos - scroll >= visible:
         scroll = cur_pos - visible + 1
@@ -300,8 +308,7 @@ def draw_list(stdscr, fields, current, scroll, namespace):
             break
         kind, val = item
         if kind == "group":
-            # Group headers same accent color as namespace/progress
-            W(win, row, 2, f"  {val}", curses.color_pair(C_ACCENT) | curses.A_BOLD)
+            W(win, row, 2, f"  {val}", curses.color_pair(C_ACCENT_B) | curses.A_BOLD)
         else:
             f = fields[val]
             is_cur = (val == current)
@@ -312,10 +319,9 @@ def draw_list(stdscr, fields, current, scroll, namespace):
             if is_cur:
                 attr = curses.color_pair(C_CURSOR) | curses.A_BOLD
             elif f.confirmed:
-                # Bright white = confirmed, slightly stands out from C_NORMAL white
                 attr = curses.color_pair(C_DONE) | curses.A_BOLD
             else:
-                attr = curses.color_pair(C_NORMAL)
+                attr = curses.color_pair(C_BODY)
             W(win, row, 2, line, attr)
         row += 1
 
@@ -361,7 +367,7 @@ def open_modal(stdscr, f: SecretField) -> bool:
         W(win, 0, max(1, (modal_w - len(title)) // 2), title,
           curses.color_pair(C_TITLE) | curses.A_BOLD)
 
-        # Group — accent color
+        # Group — accent on black interior
         W(win, 1, 2, f"Group: {f.group}", curses.color_pair(C_ACCENT) | curses.A_BOLD)
 
         try:
@@ -369,12 +375,14 @@ def open_modal(stdscr, f: SecretField) -> bool:
         except curses.error:
             pass
 
+        fill_body_black(win, 3, 10, modal_w)
+
         # Description
         desc_lines = []
         for line in f.description.split("\n"):
             desc_lines.extend(textwrap.wrap(line, modal_w - 6) or [""])
         for i, dl in enumerate(desc_lines[:3]):
-            W(win, 3 + i, 3, dl, curses.color_pair(C_NORMAL))
+            W(win, 3 + i, 3, dl, curses.color_pair(C_BODY))
 
         try:
             win.hline(6, 1, curses.ACS_HLINE, modal_w - 2)
@@ -384,7 +392,7 @@ def open_modal(stdscr, f: SecretField) -> bool:
         # Current value
         if f.value:
             display = ("*" * min(len(f.value), modal_w - 14)) if f.sensitive else f.value[:modal_w - 14]
-            W(win, 7, 3, "Value: ", curses.color_pair(C_NORMAL))
+            W(win, 7, 3, "Value: ", curses.color_pair(C_BODY))
             W(win, 7, 10, display, curses.color_pair(C_VALUE) | curses.A_BOLD)
         else:
             W(win, 7, 3, "Value: (not set)", curses.color_pair(C_WARN))
@@ -399,7 +407,7 @@ def open_modal(stdscr, f: SecretField) -> bool:
 
         W(win, 10, 3, "g: generate    e: enter manually    ENTER: confirm    ESC: back",
           curses.color_pair(C_ACCENT))
-        W(win, 11, 3, "s: show/hide value", curses.color_pair(C_NORMAL))
+        W(win, 11, 3, "s: show/hide value", curses.color_pair(C_ACCENT))
 
         win.refresh()
         key = win.getch()
@@ -512,6 +520,8 @@ def confirm_screen(stdscr, namespace, n_secrets):
     W(win, 0, max(1, (win_w - len(title)) // 2), title,
       curses.color_pair(C_TITLE) | curses.A_BOLD)
 
+    fill_body_black(win, 1, win_h - 1, win_w)
+
     lines = [
         "",
         f"  Ready to write {n_secrets} secrets to:",
@@ -526,7 +536,7 @@ def confirm_screen(stdscr, namespace, n_secrets):
         "  q  Abort",
     ]
     for i, line in enumerate(lines):
-        W(win, 1 + i, 2, line[:win_w - 3], curses.color_pair(C_NORMAL))
+        W(win, 1 + i, 2, line[:win_w - 3], curses.color_pair(C_BODY))
 
     win.refresh()
 
