@@ -386,21 +386,29 @@ def open_modal(stdscr, f: SecretField) -> bool:
     Returns True if confirmed, False if cancelled (ESC).
     """
     sh, sw = stdscr.getmaxyx()
-
-    modal_h = 14
     modal_w = min(sw - 8, 72)
-    modal_y = max(0, (sh - modal_h) // 2)
-    modal_x = max(0, (sw - modal_w) // 2)
 
     while True:
+        # Compute value display lines
+        if f.value and not f.sensitive:
+            val_lines = []
+            for line in f.value.splitlines():
+                val_lines.extend(textwrap.wrap(line, modal_w - 6) if line else [""])
+        else:
+            val_lines = []
+
+        # Modal height: fixed header (6) + desc (3) + sep + value area + footer (4)
+        val_area = max(1, min(len(val_lines), sh - 20)) if val_lines else 1
+        modal_h = min(sh - 4, 10 + val_area)
+        modal_y = max(0, (sh - modal_h) // 2)
+        modal_x = max(0, (sw - modal_w) // 2)
+
         win = make_win(stdscr, modal_h, modal_w, modal_y, modal_x)
 
-        # Title on border
         title = f" {f.label} "[:modal_w - 2]
         W(win, 0, max(1, (modal_w - len(title)) // 2), title,
           curses.color_pair(C_TITLE) | curses.A_BOLD)
 
-        # Group — accent on black interior
         W(win, 1, 2, f"Group: {f.group}", curses.color_pair(C_ACCENT) | curses.A_BOLD)
 
         try:
@@ -408,7 +416,7 @@ def open_modal(stdscr, f: SecretField) -> bool:
         except curses.error:
             pass
 
-        fill_body_black(win, 3, 10, modal_w)
+        fill_body_black(win, 3, modal_h - 4, modal_w)
 
         # Description
         desc_lines = []
@@ -417,30 +425,34 @@ def open_modal(stdscr, f: SecretField) -> bool:
         for i, dl in enumerate(desc_lines[:3]):
             W(win, 3 + i, 3, dl, curses.color_pair(C_BODY))
 
+        sep1 = 6
         try:
-            win.hline(6, 1, curses.ACS_HLINE, modal_w - 2)
+            win.hline(sep1, 1, curses.ACS_HLINE, modal_w - 2)
         except curses.error:
             pass
 
-        # Current value
+        # Value area
+        val_row = sep1 + 1
         if f.value:
-            display = ("*" * min(len(f.value), modal_w - 14)) if f.sensitive else f.value[:modal_w - 14]
-            W(win, 7, 3, "Value: ", curses.color_pair(C_BODY))
-            W(win, 7, 10, display, curses.color_pair(C_VALUE) | curses.A_BOLD)
+            if f.sensitive:
+                W(win, val_row, 3, "*" * min(len(f.value), modal_w - 6),
+                  curses.color_pair(C_VALUE) | curses.A_BOLD)
+            else:
+                for i, vl in enumerate(val_lines[:val_area]):
+                    W(win, val_row + i, 3, vl, curses.color_pair(C_VALUE))
         else:
-            W(win, 7, 3, "Value: (not set)", curses.color_pair(C_WARN))
+            W(win, val_row, 3, "(not set)", curses.color_pair(C_WARN))
+
+        sep2 = modal_h - 4
+        try:
+            win.hline(sep2, 1, curses.ACS_HLINE, modal_w - 2)
+        except curses.error:
+            pass
 
         status_attr = (curses.color_pair(C_DONE) | curses.A_BOLD) if f.confirmed else curses.color_pair(C_WARN)
-        W(win, 8, 3, "Status: " + ("[confirmed]" if f.confirmed else "[unconfirmed]"), status_attr)
-
-        try:
-            win.hline(9, 1, curses.ACS_HLINE, modal_w - 2)
-        except curses.error:
-            pass
-
-        W(win, 10, 3, "g: generate    e: enter manually    ENTER: confirm    ESC: back",
+        W(win, modal_h - 3, 3, "Status: " + ("[confirmed]" if f.confirmed else "[unconfirmed]"), status_attr)
+        W(win, modal_h - 2, 3, "g:generate  e:enter  s:show/hide  ENTER:confirm  ESC:back",
           curses.color_pair(C_ACCENT))
-        W(win, 11, 3, "s: show/hide value", curses.color_pair(C_ACCENT))
 
         win.refresh()
         key = win.getch()
