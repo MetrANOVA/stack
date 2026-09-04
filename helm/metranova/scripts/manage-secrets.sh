@@ -204,21 +204,55 @@ create_clickhouse_tls_secret() {
   local cert="${CLICKHOUSE_TLS_CERT:-}"
   local key="${CLICKHOUSE_TLS_KEY:-}"
 
-  if [[ -z "$cert" || -z "$key" ]]; then
-    echo "Skipping clickhouse-tls creation (set CLICKHOUSE_TLS_CERT and CLICKHOUSE_TLS_KEY to enable)."
+  # If files provided explicitly, use them
+  if [[ -n "$cert" && -n "$key" ]]; then
+    if [[ ! -f "$cert" || ! -f "$key" ]]; then
+      echo "TLS files do not exist: cert=$cert key=$key" >&2
+      return 1
+    fi
+    echo "Creating/updating secret clickhouse-tls from provided files"
+    kubectl create secret tls clickhouse-tls \
+      -n "$NAMESPACE" \
+      --cert="$cert" \
+      --key="$key" \
+      --dry-run=client -o yaml | kubectl apply -f -
     return 0
   fi
 
-  if [[ ! -f "$cert" || ! -f "$key" ]]; then
-    echo "TLS files do not exist: cert=$cert key=$key" >&2
-    return 1
+  # Check for openssl
+  if ! command -v openssl >/dev/null 2>&1; then
+    echo "Skipping clickhouse-tls: openssl not found and no CLICKHOUSE_TLS_CERT/KEY provided."
+    echo "Install openssl or set CLICKHOUSE_TLS_CERT and CLICKHOUSE_TLS_KEY and re-run."
+    return 0
   fi
 
-  echo "Creating/updating TLS secret clickhouse-tls from files"
+  echo ""
+  echo "── ClickHouse TLS ─────────────────────────────────────────────────────"
+  echo "  No CLICKHOUSE_TLS_CERT/KEY set. openssl is available — will generate"
+  echo "  a self-signed certificate. For production, replace with a real cert."
+  echo ""
+  read -r -p "  Directory to write clickhouse.crt and clickhouse.key [~/.metranova/tls]: " tls_dir
+  tls_dir="${tls_dir:-$HOME/.metranova/tls}"
+  tls_dir="${tls_dir/#\~/$HOME}"
+  mkdir -p "$tls_dir"
+
+  local cn="${CLICKHOUSE_TLS_CN:-clickhouse}"
+  openssl req -x509 -newkey rsa:2048 \
+    -keyout "$tls_dir/clickhouse.key" \
+    -out "$tls_dir/clickhouse.crt" \
+    -days 365 -nodes \
+    -subj "/CN=$cn" \
+    -addext "subjectAltName=DNS:$cn,DNS:clickhouse-ch-cluster,DNS:localhost" \
+    2>/dev/null
+
+  echo "  → Written to $tls_dir/clickhouse.crt and $tls_dir/clickhouse.key"
+  echo "  → Store these files securely — you will need them for cert rotation."
+  echo ""
+
   kubectl create secret tls clickhouse-tls \
     -n "$NAMESPACE" \
-    --cert="$cert" \
-    --key="$key" \
+    --cert="$tls_dir/clickhouse.crt" \
+    --key="$tls_dir/clickhouse.key" \
     --dry-run=client -o yaml | kubectl apply -f -
 }
 
@@ -297,8 +331,10 @@ Prepare the following values before running 'bootstrap':
   admin-password      Grafana admin password
 
 ── ClickHouse TLS (secret: clickhouse-tls) ────────────────────────────
-  Set CLICKHOUSE_TLS_CERT and CLICKHOUSE_TLS_KEY env vars to paths of
-  PEM files, or skip for now (required before deploying ClickHouse).
+  A self-signed cert will be generated automatically if openssl is
+  available. You will be asked where to save the files.
+  For production: set CLICKHOUSE_TLS_CERT and CLICKHOUSE_TLS_KEY to
+  existing PEM file paths instead.
 
 ── Auth (secret: ${release}-secrets) ──────────────────────────────────
   Keycloak admin password
