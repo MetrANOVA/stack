@@ -3,6 +3,11 @@
 global:
   imagePullSecrets: []
 
+# Set existingSecret to the name of a pre-created secret (e.g. from bootstrap-secrets.py)
+# to prevent helm from overwriting secrets with CHANGEME values.
+secrets:
+  existingSecret: ""
+
 # Public hostname of this MetrANOVA instance (no scheme, no trailing slash)
 domain: example.metranova.io
 
