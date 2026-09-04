@@ -462,6 +462,22 @@ def prompt_input(stdscr, y, x, w, f: SecretField) -> str:
 
 # ── Main TUI loop ──────────────────────────────────────────────────────────────
 
+def load_existing(fields, namespace):
+    """Mark fields confirmed if their key already exists in the cluster."""
+    for f in fields:
+        secret_name, key = f.key.split("/", 1)
+        result = subprocess.run(
+            ["kubectl", "get", "secret", secret_name,
+             "-n", namespace,
+             f"-o=jsonpath={{.data.{key}}}"],
+            capture_output=True, text=True
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            f.value = "(already set in cluster)"
+            f.sensitive = False
+            f.confirmed = True
+
+
 def run_tui(stdscr, fields, namespace):
     curses.curs_set(0)
     curses.noecho()
@@ -648,6 +664,7 @@ def main():
         print("\nDone.")
         return
 
+    load_existing(fields, args.namespace)
     completed = curses.wrapper(run_tui, fields, args.namespace)
 
     if not completed:
