@@ -168,28 +168,29 @@ def make_fields(release: str) -> list:
 
 # ── Color constants ────────────────────────────────────────────────────────────
 
-C_TITLE   = 1   # primary: orange/yellow bold
-C_HEADING = 2   # secondary: blue
-C_NORMAL  = 3
-C_DONE    = 4   # green
-C_CURSOR  = 5   # highlighted row
-C_WARN    = 6   # red/orange for hints
-C_VALUE   = 7   # bright value display
+C_BG      = 1   # FreeBSD blue background
+C_TITLE   = 2   # orange/yellow bold — window titles
+C_ACCENT  = 3   # cyan — namespace, progress bar, group headers (all same)
+C_NORMAL  = 4   # white on blue — body text
+C_DONE    = 5   # bright white — confirmed items
+C_CURSOR  = 6   # black on cyan — selected row
+C_WARN    = 7   # red — warnings/hints
+C_VALUE   = 8   # bright cyan — displayed values
+C_SHADOW  = 9   # dark shadow
 
 
 def init_colors():
     curses.start_color()
     curses.use_default_colors()
-    # Primary: bold white on default (bright)
-    curses.init_pair(C_TITLE,   curses.COLOR_YELLOW, -1)
-    # Secondary/headings: blue
-    curses.init_pair(C_HEADING, curses.COLOR_BLUE,   -1)
-    curses.init_pair(C_NORMAL,  -1,                  -1)
-    curses.init_pair(C_DONE,    curses.COLOR_GREEN,  -1)
-    # Cursor: white on blue
-    curses.init_pair(C_CURSOR,  curses.COLOR_WHITE,  curses.COLOR_BLUE)
-    curses.init_pair(C_WARN,    curses.COLOR_RED,    -1)
-    curses.init_pair(C_VALUE,   curses.COLOR_CYAN,   -1)
+    curses.init_pair(C_BG,     curses.COLOR_WHITE,  curses.COLOR_BLUE)
+    curses.init_pair(C_TITLE,  curses.COLOR_YELLOW, curses.COLOR_BLUE)
+    curses.init_pair(C_ACCENT, curses.COLOR_CYAN,   curses.COLOR_BLUE)
+    curses.init_pair(C_NORMAL, curses.COLOR_WHITE,  curses.COLOR_BLUE)
+    curses.init_pair(C_DONE,   curses.COLOR_WHITE,  curses.COLOR_BLUE)
+    curses.init_pair(C_CURSOR, curses.COLOR_BLACK,  curses.COLOR_CYAN)
+    curses.init_pair(C_WARN,   curses.COLOR_RED,    curses.COLOR_BLUE)
+    curses.init_pair(C_VALUE,  curses.COLOR_CYAN,   curses.COLOR_BLUE)
+    curses.init_pair(C_SHADOW, curses.COLOR_BLACK,  curses.COLOR_BLACK)
 
 
 def W(win, y, x, s, attr=0):
@@ -205,39 +206,59 @@ def W(win, y, x, s, attr=0):
             pass
 
 
-def box(win):
+def make_win(stdscr, h, w, y, x):
+    """Create a blue-background window with border and drop shadow."""
+    sh, sw = stdscr.getmaxyx()
+    # Draw shadow (offset 1 right, 1 down)
+    shadow_attr = curses.color_pair(C_SHADOW)
+    for row in range(y + 1, min(y + h + 1, sh)):
+        for col in range(x + 2, min(x + w + 2, sw - 1)):
+            try:
+                ch = stdscr.inch(row, col)
+                stdscr.addch(row, col, ch & 0xFF, shadow_attr)
+            except curses.error:
+                pass
+    stdscr.refresh()
+
+    win = curses.newwin(h, w, y, x)
+    win.bkgd(" ", curses.color_pair(C_NORMAL))
     try:
         win.border()
     except curses.error:
         pass
+    return win
 
 
 # ── List screen ────────────────────────────────────────────────────────────────
 
 def draw_list(stdscr, fields, current, scroll, namespace):
     sh, sw = stdscr.getmaxyx()
-    # Fill background
+
+    # FreeBSD blue full-screen background
     try:
-        stdscr.bkgd(" ", curses.color_pair(C_NORMAL))
+        stdscr.bkgd(" ", curses.color_pair(C_BG))
+        stdscr.clear()
     except curses.error:
         pass
+    stdscr.refresh()
 
-    # Centered window dimensions
-    win_h = min(sh - 2, 30)
-    win_w = min(sw - 4, 80)
+    # Centered window — tall enough for all content + border
+    win_h = min(sh - 4, 32)
+    win_w = min(sw - 8, 82)
     win_y = max(0, (sh - win_h) // 2)
     win_x = max(0, (sw - win_w) // 2)
 
-    win = curses.newwin(win_h, win_w, win_y, win_x)
-    box(win)
+    win = make_win(stdscr, win_h, win_w, win_y, win_x)
 
-    # Title
+    # Title on top border
     title = " MetrANOVA Secret Bootstrap "
-    W(win, 0, max(1, (win_w - len(title)) // 2), title, curses.color_pair(C_TITLE) | curses.A_BOLD)
+    W(win, 0, max(1, (win_w - len(title)) // 2), title,
+      curses.color_pair(C_TITLE) | curses.A_BOLD)
 
-    # Subtitle
+    # Namespace line — same accent color as group headers
     sub = f" namespace: {namespace} "
-    W(win, 1, max(1, (win_w - len(sub)) // 2), sub, curses.color_pair(C_HEADING))
+    W(win, 1, max(1, (win_w - len(sub)) // 2), sub,
+      curses.color_pair(C_ACCENT) | curses.A_BOLD)
 
     try:
         win.hline(2, 1, curses.ACS_HLINE, win_w - 2)
@@ -253,7 +274,6 @@ def draw_list(stdscr, fields, current, scroll, namespace):
             last_group = f.group
         rows.append(("field", i))
 
-    # Find scroll offset so current field is visible
     body_top = 3
     body_bot = win_h - 4
     visible = body_bot - body_top
@@ -270,44 +290,41 @@ def draw_list(stdscr, fields, current, scroll, namespace):
             break
         kind, val = item
         if kind == "group":
-            W(win, row, 2, f"  {val}", curses.color_pair(C_HEADING) | curses.A_BOLD)
+            # Group headers same accent color as namespace/progress
+            W(win, row, 2, f"  {val}", curses.color_pair(C_ACCENT) | curses.A_BOLD)
         else:
             f = fields[val]
             is_cur = (val == current)
             mark = "[x]" if f.confirmed else "[ ]"
             label = f"{mark} {f.label}"
-            if f.value:
-                disp = ("*" * 16) if f.sensitive else f.value[:win_w - 40]
-            else:
-                disp = "(not set)"
-
-            line = f"{label:<40} {disp}"[:win_w - 4]
+            disp = ("*" * 16) if (f.sensitive and f.value) else (f.value[:win_w - 46] if f.value else "(not set)")
+            line = f"{label:<42} {disp}"[:win_w - 3]
             if is_cur:
                 attr = curses.color_pair(C_CURSOR) | curses.A_BOLD
             elif f.confirmed:
-                attr = curses.color_pair(C_DONE)
+                # Bright white = confirmed, slightly stands out from C_NORMAL white
+                attr = curses.color_pair(C_DONE) | curses.A_BOLD
             else:
                 attr = curses.color_pair(C_NORMAL)
             W(win, row, 2, line, attr)
         row += 1
 
-    # Progress
-    done = sum(1 for f in fields if f.confirmed)
-    total = len(fields)
-    bar_w = win_w - 22
-    filled = done * bar_w // total if total else 0
-    bar = "#" * filled + "-" * (bar_w - filled)
+    # Separator + progress bar — same accent color
     try:
         win.hline(win_h - 4, 1, curses.ACS_HLINE, win_w - 2)
     except curses.error:
         pass
-    W(win, win_h - 3, 2, f"{done}/{total} [{bar}]", curses.color_pair(C_HEADING))
+    done = sum(1 for f in fields if f.confirmed)
+    total = len(fields)
+    bar_w = win_w - 14
+    filled = done * bar_w // total if total else 0
+    bar = "#" * filled + "-" * (bar_w - filled)
+    W(win, win_h - 3, 2, f"{done}/{total} [{bar}]", curses.color_pair(C_ACCENT) | curses.A_BOLD)
 
     # Help line
-    help_str = "ENTER:open  G:gen-all  j/k:move  q:quit"
-    W(win, win_h - 2, 2, help_str[:win_w - 4], curses.color_pair(C_NORMAL))
+    W(win, win_h - 2, 2, "ENTER:open  G:gen-all  j/k:move  q:quit"[:win_w - 4],
+      curses.color_pair(C_NORMAL))
 
-    stdscr.refresh()
     win.refresh()
     return scroll
 
@@ -327,17 +344,15 @@ def open_modal(stdscr, f: SecretField) -> bool:
     modal_x = max(0, (sw - modal_w) // 2)
 
     while True:
-        stdscr.clear()
-        stdscr.refresh()
-        win = curses.newwin(modal_h, modal_w, modal_y, modal_x)
-        box(win)
+        win = make_win(stdscr, modal_h, modal_w, modal_y, modal_x)
 
-        # Title
+        # Title on border
         title = f" {f.label} "[:modal_w - 2]
-        W(win, 0, max(1, (modal_w - len(title)) // 2), title, curses.color_pair(C_TITLE) | curses.A_BOLD)
+        W(win, 0, max(1, (modal_w - len(title)) // 2), title,
+          curses.color_pair(C_TITLE) | curses.A_BOLD)
 
-        # Group
-        W(win, 1, 2, f"Group: {f.group}", curses.color_pair(C_HEADING))
+        # Group — accent color
+        W(win, 1, 2, f"Group: {f.group}", curses.color_pair(C_ACCENT) | curses.A_BOLD)
 
         try:
             win.hline(2, 1, curses.ACS_HLINE, modal_w - 2)
@@ -364,8 +379,8 @@ def open_modal(stdscr, f: SecretField) -> bool:
         else:
             W(win, 7, 3, "Value: (not set)", curses.color_pair(C_WARN))
 
-        W(win, 8, 3, "Status: " + ("[confirmed]" if f.confirmed else "[unconfirmed]"),
-          curses.color_pair(C_DONE) if f.confirmed else curses.color_pair(C_WARN))
+        status_attr = (curses.color_pair(C_DONE) | curses.A_BOLD) if f.confirmed else curses.color_pair(C_WARN)
+        W(win, 8, 3, "Status: " + ("[confirmed]" if f.confirmed else "[unconfirmed]"), status_attr)
 
         try:
             win.hline(9, 1, curses.ACS_HLINE, modal_w - 2)
@@ -373,9 +388,8 @@ def open_modal(stdscr, f: SecretField) -> bool:
             pass
 
         W(win, 10, 3, "g: generate    e: enter manually    ENTER: confirm    ESC: back",
-          curses.color_pair(C_HEADING))
-        W(win, 11, 3, "s: show/hide value",
-          curses.color_pair(C_NORMAL))
+          curses.color_pair(C_ACCENT))
+        W(win, 11, 3, "s: show/hide value", curses.color_pair(C_NORMAL))
 
         win.refresh()
         key = win.getch()
@@ -434,14 +448,11 @@ def run_tui(stdscr, fields, namespace):
     curses.curs_set(0)
     curses.noecho()
     init_colors()
-    stdscr.clear()
-    stdscr.refresh()
 
     current = 0
     scroll = 0
 
     while True:
-        stdscr.clear()
         scroll = draw_list(stdscr, fields, current, scroll, namespace)
         key = stdscr.getch()
 
@@ -474,15 +485,22 @@ def confirm_screen(stdscr, namespace, n_secrets):
     sh, sw = stdscr.getmaxyx()
     init_colors()
 
+    try:
+        stdscr.bkgd(" ", curses.color_pair(C_BG))
+        stdscr.clear()
+    except curses.error:
+        pass
+    stdscr.refresh()
+
     win_h, win_w = 14, min(sw - 8, 64)
     win_y = max(0, (sh - win_h) // 2)
     win_x = max(0, (sw - win_w) // 2)
 
-    win = curses.newwin(win_h, win_w, win_y, win_x)
-    box(win)
+    win = make_win(stdscr, win_h, win_w, win_y, win_x)
 
     title = " All secrets confirmed "
-    W(win, 0, max(1, (win_w - len(title)) // 2), title, curses.color_pair(C_TITLE) | curses.A_BOLD)
+    W(win, 0, max(1, (win_w - len(title)) // 2), title,
+      curses.color_pair(C_TITLE) | curses.A_BOLD)
 
     lines = [
         "",
@@ -498,7 +516,7 @@ def confirm_screen(stdscr, namespace, n_secrets):
         "  q  Abort",
     ]
     for i, line in enumerate(lines):
-        W(win, 1 + i, 0, line[:win_w - 1], curses.color_pair(C_NORMAL))
+        W(win, 1 + i, 2, line[:win_w - 3], curses.color_pair(C_NORMAL))
 
     win.refresh()
 
