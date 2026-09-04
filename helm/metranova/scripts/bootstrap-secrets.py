@@ -177,6 +177,7 @@ C_CURSOR  = 6   # black on cyan — selected row
 C_WARN    = 7   # red — warnings/hints
 C_VALUE   = 8   # bright cyan — displayed values
 C_SHADOW  = 9   # dark shadow
+C_INNER   = 10  # white on black — window interior
 
 
 def init_colors():
@@ -184,13 +185,14 @@ def init_colors():
     curses.use_default_colors()
     curses.init_pair(C_BG,     curses.COLOR_WHITE,  curses.COLOR_BLUE)
     curses.init_pair(C_TITLE,  curses.COLOR_YELLOW, curses.COLOR_BLUE)
-    curses.init_pair(C_ACCENT, curses.COLOR_CYAN,   curses.COLOR_BLUE)
-    curses.init_pair(C_NORMAL, curses.COLOR_WHITE,  curses.COLOR_BLUE)
-    curses.init_pair(C_DONE,   curses.COLOR_WHITE,  curses.COLOR_BLUE)
+    curses.init_pair(C_ACCENT, curses.COLOR_CYAN,   curses.COLOR_BLACK)
+    curses.init_pair(C_NORMAL, curses.COLOR_WHITE,  curses.COLOR_BLACK)
+    curses.init_pair(C_DONE,   curses.COLOR_WHITE,  curses.COLOR_BLACK)
     curses.init_pair(C_CURSOR, curses.COLOR_BLACK,  curses.COLOR_CYAN)
-    curses.init_pair(C_WARN,   curses.COLOR_RED,    curses.COLOR_BLUE)
-    curses.init_pair(C_VALUE,  curses.COLOR_CYAN,   curses.COLOR_BLUE)
+    curses.init_pair(C_WARN,   curses.COLOR_RED,    curses.COLOR_BLACK)
+    curses.init_pair(C_VALUE,  curses.COLOR_CYAN,   curses.COLOR_BLACK)
     curses.init_pair(C_SHADOW, curses.COLOR_BLACK,  curses.COLOR_BLACK)
+    curses.init_pair(C_INNER,  curses.COLOR_WHITE,  curses.COLOR_BLACK)
 
 
 def W(win, y, x, s, attr=0):
@@ -221,11 +223,19 @@ def make_win(stdscr, h, w, y, x):
     stdscr.refresh()
 
     win = curses.newwin(h, w, y, x)
-    win.bkgd(" ", curses.color_pair(C_NORMAL))
+    # Border uses blue background (matches outer frame)
+    win.bkgd(" ", curses.color_pair(C_BG))
     try:
         win.border()
     except curses.error:
         pass
+    # Fill interior with black background
+    inner_attr = curses.color_pair(C_INNER)
+    for row in range(1, h - 1):
+        try:
+            win.addstr(row, 1, " " * (w - 2), inner_attr)
+        except curses.error:
+            pass
     return win
 
 
