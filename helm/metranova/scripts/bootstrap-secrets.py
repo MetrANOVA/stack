@@ -307,6 +307,7 @@ def draw_list(stdscr, fields, current, scroll, namespace):
     help_str = "ENTER:open  G:gen-all  j/k:move  q:quit"
     W(win, win_h - 2, 2, help_str[:win_w - 4], curses.color_pair(C_NORMAL))
 
+    stdscr.refresh()
     win.refresh()
     return scroll
 
