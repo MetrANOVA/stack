@@ -53,6 +53,26 @@ def gen_hex():
     return secrets.token_hex(32)
 
 
+def gen_selfsigned_tls():
+    """Generate a self-signed TLS cert and return 'cert\\nKEY_SEPARATOR\\nkey'."""
+    import tempfile, os
+    with tempfile.TemporaryDirectory() as d:
+        crt = os.path.join(d, "tls.crt")
+        key = os.path.join(d, "tls.key")
+        result = subprocess.run([
+            "openssl", "req", "-x509", "-newkey", "rsa:2048",
+            "-keyout", key, "-out", crt,
+            "-days", "365", "-nodes",
+            "-subj", "/CN=metranova-auth",
+            "-addext", "subjectAltName=DNS:metranova-auth,DNS:localhost",
+        ], capture_output=True)
+        if result.returncode != 0:
+            return ""
+        cert_data = open(crt).read()
+        key_data = open(key).read()
+        return cert_data + "---KEY---\n" + key_data
+
+
 def make_fields(release: str) -> list:
     return [
         SecretField(
@@ -162,6 +182,19 @@ def make_fields(release: str) -> list:
             ),
             group="Auth",
             generate=gen_token,
+        ),
+        SecretField(
+            key=f"{release}-tls/combined",
+            label="Auth TLS certificate + key",
+            description=(
+                "TLS cert and key for Envoy HTTPS termination.\n"
+                "Use 'g' to generate a self-signed cert (dev/test).\n"
+                "Use 'e' to paste a PEM cert path (production).\n"
+                "Requires openssl to be installed."
+            ),
+            group="Auth TLS",
+            generate=gen_selfsigned_tls,
+            sensitive=False,
         ),
     ]
 
@@ -466,16 +499,27 @@ def load_existing(fields, namespace):
     """Mark fields confirmed if their key already exists in the cluster."""
     for f in fields:
         secret_name, key = f.key.split("/", 1)
-        result = subprocess.run(
-            ["kubectl", "get", "secret", secret_name,
-             "-n", namespace,
-             f"-o=jsonpath={{.data.{key}}}"],
-            capture_output=True, text=True
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            f.value = "(already set in cluster)"
-            f.sensitive = False
-            f.confirmed = True
+        if key == "combined":
+            # TLS field — check if the secret exists at all
+            result = subprocess.run(
+                ["kubectl", "get", "secret", secret_name, "-n", namespace],
+                capture_output=True, text=True
+            )
+            if result.returncode == 0:
+                f.value = "(already set in cluster)"
+                f.sensitive = False
+                f.confirmed = True
+        else:
+            result = subprocess.run(
+                ["kubectl", "get", "secret", secret_name,
+                 "-n", namespace,
+                 f"-o=jsonpath={{.data.{key}}}"],
+                capture_output=True, text=True
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                f.value = "(already set in cluster)"
+                f.sensitive = False
+                f.confirmed = True
 
 
 def run_tui(stdscr, fields, namespace):
@@ -571,12 +615,14 @@ def confirm_screen(stdscr, namespace, n_secrets):
 def group_fields(fields):
     groups = {}
     for f in fields:
+        if f.value and "---KEY---" in f.value:
+            continue  # TLS handled separately
         secret_name, key = f.key.split("/", 1)
         groups.setdefault(secret_name, {})[key] = f.value
     return groups
 
 
-def apply_secrets(groups, namespace, release, dry_run):
+def apply_secrets(groups, namespace, release, dry_run, fields=None):
     for secret_name, kv in groups.items():
         literals = []
         for k, v in kv.items():
@@ -619,15 +665,35 @@ def apply_secrets(groups, namespace, release, dry_run):
             else:
                 print(f"  OK: {secret_name}")
 
-    # TLS handled by manage-secrets.sh
-    tls_cmd = (
-        f"NAMESPACE={namespace} bash helm/metranova/scripts/manage-secrets.sh bootstrap"
-    )
-    if dry_run:
-        print(f"# TLS secret — run: {tls_cmd}")
-    else:
-        print(f"\n  TLS secret: run manage-secrets.sh to generate")
-        print(f"  $ {tls_cmd}")
+    # TLS secret — handled separately since it's not key/value literals
+    tls_field = next((f for f in (fields or []) if f.value and "---KEY---" in f.value), None)
+    if tls_field:
+        cert, key = tls_field.value.split("---KEY---\n", 1)
+        tls_secret = tls_field.key.split("/")[0]
+        if dry_run:
+            print(f"# kubectl create secret generic {tls_secret} -n {namespace} --from-literal=server.crt=... --from-literal=server.key=...")
+        else:
+            print(f"  Creating secret: {tls_secret}")
+            import tempfile, os as _os
+            with tempfile.TemporaryDirectory() as d:
+                crt_path = _os.path.join(d, "server.crt")
+                key_path = _os.path.join(d, "server.key")
+                open(crt_path, "w").write(cert)
+                open(key_path, "w").write(key)
+                cmd = (
+                    f"kubectl create secret generic {tls_secret} "
+                    f"-n {namespace} "
+                    f"--from-file=server.crt={crt_path} "
+                    f"--from-file=server.key={key_path} "
+                    f"--from-file=tls.crt={crt_path} "
+                    f"--from-file=tls.key={key_path} "
+                    f"--dry-run=client -o yaml | kubectl apply -f -"
+                )
+                result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+                if result.returncode != 0:
+                    print(f"  ERROR: {result.stderr}", file=sys.stderr)
+                else:
+                    print(f"  OK: {tls_secret}")
 
 
 def export_csv(fields, path):
@@ -660,7 +726,7 @@ def main():
         groups = group_fields(fields)
         if args.export_csv:
             export_csv(fields, args.export_csv)
-        apply_secrets(groups, args.namespace, args.release, args.dry_run)
+        apply_secrets(groups, args.namespace, args.release, args.dry_run, fields)
         print("\nDone.")
         return
 
@@ -682,7 +748,7 @@ def main():
         csv_path = args.export_csv or f"metranova-secrets-{args.namespace}.csv"
         export_csv(fields, csv_path)
 
-    apply_secrets(groups, args.namespace, args.release, args.dry_run)
+    apply_secrets(groups, args.namespace, args.release, args.dry_run, fields)
     print("\nDone. Run 'manage-secrets.sh check' to verify.")
 
 
