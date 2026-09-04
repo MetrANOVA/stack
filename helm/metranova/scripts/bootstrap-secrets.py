@@ -176,9 +176,7 @@ def make_fields(release: str) -> list[SecretField]:
 
 # ── TUI ────────────────────────────────────────────────────────────────────────
 
-HELP = (
-    "ENTER/→ Accept   e/i Edit value   r Regenerate   ← Back   q Quit"
-)
+HELP = "ENTER Accept   e Edit   r Regenerate   UP/DOWN Navigate   q Quit"
 
 COLOR_TITLE   = 1
 COLOR_GROUP   = 2
@@ -188,6 +186,19 @@ COLOR_DONE    = 5
 COLOR_HELP    = 6
 COLOR_WARN    = 7
 COLOR_CURSOR  = 8
+
+
+def safestr(win, y, x, s, attr=0):
+    h, w = win.getmaxyx()
+    if y < 0 or y >= h or x < 0 or x >= w:
+        return
+    s = s[:max(0, w - x - 1)]  # leave last cell to avoid wrap ERR
+    if not s:
+        return
+    try:
+        win.addstr(y, x, s, attr)
+    except curses.error:
+        pass
 
 
 def init_colors():
@@ -207,20 +218,17 @@ def draw_header(win, namespace: str):
     h, w = win.getmaxyx()
     title = " MetrANOVA Secret Bootstrap "
     sub   = f" namespace: {namespace} "
-    win.attron(curses.color_pair(COLOR_TITLE) | curses.A_BOLD)
-    win.addstr(0, max(0, (w - len(title)) // 2), title[:w])
-    win.attroff(curses.color_pair(COLOR_TITLE) | curses.A_BOLD)
-    win.attron(curses.color_pair(COLOR_GROUP))
-    win.addstr(1, max(0, (w - len(sub)) // 2), sub[:w])
-    win.attroff(curses.color_pair(COLOR_GROUP))
-    win.hline(2, 0, curses.ACS_HLINE, w)
+    safestr(win, 0, max(0, (w - len(title)) // 2), title, curses.color_pair(COLOR_TITLE) | curses.A_BOLD)
+    safestr(win, 1, max(0, (w - len(sub)) // 2), sub, curses.color_pair(COLOR_GROUP))
+    try:
+        win.hline(2, 0, curses.ACS_HLINE, w - 1)
+    except curses.error:
+        pass
 
 
 def draw_help(win):
     h, w = win.getmaxyx()
-    win.attron(curses.color_pair(COLOR_HELP))
-    win.addstr(h - 1, 0, HELP[:w].ljust(w))
-    win.attroff(curses.color_pair(COLOR_HELP))
+    safestr(win, h - 1, 0, HELP[:w - 1].ljust(w - 1), curses.color_pair(COLOR_HELP))
 
 
 def draw_field_list(win, fields, current, scroll):
@@ -252,78 +260,62 @@ def draw_field_list(win, fields, current, scroll):
             break
         kind, val = item
         if kind == "group":
-            win.attron(curses.color_pair(COLOR_GROUP) | curses.A_BOLD)
-            win.addstr(row, 2, f"── {val} "[:w - 4])
-            win.attroff(curses.color_pair(COLOR_GROUP) | curses.A_BOLD)
+            safestr(win, row, 2, f"-- {val} "[:w - 4], curses.color_pair(COLOR_GROUP) | curses.A_BOLD)
         else:
             f = fields[val]
             is_current = (val == current)
-            status = "✓" if f.confirmed else " "
+            status = "*" if f.confirmed else " "
             label = f"{status} {f.label}"
             display_val = ("*" * min(len(f.value), 20)) if f.sensitive else f.value[:w - 40]
+            line = f"{label:<35} {display_val}"[:w - 4]
 
             if is_current:
-                win.attron(curses.color_pair(COLOR_CURSOR) | curses.A_BOLD)
-                win.addstr(row, 2, f"{label:<35} {display_val}"[:w - 4])
-                win.attroff(curses.color_pair(COLOR_CURSOR) | curses.A_BOLD)
+                safestr(win, row, 2, line, curses.color_pair(COLOR_CURSOR) | curses.A_BOLD)
             elif f.confirmed:
-                win.attron(curses.color_pair(COLOR_DONE))
-                win.addstr(row, 2, f"{label:<35} {display_val}"[:w - 4])
-                win.attroff(curses.color_pair(COLOR_DONE))
+                safestr(win, row, 2, line, curses.color_pair(COLOR_DONE))
             else:
-                win.attron(curses.color_pair(COLOR_LABEL))
-                win.addstr(row, 2, f"{label:<35} {display_val}"[:w - 4])
-                win.attroff(curses.color_pair(COLOR_LABEL))
+                safestr(win, row, 2, line, curses.color_pair(COLOR_LABEL))
         row += 1
 
     # Progress bar
     done = sum(1 for f in fields if f.confirmed)
     total = len(fields)
-    pct = done * (w - 20) // total if total else 0
-    win.attron(curses.color_pair(COLOR_HELP))
-    win.addstr(h - 3, 2, f"Progress: {done}/{total} ")
-    win.addstr(h - 3, 14, "█" * pct + "░" * ((w - 20) - pct))
-    win.attroff(curses.color_pair(COLOR_HELP))
+    bar_w = max(0, w - 22)
+    pct = done * bar_w // total if total else 0
+    bar = "#" * pct + "-" * (bar_w - pct)
+    safestr(win, h - 3, 2, f"Progress: {done}/{total} [{bar}]", curses.color_pair(COLOR_HELP))
 
     return scroll
 
 
 def draw_detail(win, f: SecretField):
     h, w = win.getmaxyx()
-    # Description box in bottom portion
     box_top = h - 10
-    win.hline(box_top, 0, curses.ACS_HLINE, w)
+    try:
+        win.hline(box_top, 0, curses.ACS_HLINE, w - 1)
+    except curses.error:
+        pass
     desc_lines = []
     for line in f.description.split("\n"):
         desc_lines.extend(textwrap.wrap(line, w - 6) or [""])
     for i, line in enumerate(desc_lines[:4]):
-        win.attron(curses.color_pair(COLOR_LABEL))
-        win.addstr(box_top + 1 + i, 4, line[:w - 4])
-        win.attroff(curses.color_pair(COLOR_LABEL))
+        safestr(win, box_top + 1 + i, 4, line, curses.color_pair(COLOR_LABEL))
 
-    # Show actual value (masked or plain)
     val_row = box_top + 6
     if f.sensitive:
         display = f.value[:60] if f.value else "(not set)"
-        win.attron(curses.color_pair(COLOR_VALUE) | curses.A_BOLD)
-        win.addstr(val_row, 4, f"Value: {display}"[:w - 4])
-        win.attroff(curses.color_pair(COLOR_VALUE) | curses.A_BOLD)
+        safestr(win, val_row, 4, f"Value: {display}", curses.color_pair(COLOR_VALUE) | curses.A_BOLD)
     else:
-        win.attron(curses.color_pair(COLOR_VALUE))
-        win.addstr(val_row, 4, f"Value: {f.value}"[:w - 4])
-        win.attroff(curses.color_pair(COLOR_VALUE))
+        safestr(win, val_row, 4, f"Value: {f.value}", curses.color_pair(COLOR_VALUE))
 
-    # Action hints
-    win.attron(curses.color_pair(COLOR_WARN))
-    win.addstr(val_row + 1, 4, "[ENTER] Accept    [r] Regenerate    [e] Edit"[:w - 4])
-    win.attroff(curses.color_pair(COLOR_WARN))
+    safestr(win, val_row + 1, 4, "[ENTER] Accept    [r] Regenerate    [e] Edit", curses.color_pair(COLOR_WARN))
 
 
 def edit_value(win, f: SecretField) -> str:
     h, w = win.getmaxyx()
     prompt = f"Edit '{f.label}' (ENTER to confirm, ESC to cancel):"
     edit_row = h - 2
-    win.addstr(edit_row - 1, 2, prompt[:w - 4])
+    safestr(win, edit_row - 1, 2, prompt)
     curses.echo()
     curses.curs_set(1)
     win.move(edit_row, 2)
@@ -493,7 +485,7 @@ def confirm_screen(stdscr, namespace: str, n_secrets: int) -> bool:
         "",
     ]
     for i, line in enumerate(lines):
-        stdscr.addstr(h // 2 - len(lines) // 2 + i, 0, line[:w])
+        safestr(stdscr, h // 2 - len(lines) // 2 + i, 0, line)
     stdscr.refresh()
     while True:
         key = stdscr.getch()
