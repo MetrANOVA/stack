@@ -276,6 +276,55 @@ check_all() {
   echo "All required secrets are present."
 }
 
+plan() {
+  local release="${AUTH_RELEASE:-metranova-auth}"
+  cat <<EOF
+
+MetrANOVA Secret Bootstrap Plan
+================================
+Namespace : $NAMESPACE
+Auth release: $release
+
+Prepare the following values before running 'bootstrap':
+
+── ClickHouse (secret: clickhouse-users) ──────────────────────────────
+  admin-password      Password for the ClickHouse admin user
+  readonly-password   Password for the ClickHouse readonly user
+  backup-password     Password for the ClickHouse backup user
+
+── Grafana (secret: grafana-admin) ────────────────────────────────────
+  admin-user          Grafana admin username (e.g. admin)
+  admin-password      Grafana admin password
+
+── ClickHouse TLS (secret: clickhouse-tls) ────────────────────────────
+  Set CLICKHOUSE_TLS_CERT and CLICKHOUSE_TLS_KEY env vars to paths of
+  PEM files, or skip for now (required before deploying ClickHouse).
+
+── Auth (secret: ${release}-secrets) ──────────────────────────────────
+  Keycloak admin password
+  OpenLDAP admin password
+  OpenLDAP config password
+  Envoy OIDC client secret  (the 'envoy-proxy' Keycloak client secret)
+  Envoy HMAC secret         (leave blank to auto-generate)
+  Token store encryption key (leave blank to auto-generate — Fernet key)
+  Grafana admin password
+  Grafana ClickHouse password
+
+── Auth TLS (secret: ${release}-tls) ──────────────────────────────────
+  Option A: Set AUTH_TLS_CERT and AUTH_TLS_KEY to PEM file paths
+  Option B: Set AUTH_TLS_SECRET to name of an existing k8s secret
+  Option C: Leave unset — a self-signed cert will be generated (dev only)
+
+── Strimzi-managed (created by Kafka operator, not this script) ────────
+  pipeline-user                   Kafka pipeline user cert/key
+  metranova-kafka-cluster-ca-cert Kafka cluster CA cert
+
+Run:
+  NAMESPACE=$NAMESPACE bash $0 bootstrap
+
+EOF
+}
+
 bootstrap() {
   create_clickhouse_users_secret
   create_grafana_admin_secret
@@ -291,6 +340,9 @@ main() {
   require_cmd kubectl
 
   case "$MODE" in
+    plan)
+      plan
+      ;;
     check)
       check_all
       ;;
@@ -298,7 +350,7 @@ main() {
       bootstrap
       ;;
     *)
-      echo "Usage: $0 [check|bootstrap]" >&2
+      echo "Usage: $0 [plan|check|bootstrap]" >&2
       exit 2
       ;;
   esac
