@@ -849,10 +849,13 @@ auth:
       size: 1Gi
 
   envoy:
+    # Secrets managed out-of-band by manage-secrets.sh bootstrap — do not set here
     oidcClientSecret: ""
     hmacSecret: ""
     tls:
-      existingTLSSecret: ""
+      # manage-secrets.sh creates metranova-auth-tls; reference it here
+      existingTLSSecret: "metranova-auth-tls"
 
   tokenStore:
+    # Encryption key managed out-of-band by manage-secrets.sh bootstrap
     encryptionKey: ""

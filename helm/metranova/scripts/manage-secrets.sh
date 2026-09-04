@@ -85,6 +85,121 @@ create_grafana_admin_secret() {
   unset GF_ADMIN_USER GF_ADMIN_PASSWORD
 }
 
+create_auth_secrets() {
+  local release="${AUTH_RELEASE:-metranova-auth}"
+  echo "Creating/updating auth secrets for release '$release' in namespace $NAMESPACE"
+
+  # Keycloak admin password
+  read -r -s -p "Keycloak admin password: " KC_ADMIN_PASSWORD
+  echo
+
+  # OpenLDAP passwords
+  read -r -s -p "OpenLDAP admin password: " LDAP_ADMIN_PASSWORD
+  echo
+  read -r -s -p "OpenLDAP config password: " LDAP_CONFIG_PASSWORD
+  echo
+
+  # Envoy OIDC + HMAC secrets
+  read -r -s -p "Envoy OIDC client secret (envoy-proxy Keycloak client): " ENVOY_OIDC_SECRET
+  echo
+  read -r -s -p "Envoy HMAC secret (leave blank to generate): " ENVOY_HMAC_SECRET
+  echo
+  if [[ -z "$ENVOY_HMAC_SECRET" ]]; then
+    ENVOY_HMAC_SECRET=$(python3 -c "import secrets; print(secrets.token_hex(32))")
+    echo "  → Generated HMAC secret."
+  fi
+
+  # Token store encryption key — must be valid Fernet key
+  read -r -s -p "Token store encryption key (leave blank to generate): " TOKEN_ENC_KEY
+  echo
+  if [[ -z "$TOKEN_ENC_KEY" ]]; then
+    TOKEN_ENC_KEY=$(python3 -c "import secrets,base64; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())")
+    echo "  → Generated token store encryption key."
+  fi
+
+  # Grafana passwords
+  read -r -s -p "Grafana admin password: " GF_ADMIN_PASSWORD
+  echo
+  read -r -s -p "Grafana ClickHouse password: " GF_CH_PASSWORD
+  echo
+
+  # Build Envoy SDS secret files inline
+  local token_yaml
+  token_yaml=$(cat <<EOF
+resources:
+- "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.Secret
+  name: token-secret
+  generic_secret:
+    secret:
+      inline_string: ${ENVOY_OIDC_SECRET}
+EOF
+)
+  local hmac_yaml
+  hmac_yaml=$(cat <<EOF
+resources:
+- "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.Secret
+  name: hmac-secret
+  generic_secret:
+    secret:
+      inline_string: ${ENVOY_HMAC_SECRET}
+EOF
+)
+
+  kubectl create secret generic "${release}-secrets" \
+    -n "$NAMESPACE" \
+    --from-literal=KEYCLOAK_ADMIN=admin \
+    --from-literal=KEYCLOAK_ADMIN_PASSWORD="$KC_ADMIN_PASSWORD" \
+    --from-literal=LDAP_ADMIN_PASSWORD="$LDAP_ADMIN_PASSWORD" \
+    --from-literal=LDAP_CONFIG_PASSWORD="$LDAP_CONFIG_PASSWORD" \
+    --from-literal=TOKEN_STORE_ENCRYPTION_KEY="$TOKEN_ENC_KEY" \
+    --from-literal=GRAFANA_ADMIN_PASSWORD="$GF_ADMIN_PASSWORD" \
+    --from-literal=GRAFANA_CLICKHOUSE_PASSWORD="$GF_CH_PASSWORD" \
+    --from-literal=token.yaml="$token_yaml" \
+    --from-literal=hmac.yaml="$hmac_yaml" \
+    --dry-run=client -o yaml | kubectl apply -f -
+
+  unset KC_ADMIN_PASSWORD LDAP_ADMIN_PASSWORD LDAP_CONFIG_PASSWORD \
+        ENVOY_OIDC_SECRET ENVOY_HMAC_SECRET TOKEN_ENC_KEY \
+        GF_ADMIN_PASSWORD GF_CH_PASSWORD
+
+  # TLS — use existing secret, provided files, or generate self-signed
+  local tls_cert="${AUTH_TLS_CERT:-}"
+  local tls_key="${AUTH_TLS_KEY:-}"
+  local existing_tls="${AUTH_TLS_SECRET:-}"
+
+  if [[ -n "$existing_tls" ]]; then
+    echo "  → Using existing TLS secret: $existing_tls (set auth.envoy.tls.existingTLSSecret=$existing_tls in values)"
+  elif [[ -n "$tls_cert" && -n "$tls_key" ]]; then
+    echo "  → Creating auth TLS secret from AUTH_TLS_CERT / AUTH_TLS_KEY"
+    kubectl create secret generic "${release}-tls" \
+      -n "$NAMESPACE" \
+      --from-file=server.crt="$tls_cert" \
+      --from-file=server.key="$tls_key" \
+      --from-file=tls.crt="$tls_cert" \
+      --from-file=tls.key="$tls_key" \
+      --dry-run=client -o yaml | kubectl apply -f -
+  else
+    echo "  → No AUTH_TLS_CERT/AUTH_TLS_KEY set — generating self-signed cert for dev."
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    openssl req -x509 -newkey rsa:2048 \
+      -keyout "$tmpdir/server.key" -out "$tmpdir/server.crt" \
+      -days 365 -nodes \
+      -subj "/CN=metranova-auth" \
+      -addext "subjectAltName=DNS:metranova-auth,DNS:localhost" \
+      2>/dev/null
+    kubectl create secret generic "${release}-tls" \
+      -n "$NAMESPACE" \
+      --from-file=server.crt="$tmpdir/server.crt" \
+      --from-file=server.key="$tmpdir/server.key" \
+      --from-file=tls.crt="$tmpdir/server.crt" \
+      --from-file=tls.key="$tmpdir/server.key" \
+      --dry-run=client -o yaml | kubectl apply -f -
+    rm -rf "$tmpdir"
+    echo "  → Self-signed cert created. Replace with a real cert for production."
+  fi
+}
+
 create_clickhouse_tls_secret() {
   local cert="${CLICKHOUSE_TLS_CERT:-}"
   local key="${CLICKHOUSE_TLS_KEY:-}"
@@ -109,6 +224,7 @@ create_clickhouse_tls_secret() {
 
 check_all() {
   local failed=0
+  local release="${AUTH_RELEASE:-metranova-auth}"
 
   echo "Checking required secrets in namespace: $NAMESPACE"
   check_secret_and_keys clickhouse-users admin-password readonly-password backup-password || failed=1
@@ -136,19 +252,35 @@ check_all() {
     failed=1
   fi
 
+  # Auth secrets (only checked when auth is enabled)
+  if [[ "${CHECK_AUTH:-1}" == "1" ]]; then
+    check_secret_and_keys "${release}-secrets" \
+      KEYCLOAK_ADMIN_PASSWORD LDAP_ADMIN_PASSWORD LDAP_CONFIG_PASSWORD \
+      TOKEN_STORE_ENCRYPTION_KEY GRAFANA_ADMIN_PASSWORD token.yaml hmac.yaml || failed=1
+    if secret_exists "${release}-tls"; then
+      echo "OK secret: ${release}-tls"
+    else
+      echo "MISSING secret: ${release}-tls (or set AUTH_TLS_SECRET to use existing)"
+      failed=1
+    fi
+  fi
+
   if [[ "$failed" -ne 0 ]]; then
-    echo "\nSome required secrets are missing."
+    echo ""
+    echo "Some required secrets are missing."
     echo "Run: $0 bootstrap"
     return 1
   fi
 
-  echo "\nAll required secrets are present."
+  echo ""
+  echo "All required secrets are present."
 }
 
 bootstrap() {
   create_clickhouse_users_secret
   create_grafana_admin_secret
   create_clickhouse_tls_secret
+  create_auth_secrets
   echo
   echo "Bootstrap complete."
   echo "If missing, create Strimzi secrets separately: pipeline-user, metranova-kafka-cluster-ca-cert"
