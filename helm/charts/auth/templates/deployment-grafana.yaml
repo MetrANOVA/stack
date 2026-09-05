@@ -26,7 +26,7 @@ spec:
       {{- include "metranova-auth.imagePullSecrets" . | nindent 6 }}
       serviceAccountName: {{ include "metranova-auth.serviceAccountName" . }}
       securityContext:
-        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+        {{- toYaml .Values.grafana.podSecurityContext | nindent 8 }}
       containers:
         - name: grafana
           securityContext:

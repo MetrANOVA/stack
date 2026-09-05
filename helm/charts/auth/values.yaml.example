@@ -122,6 +122,10 @@ grafana:
     enabled: true
     storageClass: ""
     size: 5Gi
+  # fsGroup must match the UID of the grafana process in the container image.
+  # Check with: docker run --rm --entrypoint id grafana/grafana:<tag>
+  podSecurityContext:
+    fsGroup: 472
   resources:
     limits:
       cpu: 500m

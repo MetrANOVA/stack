@@ -641,6 +641,8 @@ def apply_secrets(groups, namespace, release, dry_run, fields=None):
             literals.append(f"--from-literal={k}={v!r}")
 
         if secret_name == f"{release}-secrets":
+            # KEYCLOAK_ADMIN username is always 'admin' — not user-configurable
+            literals.append("--from-literal=KEYCLOAK_ADMIN=admin")
             oidc = kv.get("ENVOY_OIDC_CLIENT_SECRET", "")
             hmac = kv.get("ENVOY_HMAC_SECRET", "")
             token_yaml = (
