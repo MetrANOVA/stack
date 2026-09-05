@@ -51,7 +51,7 @@ spec:
               value: dev-file
             - name: KC_HTTP_ENABLED
               value: "true"
-            - name: KC_HOSTNAME_URL
+            - name: KC_HOSTNAME
               value: "https://{{ .Values.domain }}"
             - name: KC_PROXY_HEADERS
               value: xforwarded
