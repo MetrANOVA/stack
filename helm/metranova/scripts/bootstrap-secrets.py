@@ -12,13 +12,11 @@ Usage:
 import argparse
 import base64
 import csv
-import curses
 import os
 import secrets
 import string
 import subprocess
 import sys
-import textwrap
 from dataclasses import dataclass
 
 
@@ -55,7 +53,7 @@ def gen_hex():
 
 def gen_selfsigned_tls():
     """Generate a self-signed TLS cert and return 'cert\\nKEY_SEPARATOR\\nkey'."""
-    import tempfile, os
+    import tempfile
     with tempfile.TemporaryDirectory() as d:
         crt = os.path.join(d, "tls.crt")
         key = os.path.join(d, "tls.key")
@@ -136,7 +134,7 @@ def make_fields(release: str) -> list:
             key=f"{release}-secrets/ENVOY_OIDC_CLIENT_SECRET",
             label="Envoy OIDC client secret",
             description=(
-                "Shared secret for the 'envoy-proxy' Keycloak client.\n"
+                "Shared secret for the 'envoy-proxy' Keycloak client. "
                 "Must match what is configured in Keycloak after first deploy."
             ),
             group="Auth",
@@ -153,8 +151,8 @@ def make_fields(release: str) -> list:
             key=f"{release}-secrets/TOKEN_STORE_ENCRYPTION_KEY",
             label="Token store encryption key",
             description=(
-                "Fernet symmetric key. Must be exactly 32 url-safe base64 bytes.\n"
-                "Use 'g' to generate — do not type this by hand."
+                "Fernet symmetric key. Must be exactly 32 url-safe base64 bytes. "
+                "Use Generate — do not type this by hand."
             ),
             group="Auth",
             generate=gen_fernet,
@@ -177,7 +175,7 @@ def make_fields(release: str) -> list:
             key=f"{release}-secrets/GRAFANA_OIDC_CLIENT_SECRET",
             label="Grafana OIDC client secret",
             description=(
-                "Shared secret for the 'grafana' Keycloak client.\n"
+                "Shared secret for the 'grafana' Keycloak client. "
                 "Must match what is configured in Keycloak after first deploy."
             ),
             group="Auth",
@@ -187,439 +185,15 @@ def make_fields(release: str) -> list:
             key=f"{release}-tls/combined",
             label="Auth TLS certificate + key",
             description=(
-                "TLS cert and key for Envoy HTTPS termination.\n"
-                "Use 'g' to generate a self-signed cert (dev/test).\n"
-                "Use 'e' to paste a PEM cert path (production).\n"
-                "Requires openssl to be installed."
+                "TLS cert and key for Envoy HTTPS termination. "
+                "Choose Generate for a self-signed cert (dev/test) "
+                "or Enter to paste a PEM cert+key. Requires openssl."
             ),
             group="Auth TLS",
             generate=gen_selfsigned_tls,
             sensitive=False,
         ),
     ]
-
-
-# ── Color constants ────────────────────────────────────────────────────────────
-
-C_BG      = 1   # FreeBSD blue background
-C_TITLE   = 2   # orange/yellow bold — window titles
-C_ACCENT  = 3   # cyan — namespace, progress bar, group headers (all same)
-C_NORMAL  = 4   # white on blue — body text
-C_DONE    = 5   # bright white — confirmed items
-C_CURSOR  = 6   # black on cyan — selected row
-C_WARN    = 7   # red — warnings/hints
-C_VALUE   = 8   # bright cyan — displayed values
-C_SHADOW  = 9   # dark shadow
-C_INNER   = 10  # white on black — window interior
-C_ACCENT_B= 11  # cyan on black — group headers inside black body
-C_BODY    = 12  # white on black — normal text inside black body
-
-
-def init_colors():
-    curses.start_color()
-    curses.use_default_colors()
-    curses.init_pair(C_BG,     curses.COLOR_WHITE,  curses.COLOR_BLUE)
-    curses.init_pair(C_TITLE,  curses.COLOR_YELLOW, curses.COLOR_BLUE)
-    curses.init_pair(C_ACCENT,  curses.COLOR_CYAN,   curses.COLOR_BLUE)   # cyan on blue — header/footer
-    curses.init_pair(C_NORMAL,  curses.COLOR_WHITE,  curses.COLOR_BLUE)   # white on blue — header/footer text
-    curses.init_pair(C_DONE,    curses.COLOR_WHITE,  curses.COLOR_BLACK)  # bold white on black — confirmed
-    curses.init_pair(C_CURSOR,  curses.COLOR_BLACK,  curses.COLOR_CYAN)   # selected row
-    curses.init_pair(C_WARN,    curses.COLOR_RED,    curses.COLOR_BLACK)  # warnings in body
-    curses.init_pair(C_VALUE,   curses.COLOR_CYAN,   curses.COLOR_BLACK)  # values in body
-    curses.init_pair(C_SHADOW,  curses.COLOR_BLACK,  curses.COLOR_BLACK)
-    curses.init_pair(C_INNER,   curses.COLOR_WHITE,  curses.COLOR_BLACK)  # body text
-    curses.init_pair(C_ACCENT_B,curses.COLOR_CYAN,   curses.COLOR_BLACK)  # cyan on black — group headers in body
-    curses.init_pair(C_BODY,    curses.COLOR_WHITE,  curses.COLOR_BLACK)  # white on black — body text
-
-
-def W(win, y, x, s, attr=0):
-    """Safe addstr — clips to window, never raises."""
-    h, w = win.getmaxyx()
-    if y < 0 or y >= h or x < 0 or x >= w:
-        return
-    s = str(s)[:max(0, w - x - 1)]
-    if s:
-        try:
-            win.addstr(y, x, s, attr)
-        except curses.error:
-            pass
-
-
-def make_win(stdscr, h, w, y, x):
-    """Create a blue-background window with border and drop shadow."""
-    sh, sw = stdscr.getmaxyx()
-    # Draw shadow (offset 1 right, 1 down)
-    shadow_attr = curses.color_pair(C_SHADOW)
-    for row in range(y + 1, min(y + h + 1, sh)):
-        for col in range(x + 2, min(x + w + 2, sw - 1)):
-            try:
-                ch = stdscr.inch(row, col)
-                stdscr.addch(row, col, ch & 0xFF, shadow_attr)
-            except curses.error:
-                pass
-    stdscr.refresh()
-
-    win = curses.newwin(h, w, y, x)
-    win.bkgd(" ", curses.color_pair(C_BG))
-    try:
-        win.border()
-    except curses.error:
-        pass
-    return win
-
-
-def fill_body_black(win, body_top, body_bot, w):
-    """Fill only the content rows with a black background."""
-    inner_attr = curses.color_pair(C_INNER)
-    for row in range(body_top, body_bot):
-        try:
-            win.addstr(row, 1, " " * (w - 2), inner_attr)
-        except curses.error:
-            pass
-
-
-# ── List screen ────────────────────────────────────────────────────────────────
-
-def draw_list(stdscr, fields, current, scroll, namespace):
-    sh, sw = stdscr.getmaxyx()
-
-    # FreeBSD blue full-screen background
-    try:
-        stdscr.bkgd(" ", curses.color_pair(C_BG))
-        stdscr.clear()
-    except curses.error:
-        pass
-    stdscr.refresh()
-
-    # Centered window — tall enough for all content + border
-    win_h = min(sh - 4, 32)
-    win_w = min(sw - 8, 82)
-    win_y = max(0, (sh - win_h) // 2)
-    win_x = max(0, (sw - win_w) // 2)
-
-    win = make_win(stdscr, win_h, win_w, win_y, win_x)
-
-    # Title on top border
-    title = " MetrANOVA Secret Bootstrap "
-    W(win, 0, max(1, (win_w - len(title)) // 2), title,
-      curses.color_pair(C_TITLE) | curses.A_BOLD)
-
-    # Namespace line — same accent color as group headers
-    sub = f" namespace: {namespace} "
-    W(win, 1, max(1, (win_w - len(sub)) // 2), sub,
-      curses.color_pair(C_ACCENT) | curses.A_BOLD)
-
-    try:
-        win.hline(2, 1, curses.ACS_HLINE, win_w - 2)
-    except curses.error:
-        pass
-
-    # Build flat list of rows (group headers + fields)
-    rows = []
-    last_group = None
-    for i, f in enumerate(fields):
-        if f.group != last_group:
-            rows.append(("group", f.group))
-            last_group = f.group
-        rows.append(("field", i))
-
-    body_top = 3
-    body_bot = win_h - 4
-    visible = body_bot - body_top
-
-    fill_body_black(win, body_top, body_bot, win_w)
-
-    cur_pos = next(j for j, r in enumerate(rows) if r == ("field", current))
-    if cur_pos - scroll >= visible:
-        scroll = cur_pos - visible + 1
-    if cur_pos - scroll < 0:
-        scroll = cur_pos
-
-    row = body_top
-    for item in rows[scroll:scroll + visible]:
-        if row >= body_bot:
-            break
-        kind, val = item
-        if kind == "group":
-            W(win, row, 2, f"  {val}", curses.color_pair(C_ACCENT_B) | curses.A_BOLD)
-        else:
-            f = fields[val]
-            is_cur = (val == current)
-            mark = "[x]" if f.confirmed else "[ ]"
-            label = f"{mark} {f.label}"
-            disp = ("*" * 16) if (f.sensitive and f.value) else (f.value[:win_w - 46] if f.value else "(not set)")
-            line = f"{label:<42} {disp}"[:win_w - 3]
-            if is_cur:
-                attr = curses.color_pair(C_CURSOR) | curses.A_BOLD
-            elif f.confirmed:
-                attr = curses.color_pair(C_DONE) | curses.A_BOLD
-            else:
-                attr = curses.color_pair(C_BODY)
-            W(win, row, 2, line, attr)
-        row += 1
-
-    # Separator + progress bar — same accent color
-    try:
-        win.hline(win_h - 4, 1, curses.ACS_HLINE, win_w - 2)
-    except curses.error:
-        pass
-    done = sum(1 for f in fields if f.confirmed)
-    total = len(fields)
-    bar_w = win_w - 14
-    filled = done * bar_w // total if total else 0
-    bar = "#" * filled + "-" * (bar_w - filled)
-    W(win, win_h - 3, 2, f"{done}/{total} [{bar}]", curses.color_pair(C_ACCENT) | curses.A_BOLD)
-
-    # Help line
-    W(win, win_h - 2, 2, "ENTER:open  G:gen-all  j/k:move  q:quit"[:win_w - 4],
-      curses.color_pair(C_NORMAL))
-
-    win.refresh()
-    return scroll
-
-
-# ── Modal for a single secret ──────────────────────────────────────────────────
-
-def open_modal(stdscr, f: SecretField) -> bool:
-    """
-    Show a centered modal for one secret.
-    Returns True if confirmed, False if cancelled (ESC).
-    """
-    sh, sw = stdscr.getmaxyx()
-    modal_w = min(sw - 8, 72)
-
-    while True:
-        # Compute value display lines
-        if f.value and not f.sensitive:
-            val_lines = []
-            for line in f.value.splitlines():
-                val_lines.extend(textwrap.wrap(line, modal_w - 6) if line else [""])
-        else:
-            val_lines = []
-
-        # Modal height: fixed header (6) + desc (3) + sep + value area + footer (4)
-        val_area = max(1, min(len(val_lines), sh - 20)) if val_lines else 1
-        modal_h = min(sh - 4, 10 + val_area)
-        modal_y = max(0, (sh - modal_h) // 2)
-        modal_x = max(0, (sw - modal_w) // 2)
-
-        win = make_win(stdscr, modal_h, modal_w, modal_y, modal_x)
-
-        title = f" {f.label} "[:modal_w - 2]
-        W(win, 0, max(1, (modal_w - len(title)) // 2), title,
-          curses.color_pair(C_TITLE) | curses.A_BOLD)
-
-        W(win, 1, 2, f"Group: {f.group}", curses.color_pair(C_ACCENT) | curses.A_BOLD)
-
-        try:
-            win.hline(2, 1, curses.ACS_HLINE, modal_w - 2)
-        except curses.error:
-            pass
-
-        fill_body_black(win, 3, modal_h - 4, modal_w)
-
-        # Description
-        desc_lines = []
-        for line in f.description.split("\n"):
-            desc_lines.extend(textwrap.wrap(line, modal_w - 6) or [""])
-        for i, dl in enumerate(desc_lines[:3]):
-            W(win, 3 + i, 3, dl, curses.color_pair(C_BODY))
-
-        sep1 = 6
-        try:
-            win.hline(sep1, 1, curses.ACS_HLINE, modal_w - 2)
-        except curses.error:
-            pass
-
-        # Value area
-        val_row = sep1 + 1
-        if f.value:
-            if f.sensitive:
-                W(win, val_row, 3, "*" * min(len(f.value), modal_w - 6),
-                  curses.color_pair(C_VALUE) | curses.A_BOLD)
-            else:
-                for i, vl in enumerate(val_lines[:val_area]):
-                    W(win, val_row + i, 3, vl, curses.color_pair(C_VALUE))
-        else:
-            W(win, val_row, 3, "(not set)", curses.color_pair(C_WARN))
-
-        sep2 = modal_h - 4
-        try:
-            win.hline(sep2, 1, curses.ACS_HLINE, modal_w - 2)
-        except curses.error:
-            pass
-
-        status_attr = (curses.color_pair(C_DONE) | curses.A_BOLD) if f.confirmed else curses.color_pair(C_WARN)
-        W(win, modal_h - 3, 3, "Status: " + ("[confirmed]" if f.confirmed else "[unconfirmed]"), status_attr)
-        W(win, modal_h - 2, 3, "g:generate  e:enter  s:show/hide  ENTER:confirm  ESC:back",
-          curses.color_pair(C_ACCENT))
-
-        win.refresh()
-        key = win.getch()
-
-        if key in (ord("g"), ord("G")):
-            f.value = f.generate()
-            f.confirmed = False
-
-        elif key in (ord("e"), ord("i")):
-            f.value = prompt_input(stdscr, modal_y + modal_h + 1, modal_x, modal_w, f)
-            f.confirmed = False
-
-        elif key in (ord("s"), ord("S")):
-            f.sensitive = not f.sensitive
-
-        elif key in (ord("\n"), ord("\r"), 10):
-            if not f.value:
-                f.value = f.generate()
-            f.confirmed = True
-            return True
-
-        elif key in (27, curses.KEY_LEFT):  # ESC or left
-            return False
-
-
-def prompt_input(stdscr, y, x, w, f: SecretField) -> str:
-    """Single-line input prompt drawn below the modal."""
-    sh, sw = stdscr.getmaxyx()
-    prompt = f"Enter value (ENTER confirm, ESC cancel): "
-    input_y = min(y, sh - 2)
-    input_x = max(0, x)
-    input_w = min(w - 2, sw - input_x - 2)
-
-    curses.echo()
-    curses.curs_set(1)
-    stdscr.addstr(input_y, input_x, " " * min(input_w + len(prompt), sw - input_x - 1))
-    try:
-        stdscr.addstr(input_y, input_x, prompt[:input_w])
-    except curses.error:
-        pass
-    stdscr.refresh()
-
-    try:
-        val = stdscr.getstr(input_y, input_x + len(prompt), max(1, input_w - len(prompt))).decode("utf-8")
-    except Exception:
-        val = f.value
-
-    curses.noecho()
-    curses.curs_set(0)
-    return val if val.strip() else f.value
-
-
-# ── Main TUI loop ──────────────────────────────────────────────────────────────
-
-def load_existing(fields, namespace):
-    """Mark fields confirmed if their key already exists in the cluster."""
-    for f in fields:
-        secret_name, key = f.key.split("/", 1)
-        if key == "combined":
-            # TLS field — check if the secret exists at all
-            result = subprocess.run(
-                ["kubectl", "get", "secret", secret_name, "-n", namespace],
-                capture_output=True, text=True
-            )
-            if result.returncode == 0:
-                f.value = "(already set in cluster)"
-                f.sensitive = False
-                f.confirmed = True
-        else:
-            result = subprocess.run(
-                ["kubectl", "get", "secret", secret_name,
-                 "-n", namespace,
-                 f"-o=jsonpath={{.data.{key}}}"],
-                capture_output=True, text=True
-            )
-            if result.returncode == 0 and result.stdout.strip():
-                f.value = "(already set in cluster)"
-                f.sensitive = False
-                f.confirmed = True
-
-
-def run_tui(stdscr, fields, namespace):
-    curses.curs_set(0)
-    curses.noecho()
-    init_colors()
-
-    current = 0
-    scroll = 0
-
-    while True:
-        scroll = draw_list(stdscr, fields, current, scroll, namespace)
-        key = stdscr.getch()
-
-        if key in (curses.KEY_DOWN, ord("j"), ord("J")):
-            current = min(len(fields) - 1, current + 1)
-
-        elif key in (curses.KEY_UP, ord("k"), ord("K")):
-            current = max(0, current - 1)
-
-        elif key in (ord("\n"), ord("\r"), 10, curses.KEY_RIGHT):
-            open_modal(stdscr, fields[current])
-            if fields[current].confirmed and current < len(fields) - 1:
-                current += 1
-
-        elif key in (ord("G"),):
-            for f in fields:
-                if not f.confirmed:
-                    f.value = f.generate()
-
-        elif key in (ord("q"), ord("Q"), 27):
-            return False
-
-        if all(f.confirmed for f in fields):
-            return True
-
-
-# ── Confirmation screen ────────────────────────────────────────────────────────
-
-def confirm_screen(stdscr, namespace, n_secrets):
-    sh, sw = stdscr.getmaxyx()
-    init_colors()
-
-    try:
-        stdscr.bkgd(" ", curses.color_pair(C_BG))
-        stdscr.clear()
-    except curses.error:
-        pass
-    stdscr.refresh()
-
-    win_h, win_w = 14, min(sw - 8, 64)
-    win_y = max(0, (sh - win_h) // 2)
-    win_x = max(0, (sw - win_w) // 2)
-
-    win = make_win(stdscr, win_h, win_w, win_y, win_x)
-
-    title = " All secrets confirmed "
-    W(win, 0, max(1, (win_w - len(title)) // 2), title,
-      curses.color_pair(C_TITLE) | curses.A_BOLD)
-
-    fill_body_black(win, 1, win_h - 1, win_w)
-
-    lines = [
-        "",
-        f"  Ready to write {n_secrets} secrets to:",
-        f"  namespace: {namespace}",
-        "",
-        "  IMPORTANT: Store all values in a password",
-        "  manager before proceeding. They cannot be",
-        "  recovered from the cluster afterwards.",
-        "",
-        "  w  Write to cluster",
-        "  x  Export CSV, then write",
-        "  q  Abort",
-    ]
-    for i, line in enumerate(lines):
-        W(win, 1 + i, 2, line[:win_w - 3], curses.color_pair(C_BODY))
-
-    win.refresh()
-
-    while True:
-        key = win.getch()
-        if key in (ord("w"), ord("W")):
-            return "write"
-        if key in (ord("x"), ord("X")):
-            return "export_write"
-        if key in (ord("q"), ord("Q"), 27):
-            return "abort"
 
 
 # ── kubectl / export ───────────────────────────────────────────────────────────
@@ -641,7 +215,6 @@ def apply_secrets(groups, namespace, release, dry_run, fields=None):
             literals.append(f"--from-literal={k}={v!r}")
 
         if secret_name == f"{release}-secrets":
-            # KEYCLOAK_ADMIN username is always 'admin' — not user-configurable
             literals.append("--from-literal=KEYCLOAK_ADMIN=admin")
             oidc = kv.get("ENVOY_OIDC_CLIENT_SECRET", "")
             hmac = kv.get("ENVOY_HMAC_SECRET", "")
@@ -679,19 +252,18 @@ def apply_secrets(groups, namespace, release, dry_run, fields=None):
             else:
                 print(f"  OK: {secret_name}")
 
-    # TLS secret — handled separately since it's not key/value literals
     tls_field = next((f for f in (fields or []) if f.value and "---KEY---" in f.value), None)
     if tls_field:
         cert, key = tls_field.value.split("---KEY---\n", 1)
         tls_secret = tls_field.key.split("/")[0]
         if dry_run:
-            print(f"# kubectl create secret generic {tls_secret} -n {namespace} --from-literal=server.crt=... --from-literal=server.key=...")
+            print(f"# kubectl create secret generic {tls_secret} -n {namespace} --from-file=...")
         else:
             print(f"  Creating secret: {tls_secret}")
-            import tempfile, os as _os
+            import tempfile
             with tempfile.TemporaryDirectory() as d:
-                crt_path = _os.path.join(d, "server.crt")
-                key_path = _os.path.join(d, "server.key")
+                crt_path = os.path.join(d, "server.crt")
+                key_path = os.path.join(d, "server.key")
                 open(crt_path, "w").write(cert)
                 open(key_path, "w").write(key)
                 cmd = (
@@ -716,8 +288,184 @@ def export_csv(fields, path):
         writer.writerow(["Secret", "Key", "Value", "Notes"])
         for field in fields:
             secret_name, key = field.key.split("/", 1)
-            writer.writerow([secret_name, key, field.value, field.description.split("\n")[0]])
+            writer.writerow([secret_name, key, field.value, field.description[:80]])
     print(f"Exported to {path} — import into your password manager, then delete this file.")
+
+
+def load_existing(fields, namespace):
+    """Mark fields confirmed if their key already exists in the cluster."""
+    for f in fields:
+        secret_name, key = f.key.split("/", 1)
+        if key == "combined":
+            result = subprocess.run(
+                ["kubectl", "get", "secret", secret_name, "-n", namespace],
+                capture_output=True, text=True
+            )
+            if result.returncode == 0:
+                f.value = "(already set in cluster)"
+                f.sensitive = False
+                f.confirmed = True
+        else:
+            result = subprocess.run(
+                ["kubectl", "get", "secret", secret_name,
+                 "-n", namespace,
+                 f"-o=jsonpath={{.data.{key}}}"],
+                capture_output=True, text=True
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                f.value = "(already set in cluster)"
+                f.sensitive = False
+                f.confirmed = True
+
+
+# ── dialog TUI ────────────────────────────────────────────────────────────────
+
+def _make_dialog(namespace):
+    import dialog
+    d = dialog.Dialog()
+    d.set_background_title(f"MetrANOVA Secret Bootstrap  |  namespace: {namespace}")
+    return d
+
+
+def run_tui(fields, namespace):
+    d = _make_dialog(namespace)
+
+    while True:
+        done = sum(1 for f in fields if f.confirmed)
+        total = len(fields)
+        all_done = done == total
+
+        choices = []
+        for i, f in enumerate(fields):
+            mark = "[x]" if f.confirmed else "[ ]"
+            choices.append((str(i), f"{mark} {f.label}  ({f.group})"))
+
+        msg = f"Progress: {done}/{total} confirmed.\n"
+        if all_done:
+            msg += "All secrets confirmed. Press Write to Cluster when ready."
+        else:
+            msg += "Arrow keys to navigate, Enter to open a secret."
+
+        code, tag = d.menu(
+            msg,
+            choices=choices,
+            width=76, height=24, menu_height=16,
+            title="Secrets",
+            ok_label="Open",
+            extra_button=True, extra_label="Generate All",
+            help_button=True,  help_label="Write",
+            cancel_label="Quit",
+        )
+
+        if code in (d.CANCEL, d.ESC):
+            return False
+
+        if code == "extra":
+            for f in fields:
+                if not f.confirmed:
+                    f.value = f.generate()
+                    f.confirmed = True
+            continue
+
+        if code == "help":
+            if not all(f.confirmed for f in fields):
+                d.msgbox(
+                    f"Not all secrets are confirmed yet ({done}/{total} done).\n"
+                    "Please confirm all secrets before writing.",
+                    width=60, height=10, title="Cannot write yet",
+                )
+                continue
+            return True
+
+        # OK — open the item under the cursor
+        _edit_field(d, fields[int(tag)])
+
+
+def _edit_field(d, f: SecretField):
+    """Button-based edit screen — Tab between buttons, Enter activates.
+
+    Buttons: Confirm | Generate | View/Edit | Back
+    View/Edit opens an inputbox showing the current value (always echoes),
+    serving as both show/hide and manual entry.
+    """
+    while True:
+        if f.value:
+            display = "*** (hidden — use View/Edit to reveal)" if f.sensitive else (
+                f.value[:300] + ("..." if len(f.value) > 300 else ""))
+        else:
+            display = "(not set)"
+
+        status = "[CONFIRMED]" if f.confirmed else "[unconfirmed]"
+        body = (
+            f"{f.description}\n\n"
+            f"Value: {display}\n\n"
+            f"Status: {status}"
+        )
+
+        code = d.yesno(
+            body,
+            title=f.label,
+            width=70, height=18,
+            yes_label="Confirm",
+            no_label="Back",
+            extra_button=True, extra_label="Generate",
+            help_button=True,  help_label="View/Edit",
+        )
+
+        if code in (d.CANCEL, d.ESC):
+            return
+
+        if code == d.OK:                # Confirm
+            if not f.value:
+                f.value = f.generate()
+            f.confirmed = True
+            return
+
+        if code == "extra":             # Generate
+            f.value = f.generate()
+            f.confirmed = False
+
+        if code == "help":              # View/Edit — always echoes, shows current value
+            init = f.value if f.value and f.value != "(not set)" else ""
+            c, val = d.inputbox(
+                f"View or edit value for: {f.label}\n\n"
+                f"(Leave unchanged and press OK to keep current value.)",
+                title=f.label, width=70, height=14,
+                init=init,
+            )
+            if c == d.OK:
+                new = val.strip()
+                if new and new != f.value:
+                    f.value = new
+                    f.confirmed = False
+                # if unchanged, just loop back (acts as show-only)
+
+
+def confirm_screen(fields, namespace):
+    d = _make_dialog(namespace)
+    groups = group_fields(fields)
+    n = len(groups) + (1 if any("---KEY---" in f.value for f in fields if f.value) else 0)
+
+    code, tag = d.menu(
+        f"Ready to write {n} secrets to namespace '{namespace}'.\n\n"
+        "IMPORTANT: Store all values in a password manager before\n"
+        "proceeding — they cannot be recovered from the cluster.",
+        title="Write secrets to cluster",
+        width=68, height=18, menu_height=3,
+        choices=[
+            ("W", "Write secrets to cluster now"),
+            ("X", "Export CSV, then write"),
+            ("Q", "Abort — do not write"),
+        ],
+        ok_label="Select",
+        cancel_label="Abort",
+    )
+
+    if code in (d.CANCEL, d.ESC) or tag == "Q":
+        return "abort"
+    if tag == "X":
+        return "export_write"
+    return "write"
 
 
 # ── Main ───────────────────────────────────────────────────────────────────────
@@ -745,18 +493,19 @@ def main():
         return
 
     load_existing(fields, args.namespace)
-    completed = curses.wrapper(run_tui, fields, args.namespace)
+    completed = run_tui(fields, args.namespace)
 
     if not completed:
         print("Aborted — no secrets written.")
         sys.exit(0)
 
-    groups = group_fields(fields)
-    action = curses.wrapper(confirm_screen, args.namespace, len(groups))
+    action = confirm_screen(fields, args.namespace)
 
     if action == "abort":
         print("Aborted — no secrets written.")
         sys.exit(0)
+
+    groups = group_fields(fields)
 
     if action == "export_write" or args.export_csv:
         csv_path = args.export_csv or f"metranova-secrets-{args.namespace}.csv"

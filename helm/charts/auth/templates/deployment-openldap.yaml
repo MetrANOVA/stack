@@ -56,16 +56,8 @@ spec:
               containerPort: 389
               protocol: TCP
           readinessProbe:
-            exec:
-              command:
-                - ldapsearch
-                - -x
-                - -H
-                - ldap://localhost
-                - -b
-                - {{ include "metranova-auth.ldapBaseDN" . | quote }}
-                - -s
-                - base
+            tcpSocket:
+              port: 389
             initialDelaySeconds: 20
             periodSeconds: 10
             failureThreshold: 10
