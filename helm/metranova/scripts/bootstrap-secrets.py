@@ -292,30 +292,51 @@ def export_csv(fields, path):
     print(f"Exported to {path} — import into your password manager, then delete this file.")
 
 
-def load_existing(fields, namespace):
-    """Mark fields confirmed if their key already exists in the cluster."""
+def load_existing(fields, namespace, d=None):
+    """Mark fields confirmed if their key already exists in the cluster.
+
+    Batches kubectl calls — one per distinct secret name rather than one per field.
+    Pass a dialog.Dialog instance to show a progress infobox.
+    """
+    # Collect distinct secret names
+    secret_names = list(dict.fromkeys(f.key.split("/", 1)[0] for f in fields))
+    total = len(secret_names)
+
+    # Fetch all secrets in one batch: {secret_name: {key: base64_value}}
+    existing = {}
+    for i, secret_name in enumerate(secret_names):
+        if d:
+            d.infobox(
+                f"Checking existing secrets in namespace '{namespace}'...\n\n"
+                f"  {secret_name}  ({i + 1}/{total})",
+                width=60, height=8,
+                title="Loading",
+            )
+        result = subprocess.run(
+            ["kubectl", "get", "secret", secret_name, "-n", namespace,
+             "-o", "jsonpath={.data}"],
+            capture_output=True, text=True
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            import json
+            try:
+                existing[secret_name] = json.loads(result.stdout)
+            except json.JSONDecodeError:
+                existing[secret_name] = {}
+
     for f in fields:
         secret_name, key = f.key.split("/", 1)
+        if secret_name not in existing:
+            continue
         if key == "combined":
-            result = subprocess.run(
-                ["kubectl", "get", "secret", secret_name, "-n", namespace],
-                capture_output=True, text=True
-            )
-            if result.returncode == 0:
-                f.value = "(already set in cluster)"
-                f.sensitive = False
-                f.confirmed = True
-        else:
-            result = subprocess.run(
-                ["kubectl", "get", "secret", secret_name,
-                 "-n", namespace,
-                 f"-o=jsonpath={{.data.{key}}}"],
-                capture_output=True, text=True
-            )
-            if result.returncode == 0 and result.stdout.strip():
-                f.value = "(already set in cluster)"
-                f.sensitive = False
-                f.confirmed = True
+            # TLS secret — presence is enough
+            f.value = "(already set in cluster)"
+            f.sensitive = False
+            f.confirmed = True
+        elif key in existing[secret_name] and existing[secret_name][key]:
+            f.value = "(already set in cluster)"
+            f.sensitive = False
+            f.confirmed = True
 
 
 # ── dialog TUI ────────────────────────────────────────────────────────────────
@@ -492,7 +513,8 @@ def main():
         print("\nDone.")
         return
 
-    load_existing(fields, args.namespace)
+    d = _make_dialog(args.namespace)
+    load_existing(fields, args.namespace, d)
     completed = run_tui(fields, args.namespace)
 
     if not completed:
