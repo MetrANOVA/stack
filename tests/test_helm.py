@@ -115,3 +115,131 @@ class TestHelmDryRun:
             str(CHART_DIR), "-f", str(VALUES_FILE),
         )
         assert result.returncode == 0, f"helm dry-run failed:\n{result.stderr}"
+
+
+# ── Umbrella chart tests ───────────────────────────────────────────────────────
+
+UMBRELLA_DIR = REPO_ROOT / "helm" / "metranova"
+AUTH_CHART_DIR = REPO_ROOT / "helm" / "charts" / "auth"
+
+
+@pytest.fixture(scope="session")
+def umbrella_fixture(tmp_path_factory):
+    """
+    Build a minimal umbrella fixture with only the auth subchart so tests run
+    without needing the full set of upstream charts (clickhouse, kafka, etc).
+    """
+    import shutil
+
+    d = tmp_path_factory.mktemp("umbrella")
+
+    # Copy auth chart directly into charts/ — helm finds it without dep build
+    charts_dir = d / "charts"
+    charts_dir.mkdir()
+    shutil.copytree(AUTH_CHART_DIR, charts_dir / "metranova-auth")
+
+    # Chart.yaml referencing the already-present subchart (no repository needed)
+    (d / "Chart.yaml").write_text(
+        "apiVersion: v2\n"
+        "name: metranova-test\n"
+        "version: 0.1.0\n"
+        "dependencies:\n"
+        "  - name: metranova-auth\n"
+        "    alias: auth\n"
+        "    version: '0.1.0'\n"
+        "    condition: auth.enabled\n"
+    )
+
+    # Build values: auth subchart defaults prefixed with "auth:", plus overrides.
+    # Read the auth chart's values.yaml.example and nest it under "auth:".
+    auth_defaults = yaml.safe_load(VALUES_FILE.read_text())
+    umbrella_values = {
+        "auth": {
+            **auth_defaults,
+            "enabled": True,
+            "domain": "test.example.com",
+        }
+    }
+    import json as _json
+    # Write as YAML (use json-safe subset via yaml dump)
+    (d / "values.yaml").write_text(yaml.dump(umbrella_values, default_flow_style=False))
+
+    return d
+
+
+class TestUmbrellaLint:
+    def test_lint_passes(self, umbrella_fixture):
+        result = subprocess.run(
+            ["helm", "lint", str(umbrella_fixture)],
+            capture_output=True, text=True,
+        )
+        assert result.returncode == 0, f"helm lint failed:\n{result.stderr}"
+
+
+class TestUmbrellaTemplate:
+    def _docs(self, umbrella_fixture):
+        result = subprocess.run(
+            ["helm", "template", "test", str(umbrella_fixture)],
+            capture_output=True, text=True,
+        )
+        assert result.returncode == 0, f"helm template failed:\n{result.stderr}"
+        return [d for d in yaml.safe_load_all(result.stdout) if d is not None]
+
+    def test_renders_without_error(self, umbrella_fixture):
+        result = subprocess.run(
+            ["helm", "template", "test", str(umbrella_fixture)],
+            capture_output=True, text=True,
+        )
+        assert result.returncode == 0, f"helm template failed:\n{result.stderr}"
+
+    def test_auth_resources_present(self, umbrella_fixture):
+        docs = self._docs(umbrella_fixture)
+        kinds = [d["kind"] for d in docs]
+        assert "Deployment" in kinds
+        assert "Service" in kinds
+        assert "ConfigMap" in kinds
+
+    def test_auth_deployments_have_expected_components(self, umbrella_fixture):
+        docs = self._docs(umbrella_fixture)
+        deployments = [d for d in docs if d["kind"] == "Deployment"]
+        components = {
+            d["metadata"]["labels"].get("app.kubernetes.io/component")
+            for d in deployments
+        }
+        assert components >= {"keycloak", "envoy", "grafana", "openldap",
+                              "token-store", "clickhouse-auth-proxy"}
+
+    def test_domain_propagated(self, umbrella_fixture):
+        docs = self._docs(umbrella_fixture)
+        envoy_cm = next(
+            (d for d in docs
+             if d["kind"] == "ConfigMap"
+             and d["metadata"]["name"].endswith("-envoy")),
+            None,
+        )
+        assert envoy_cm is not None
+        assert "test.example.com" in envoy_cm["data"]["envoy.yaml"]
+
+    def test_auth_disabled_produces_no_auth_resources(self, tmp_path):
+        """When auth.enabled=false, no auth resources should be rendered."""
+        import shutil
+        d = tmp_path
+        charts_dir = d / "charts"
+        charts_dir.mkdir()
+        shutil.copytree(AUTH_CHART_DIR, charts_dir / "metranova-auth")
+        (d / "Chart.yaml").write_text(
+            "apiVersion: v2\nname: metranova-test\nversion: 0.1.0\n"
+            "dependencies:\n"
+            "  - name: metranova-auth\n"
+            "    alias: auth\n"
+            "    version: '0.1.0'\n"
+            "    condition: auth.enabled\n"
+        )
+        (d / "values.yaml").write_text("auth:\n  enabled: false\n")
+        result = subprocess.run(
+            ["helm", "template", "test", str(d)],
+            capture_output=True, text=True,
+        )
+        assert result.returncode == 0
+        docs = [doc for doc in yaml.safe_load_all(result.stdout) if doc is not None]
+        assert len(docs) == 0, f"Expected no resources when auth disabled, got: {[d['kind'] for d in docs]}"
