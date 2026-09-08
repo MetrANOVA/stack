@@ -719,7 +719,7 @@ api:
   image:
     repository: ghcr.io/metranova/api
     pullPolicy: IfNotPresent
-    tag: "dev"
+    tag: null
 
   service:
     type: ClusterIP
