@@ -63,15 +63,16 @@ spec:
             httpGet:
               path: /health/ready
               port: 8080
-            initialDelaySeconds: 30
+            initialDelaySeconds: 90
             periodSeconds: 10
-            failureThreshold: 10
+            failureThreshold: 12
           livenessProbe:
             httpGet:
               path: /health/live
               port: 8080
-            initialDelaySeconds: 60
+            initialDelaySeconds: 120
             periodSeconds: 30
+            failureThreshold: 6
           resources:
             {{- toYaml .Values.keycloak.resources | nindent 12 }}
           volumeMounts:
