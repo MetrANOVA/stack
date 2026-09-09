@@ -50,7 +50,7 @@ CREATE TABLE metranova_authz.organizations
     id           UUID         DEFAULT generateUUIDv4(),
     name         String,
     slug         String,
-    is_master    Bool         DEFAULT false,
+    is_custodial    Bool         DEFAULT false,
     created_at   DateTime64(3) DEFAULT now64(),
     updated_at   DateTime64(3) DEFAULT now64()
 )
@@ -107,7 +107,7 @@ class TestSchema:
     def test_organizations_columns(self):
         out = ch_multi(SCHEMA_SQL, "DESCRIBE metranova_authz.organizations")
         cols = {line.split("\t")[0] for line in out.strip().splitlines()}
-        assert cols == {"id", "name", "slug", "is_master", "created_at", "updated_at"}
+        assert cols == {"id", "name", "slug", "is_custodial", "created_at", "updated_at"}
 
     def test_organizations_engine(self):
         out = ch_multi(SCHEMA_SQL,
@@ -157,6 +157,20 @@ class TestSchema:
         # MergeTree (not Replacing) — audit log is append-only
         assert out.strip() == "MergeTree"
 
+    def test_policy_organizations_column(self):
+        """data_flow must have policy_organizations Array(String) for row policies."""
+        # Verify the ALTER TABLE statement is syntactically valid using a temp table
+        out = ch_multi(
+            "CREATE TABLE metranova_data_flow_stub "
+            "(policy_level String, policy_scope Array(String), policy_originator String) "
+            "ENGINE = MergeTree() ORDER BY policy_level;",
+            "ALTER TABLE metranova_data_flow_stub "
+            "ADD COLUMN IF NOT EXISTS policy_organizations Array(String) DEFAULT [];",
+            "DESCRIBE metranova_data_flow_stub;",
+        )
+        cols = {line.split("\t")[0] for line in out.strip().splitlines()}
+        assert "policy_organizations" in cols
+
 
 # ── Data integrity tests ───────────────────────────────────────────────────────
 
@@ -164,10 +178,10 @@ class TestDataIntegrity:
     """Verify inserts and basic queries work correctly."""
 
     SETUP = SCHEMA_SQL + """
-INSERT INTO metranova_authz.organizations (id, name, slug, is_master)
+INSERT INTO metranova_authz.organizations (id, name, slug, is_custodial)
 VALUES ('00000000-0000-0000-0000-000000000001', 'ESnet', 'esnet', true);
 
-INSERT INTO metranova_authz.organizations (id, name, slug, is_master)
+INSERT INTO metranova_authz.organizations (id, name, slug, is_custodial)
 VALUES ('00000000-0000-0000-0000-000000000002', 'Internet2', 'internet2', false);
 
 INSERT INTO metranova_authz.grants
@@ -191,7 +205,7 @@ VALUES
     def test_exactly_one_master_org(self):
         out = ch_multi(
             self.SETUP,
-            "SELECT count() FROM metranova_authz.organizations WHERE is_master = true",
+            "SELECT count() FROM metranova_authz.organizations WHERE is_custodial = true",
         )
         assert out.strip() == "1"
 

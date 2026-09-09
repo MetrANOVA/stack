@@ -37,15 +37,16 @@ echo "Creating authz tables..."
 $CH --multiquery <<'SQL'
 
 -- ── Organizations ──────────────────────────────────────────────────────────────
--- Each MetrANOVA installation has exactly one master organization.
+-- Each MetrANOVA installation has exactly one custodial organization.
+-- The custodial org owns all data rows not explicitly tagged by classification rules.
 CREATE TABLE IF NOT EXISTS metranova_authz.organizations
 (
-    id           UUID         DEFAULT generateUUIDv4(),
-    name         String,
-    slug         String,      -- lowercase identifier used in policy matching
-    is_master    Bool         DEFAULT false,
-    created_at   DateTime64(3) DEFAULT now64(),
-    updated_at   DateTime64(3) DEFAULT now64()
+    id            UUID         DEFAULT generateUUIDv4(),
+    name          String,
+    slug          String,      -- lowercase identifier used in policy matching and org tags
+    is_custodial  Bool         DEFAULT false,
+    created_at    DateTime64(3) DEFAULT now64(),
+    updated_at    DateTime64(3) DEFAULT now64()
 )
 ENGINE = ReplacingMergeTree(updated_at)
 ORDER BY id;
@@ -102,6 +103,12 @@ ORDER BY (timestamp, event_type, actor)
 SETTINGS allow_nullable_key = 0;
 
 SQL
+
+echo "Adding policy_organizations column to metranova.data_flow..."
+$CH --query "
+ALTER TABLE metranova.data_flow
+ADD COLUMN IF NOT EXISTS policy_organizations Array(String) DEFAULT []
+"
 
 echo "Creating authz roles..."
 $CH --multiquery <<'SQL'

@@ -38,29 +38,38 @@ An organization represents a deployment owner or data-sharing partner (e.g. “E
 | id         | UUID     | Primary key                            |
 | name       | String   | Human-readable name                    |
 | slug       | String   | Lowercase identifier, used in policies |
-| is_master  | Bool     | Exactly one per installation           |
+| is_custodial | Bool   | Exactly one per installation; "custodial" — institutions manage each other's data, not "master" |
 | created_at | DateTime |                                        |
 | updated_at | DateTime |                                        |
 
 ### 1.3 Authorization Rules
 
-Rules stamp org tags onto rows at ingest time. Multiple rules can match a single row, each adding a different org to that row’s policy_organizations array. Rows with no matching rules get only the custodial organization tag at tlp:red.
+Rules are configuration stored in `metranova_authz.rules` and consumed by the pipeline’s ingest-time rules engine (in the `metranova/pipeline` repo). The pipeline already implements rule matching — this table is the source of truth that drives it.
 
-> ⚠️ **Needs Andy’s input.** The original spec modeled rules as a single-winner classifier (one rule fires per row, determined by priority). Multi-org tagging requires rules to be additive taggers — all matching rules fire and each contributes an org tag. This changes the semantics of the `priority` field and conflict resolution. Specifically: does priority control ordering when two rules would assign the *same* org at different TLP levels? Can conflicting rules coexist? Andy to review before implementation.
+Each rule matches rows using `policy_originator_pattern` and `policy_scope_pattern`. A single rule can have two independent effects:
+
+1. **Org-tagging effect** (`organization_id` set): stamps the org’s slug into `policy_organizations` (additive — all matching rules fire, slugs deduplicated).
+2. **TLP-override effect** (`assigned_tlp` set): overrides the row’s `policy_level`. When multiple rules set `assigned_tlp`, the highest-priority rule wins.
+
+A rule can have one effect, the other, or both. Every row has exactly one TLP level and zero or more org tags. Rows matching no rules receive only the custodial org slug at their original `policy_level`.
+
+`priority` only matters for TLP override conflict resolution — it has no effect on which orgs get stamped.
+
+> **Pending pipeline team coordination (see `stack-4nm`):** confirm that the existing pipeline rules engine is compatible with this two-effect model and the `policy_organizations` Array(String) column.
 
 |  |  |  |
 |----|----|----|
 | Field | Type | Description |
 | id | UUID | Primary key |
-| organization_id | UUID | FK to organization |
-| policy_originator_pattern | String | Glob/exact match on policy_originator |
-| policy_scope_pattern | String | Glob/exact match on policy_scope array elements |
-| assigned_tlp | String | Override TLP level for matched rows (optional — if null, use the row’s policy_level) |
-| priority | Int | When two rules assign the same org, higher priority wins on TLP override |
+| organization_id | UUID | FK to organization — if set, stamps this org’s slug into `policy_organizations` |
+| policy_originator_pattern | String | Glob/exact match on `policy_originator` |
+| policy_scope_pattern | String | Glob/exact match on `policy_scope` array elements |
+| assigned_tlp | Nullable(String) | If set, overrides the row’s `policy_level`; highest-priority wins when multiple rules match |
+| priority | Int | Conflict resolution for `assigned_tlp` overrides only |
 | description | String | Human-readable explanation |
 | created_at | DateTime |  |
 
-Note: policy_scope carries BGP community labels (e.g. lhcone, lsst) — it is distinct from policy_organizations. Rules match on policy_scope/policy_originator and write to policy_organizations.
+Note: `policy_scope` carries BGP community labels (e.g. lhcone, lsst) — it is distinct from `policy_organizations`. Rules match on `policy_scope`/`policy_originator` and write to `policy_organizations`.
 
 ### 1.4 User-Organization-TLP Access Grants
 
@@ -116,10 +125,12 @@ Every authorization decision and administrative change is recorded:
 
 All authorization metadata lives in ClickHouse in a dedicated metranova_authz database, separate from the metranova data database:
 
-- authz_organizations — org definitions
-- authz_rules — row classification rules
-- authz_grants — user↔︎org↔︎TLP↔︎permission mappings
-- authz_audit_log — append-only audit trail (MergeTree with no mutations allowed by policy)
+- `organizations` — org definitions (fully qualified: `metranova_authz.organizations`)
+- `rules` — row classification rules (`metranova_authz.rules`)
+- `grants` — user↔︎org↔︎TLP↔︎permission mappings (`metranova_authz.grants`)
+- `audit_log` — append-only audit trail (`metranova_authz.audit_log`, MergeTree with no mutations allowed by policy)
+
+> **Table naming decision:** Tables are named without the `authz_` prefix because the `metranova_authz` database already provides the namespace. `metranova_authz.organizations` is clearer than `metranova_authz.authz_organizations`.
 
 ClickHouse Dictionaries will cache the authz tables in memory for row policy evaluation performance (avoid per-row JOINs on the hot path).
 
