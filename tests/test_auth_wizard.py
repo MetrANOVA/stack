@@ -561,3 +561,149 @@ class TestEnsureChRole:
         sql = ch.multiquery.call_args[0][0]
         assert "CREATE ROLE IF NOT EXISTS" in sql
         assert "authz-tlp-esnet-amber-read" in sql
+
+
+class TestKubectlContext:
+    def test_returns_current_context(self):
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = SimpleNamespace(
+                returncode=0,
+                stdout="gke_metranova_us-east1-b_metranova-dev-auth\n",
+                stderr="",
+            )
+            ctx = W._kubectl_context()
+        assert ctx == "gke_metranova_us-east1-b_metranova-dev-auth"
+
+    def test_strips_whitespace(self):
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = SimpleNamespace(returncode=0, stdout="  ctx  \n", stderr="")
+            assert W._kubectl_context() == "ctx"
+
+
+class TestArgoCDSyncAndWait:
+    """
+    argocd_sync_and_wait runs polling in a background thread and drives
+    d.gauge_start/update/stop in the main thread. Tests run the full function
+    with mocked subprocess and a fake dialog gauge.
+    """
+
+    def _make_dialog(self):
+        d = MagicMock()
+        # gauge methods must not raise so the function completes cleanly
+        d.gauge_start = MagicMock()
+        d.gauge_update = MagicMock()
+        d.gauge_stop = MagicMock()
+        d.msgbox = MagicMock()
+        return d
+
+    def _pod_stdout(self, ready: bool = True) -> str:
+        flag = "true" if ready else "false"
+        return f"metranova-auth-keycloak-abc   {flag}   Running   0\n"
+
+    def test_returns_true_when_all_pods_ready(self):
+        d = self._make_dialog()
+
+        def fake_run(cmd, **kwargs):
+            if isinstance(cmd, list) and "get" in cmd and "pods" in cmd:
+                return SimpleNamespace(returncode=0, stdout=self._pod_stdout(ready=True), stderr="")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        with patch("subprocess.run", side_effect=fake_run), \
+             patch("time.sleep"):
+            result = W.argocd_sync_and_wait(d, "metranova", timeout=30)
+
+        assert result is True
+        d.gauge_start.assert_called_once()
+        d.gauge_stop.assert_called_once()
+
+    def test_returns_false_on_timeout(self):
+        d = self._make_dialog()
+
+        def fake_run(cmd, **kwargs):
+            if isinstance(cmd, list) and "get" in cmd and "pods" in cmd:
+                return SimpleNamespace(returncode=0, stdout=self._pod_stdout(ready=False), stderr="")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        # Use a very short timeout so the worker thread exits via timeout path
+        with patch("subprocess.run", side_effect=fake_run), \
+             patch("time.sleep"):
+            result = W.argocd_sync_and_wait(d, "metranova", timeout=1)
+
+        assert result is False
+
+    def test_triggers_annotation_and_argocd_sync(self):
+        d = self._make_dialog()
+        calls = []
+
+        def fake_run(cmd, **kwargs):
+            if isinstance(cmd, list):
+                calls.append(cmd[:])
+            if isinstance(cmd, list) and "get" in cmd and "pods" in cmd:
+                return SimpleNamespace(returncode=0, stdout=self._pod_stdout(ready=True), stderr="")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        with patch("subprocess.run", side_effect=fake_run), \
+             patch("time.sleep"):
+            W.argocd_sync_and_wait(d, "metranova", app_name="metranova-auth", timeout=30)
+
+        cmds = [" ".join(c) for c in calls]
+        assert any("annotate" in c and "argocd.argoproj.io/refresh=hard" in c for c in cmds)
+        assert any("argocd" in c and "sync" in c for c in cmds)
+
+    def test_gauge_updated_with_pod_status(self):
+        d = self._make_dialog()
+
+        def fake_run(cmd, **kwargs):
+            if isinstance(cmd, list) and "get" in cmd and "pods" in cmd:
+                return SimpleNamespace(returncode=0, stdout=self._pod_stdout(ready=True), stderr="")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        with patch("subprocess.run", side_effect=fake_run), \
+             patch("time.sleep"):
+            W.argocd_sync_and_wait(d, "metranova", timeout=30)
+
+        assert d.gauge_update.called
+        all_text = " ".join(str(c) for c in d.gauge_update.call_args_list)
+        assert "ready" in all_text.lower() or "Running" in all_text
+
+    def test_registers_sigint_handler(self):
+        """SIGINT handler is registered and restored around the gauge loop."""
+        import signal as sig_mod
+        d = self._make_dialog()
+        sigint_calls = []
+
+        def fake_run(cmd, **kwargs):
+            if isinstance(cmd, list) and "get" in cmd and "pods" in cmd:
+                return SimpleNamespace(returncode=0, stdout=self._pod_stdout(ready=True), stderr="")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        original = sig_mod.signal
+        def tracking_signal(sig, handler):
+            sigint_calls.append((sig, handler))
+            return original(sig, handler)
+
+        with patch("subprocess.run", side_effect=fake_run), \
+             patch("time.sleep"), \
+             patch("auth_wizard.signal.signal", side_effect=tracking_signal):
+            W.argocd_sync_and_wait(d, "metranova", timeout=30)
+
+        registered_sigs = [sig for sig, _ in sigint_calls]
+        assert sig_mod.SIGINT in registered_sigs, "SIGINT handler was never registered"
+        # Should be registered and then restored — at least 2 calls for SIGINT
+        sigint_only = [(s, h) for s, h in sigint_calls if s == sig_mod.SIGINT]
+        assert len(sigint_only) >= 2, "SIGINT handler not restored after completion"
+
+    def test_gauge_stopped_on_completion(self):
+        """gauge_stop is always called, even on success path."""
+        d = self._make_dialog()
+
+        def fake_run(cmd, **kwargs):
+            if isinstance(cmd, list) and "get" in cmd and "pods" in cmd:
+                return SimpleNamespace(returncode=0, stdout=self._pod_stdout(ready=True), stderr="")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        with patch("subprocess.run", side_effect=fake_run), \
+             patch("time.sleep"):
+            W.argocd_sync_and_wait(d, "metranova", timeout=30)
+
+        d.gauge_stop.assert_called_once()

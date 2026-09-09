@@ -575,6 +575,200 @@ def _run_secrets_menu(d, fields: list[SecretField]):
         _edit_secret_field(d, fields[int(tag)])
 
 
+_PHASE_MSGS = [
+    "Signalling ArgoCD...",
+    "ArgoCD reconciling resources...",
+    "Waiting for pods to be scheduled...",
+    "Pods initialising...",
+    "Waiting for health probes...",
+    "Almost there...",
+]
+
+
+def argocd_sync_and_wait(d, namespace: str, app_name: str = "metranova-auth",
+                          timeout: int = 300):
+    """Trigger ArgoCD sync and wait for all pods to be ready.
+
+    Runs polling in a background thread. The main thread drives
+    d.gauge_start/update/stop so the terminal stays responsive to Ctrl+C.
+    Press Ctrl+C or Escape at any time to abort.
+
+    Returns True if all pods reached Ready within timeout, False otherwise.
+    """
+    import threading
+
+    ctx_flag    = ["--context", _kubectl_context()]
+    stop_event  = threading.Event()   # set to abort
+    result_box  = [False]             # written by worker thread
+
+    # Shared state updated by worker, read by gauge updater
+    state = {
+        "percent":  0,
+        "text":     "Connecting to cluster...",
+        "aborted":  False,
+        "done":     False,
+    }
+
+    def _pod_line(parts: list[str]) -> str:
+        name     = parts[0][:40]
+        is_ready = len(parts) > 1 and parts[1].lower() == "true"
+        status   = parts[2] if len(parts) > 2 else "?"
+        restarts = parts[3] if len(parts) > 3 else "0"
+        icon     = "✓" if is_ready else ("!" if status == "CrashLoopBackOff" else "…")
+        restart_str = f" (r:{restarts})" if restarts not in ("0", "<none>") else ""
+        return f"  {icon} {name:<40} {status}{restart_str}"
+
+    def worker():
+        log: list[str] = []
+
+        def update(percent: int, msg: str):
+            state["percent"] = percent
+            state["text"]    = msg
+
+        # Step 1: trigger sync
+        update(2, "→ Annotating ArgoCD app for hard refresh...")
+        subprocess.run(
+            ["kubectl", "annotate", "application", app_name,
+             "-n", "argocd",
+             "argocd.argoproj.io/refresh=hard",
+             "--overwrite"] + ctx_flag,
+            capture_output=True,
+        )
+        if stop_event.is_set():
+            return
+
+        update(5, "→ Triggering ArgoCD sync...")
+        r = subprocess.run(
+            ["argocd", "app", "sync", app_name, "--async"],
+            capture_output=True, text=True,
+        )
+        argocd_note = "✓ argocd sync triggered" if r.returncode == 0 \
+                      else "(argocd CLI not found — annotation only)"
+        log.append(argocd_note)
+
+        # Step 2: poll pods
+        start = time.time()
+        prev_summary: list[str] = []
+
+        while not stop_event.is_set():
+            elapsed = time.time() - start
+            if elapsed >= timeout:
+                state["done"] = True
+                return
+
+            result = subprocess.run(
+                ["kubectl", "get", "pods", "-n", namespace, "--no-headers",
+                 "-o", "custom-columns="
+                       "NAME:.metadata.name,"
+                       "READY:.status.containerStatuses[0].ready,"
+                       "STATUS:.status.phase,"
+                       "RESTARTS:.status.containerStatuses[0].restartCount"] + ctx_flag,
+                capture_output=True, text=True,
+            )
+            raw = [l for l in result.stdout.splitlines() if l.strip()]
+
+            if not raw:
+                phase = _PHASE_MSGS[1] if elapsed < 15 else _PHASE_MSGS[2]
+                pct   = min(5 + int(elapsed / timeout * 20), 25)
+                update(pct, f"{phase}\n\n{argocd_note}")
+                time.sleep(2)
+                continue
+
+            ready = sum(1 for l in raw if len(l.split()) > 1 and l.split()[1].lower() == "true")
+            total = len(raw)
+            summary = [_pod_line(l.split()) for l in raw]
+
+            # append new/changed lines to the running log
+            for line in summary:
+                if line not in prev_summary:
+                    log.append(line.strip())
+            prev_summary = summary
+
+            frac  = ready / max(total, 1)
+            pct   = min(10 + int(frac * 85), 99)
+            if   frac == 0:   phase = _PHASE_MSGS[3]
+            elif frac < 0.5:  phase = _PHASE_MSGS[4]
+            elif frac < 1.0:  phase = _PHASE_MSGS[5]
+            else:             phase = f"All {total} pods ready!"
+
+            body = (
+                f"{phase}  ({ready}/{total} ready)  [{int(elapsed)}s]\n\n"
+                + "\n".join(summary)
+                + "\n\n"
+                + "\n".join(log[-3:])
+            )
+            update(pct, body)
+
+            if ready == total and total > 0:
+                result_box[0] = True
+                state["done"] = True
+                return
+
+            time.sleep(2)
+
+        # stopped by signal
+        state["aborted"] = True
+        state["done"]    = True
+
+    # ── Main thread: drive the gauge ──────────────────────────────────────────
+    t = threading.Thread(target=worker, daemon=True)
+    t.start()
+
+    # Install a SIGINT handler that sets stop_event instead of raising KeyboardInterrupt
+    original_sigint = signal.getsignal(signal.SIGINT)
+    def _abort(sig, frame):
+        stop_event.set()
+    signal.signal(signal.SIGINT, _abort)
+
+    try:
+        d.gauge_start(
+            "Starting up — press Ctrl+C to abort\n\nConnecting...",
+            width=70, height=20,
+            title=f"Cluster sync — {app_name}",
+            percent=0,
+        )
+        while not state["done"]:
+            try:
+                d.gauge_update(state["percent"], state["text"], update_text=True)
+            except Exception:
+                pass  # gauge may error if terminal resizes; keep going
+            time.sleep(0.5)
+
+        # Final update
+        try:
+            d.gauge_update(100 if result_box[0] else state["percent"],
+                           state["text"], update_text=True)
+            time.sleep(0.3)
+        except Exception:
+            pass
+    finally:
+        try:
+            d.gauge_stop()
+        except Exception:
+            pass
+        signal.signal(signal.SIGINT, original_sigint)
+        stop_event.set()
+        t.join(timeout=3)
+
+    if state["aborted"]:
+        _msgbox(d, "Sync aborted.\n\nThe secrets are written but the cluster\n"
+                "may not be fully started. Check pod status\n"
+                "with: kubectl get pods -n " + namespace,
+                title="Aborted", width=62, height=14)
+        return False
+
+    return result_box[0]
+
+
+def _kubectl_context() -> str:
+    """Return the current kubectl context name."""
+    result = subprocess.run(
+        ["kubectl", "config", "current-context"],
+        capture_output=True, text=True,
+    )
+    return result.stdout.strip()
+
+
 def section_secrets(d, namespace: str, release: str, dry_run: bool):
     fields = make_fields(release)
     load_existing_secrets(fields, namespace, d)
@@ -591,9 +785,27 @@ def section_secrets(d, namespace: str, release: str, dry_run: bool):
                 title="Exported")
 
     apply_secrets(groups, namespace, release, dry_run, fields)
-    _msgbox(d, "Secrets written.\n\nWait for ArgoCD to sync the cluster before\n"
-            "proceeding to Organizations / Grants.",
-            title="Done", width=60, height=12)
+
+    if dry_run:
+        _msgbox(d, "Dry run complete — no secrets written.", title="Done")
+        return
+
+    # Trigger ArgoCD sync and watch pods come up
+    ok = argocd_sync_and_wait(d, namespace, app_name=release)
+    if ok:
+        _msgbox(d,
+            "All pods are ready.\n\n"
+            "Use step 1 (Connect) to open port-forwards,\n"
+            "then proceed to Organizations and Grants.",
+            title="Cluster ready", width=62, height=12)
+    else:
+        _msgbox(d,
+            "Timed out waiting for pods.\n\n"
+            "The cluster may still be starting. Check:\n"
+            "  kubectl get pods -n " + namespace + "\n\n"
+            "Once all pods are 1/1 Running, use step 1\n"
+            "to connect.",
+            title="Timeout", width=64, height=14)
 
 
 # ── TUI: connectivity layer ────────────────────────────────────────────────────
