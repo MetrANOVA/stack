@@ -74,7 +74,7 @@ ORDER BY (priority, id);
 CREATE TABLE IF NOT EXISTS metranova_authz.grants
 (
     id              UUID     DEFAULT generateUUIDv4(),
-    user_id         String,  -- Keycloak/LDAP username
+    group_name      String,  -- Keycloak group name (e.g. authz-tlp-esnet-amber-read)
     organization_id UUID,
     max_tlp_level   String,  -- 'tlp:clear' | 'tlp:green' | 'tlp:amber' | 'tlp:red'
     permission      String,  -- 'read' | 'write'
@@ -83,7 +83,7 @@ CREATE TABLE IF NOT EXISTS metranova_authz.grants
     revoked_at      Nullable(DateTime64(3))  -- null = active
 )
 ENGINE = ReplacingMergeTree(granted_at)
-ORDER BY (user_id, organization_id, permission);
+ORDER BY (group_name, organization_id, permission);
 
 -- ── Audit log ──────────────────────────────────────────────────────────────────
 -- Append-only. No mutations allowed by policy. HMAC checksum for tamper detection.

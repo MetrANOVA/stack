@@ -32,3 +32,4 @@ authz-spec.html
 *.db
 .beads-credential-key
 .beads/proxieddb/
+metranova-secrets-*.csv

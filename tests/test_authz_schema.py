@@ -74,7 +74,7 @@ ORDER BY (priority, id);
 CREATE TABLE metranova_authz.grants
 (
     id              UUID     DEFAULT generateUUIDv4(),
-    user_id         String,
+    group_name         String,
     organization_id UUID,
     max_tlp_level   String,
     permission      String,
@@ -83,7 +83,7 @@ CREATE TABLE metranova_authz.grants
     revoked_at      Nullable(DateTime64(3))
 )
 ENGINE = ReplacingMergeTree(granted_at)
-ORDER BY (user_id, organization_id, permission);
+ORDER BY (group_name, organization_id, permission);
 
 CREATE TABLE metranova_authz.audit_log
 (
@@ -133,7 +133,7 @@ class TestSchema:
     def test_grants_columns(self):
         out = ch_multi(SCHEMA_SQL, "DESCRIBE metranova_authz.grants")
         cols = {line.split("\t")[0] for line in out.strip().splitlines()}
-        assert {"id", "user_id", "organization_id", "max_tlp_level",
+        assert {"id", "group_name", "organization_id", "max_tlp_level",
                 "permission", "granted_by", "granted_at", "revoked_at"} == cols
 
     def test_grants_revoked_at_nullable(self):
@@ -177,6 +177,7 @@ class TestSchema:
 class TestDataIntegrity:
     """Verify inserts and basic queries work correctly."""
 
+    # Each grant row maps exactly one Keycloak group to one org+TLP+permission.
     SETUP = SCHEMA_SQL + """
 INSERT INTO metranova_authz.organizations (id, name, slug, is_custodial)
 VALUES ('00000000-0000-0000-0000-000000000001', 'ESnet', 'esnet', true);
@@ -185,14 +186,14 @@ INSERT INTO metranova_authz.organizations (id, name, slug, is_custodial)
 VALUES ('00000000-0000-0000-0000-000000000002', 'Internet2', 'internet2', false);
 
 INSERT INTO metranova_authz.grants
-  (id, user_id, organization_id, max_tlp_level, permission, granted_by)
+  (id, group_name, organization_id, max_tlp_level, permission, granted_by)
 VALUES
   ('00000000-0000-0000-0000-000000000010',
-   'jsmith', '00000000-0000-0000-0000-000000000001', 'tlp:amber', 'read', 'admin'),
+   'authz-tlp-esnet-amber-read',  '00000000-0000-0000-0000-000000000001', 'tlp:amber', 'read',  'admin'),
   ('00000000-0000-0000-0000-000000000011',
-   'jsmith', '00000000-0000-0000-0000-000000000001', 'tlp:green', 'write', 'admin'),
+   'authz-tlp-esnet-green-write', '00000000-0000-0000-0000-000000000001', 'tlp:green', 'write', 'admin'),
   ('00000000-0000-0000-0000-000000000012',
-   'jsmith', '00000000-0000-0000-0000-000000000002', 'tlp:clear', 'read', 'admin');
+   'authz-tlp-internet2-clear-read', '00000000-0000-0000-0000-000000000002', 'tlp:clear', 'read', 'admin');
 """
 
     def test_org_insert_and_query(self):
@@ -202,7 +203,7 @@ VALUES
         )
         assert out.strip() == "2"
 
-    def test_exactly_one_master_org(self):
+    def test_exactly_one_custodial_org(self):
         out = ch_multi(
             self.SETUP,
             "SELECT count() FROM metranova_authz.organizations WHERE is_custodial = true",
@@ -210,27 +211,25 @@ VALUES
         assert out.strip() == "1"
 
     def test_grants_read_write_independent(self):
-        """jsmith has read up to amber but write only up to green for esnet."""
+        """esnet read group has amber max; esnet write group has green max — separate grants."""
         out = ch_multi(
             self.SETUP,
             "SELECT max_tlp_level FROM metranova_authz.grants "
-            "WHERE user_id='jsmith' AND organization_id='00000000-0000-0000-0000-000000000001' "
-            "AND permission='read'",
+            "WHERE group_name='authz-tlp-esnet-amber-read' AND permission='read'",
         )
         assert out.strip() == "tlp:amber"
 
         out2 = ch_multi(
             self.SETUP,
             "SELECT max_tlp_level FROM metranova_authz.grants "
-            "WHERE user_id='jsmith' AND organization_id='00000000-0000-0000-0000-000000000001' "
-            "AND permission='write'",
+            "WHERE group_name='authz-tlp-esnet-green-write' AND permission='write'",
         )
         assert out2.strip() == "tlp:green"
 
-    def test_grant_count_for_user(self):
+    def test_grant_count(self):
         out = ch_multi(
             self.SETUP,
-            "SELECT count() FROM metranova_authz.grants WHERE user_id='jsmith'",
+            "SELECT count() FROM metranova_authz.grants",
         )
         assert out.strip() == "3"
 

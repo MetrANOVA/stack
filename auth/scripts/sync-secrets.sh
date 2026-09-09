@@ -25,28 +25,33 @@ NONINTERACTIVE="${NONINTERACTIVE:-0}"
 
 # ── Per-key context strings shown to the operator before prompting ────────────
 
-declare -A KEY_CONTEXT
-KEY_CONTEXT[KC_HOSTNAME]="The public HTTPS URL of this server as seen by browsers (e.g. https://myserver.example.com:8443 or https://localhost:8443). Used by Keycloak to build redirect URIs."
-KEY_CONTEXT[LDAP_DOMAIN]="Your LDAP domain in dot notation (e.g. metranova.io). Used to construct the LDAP base DN (dc=metranova,dc=io)."
-KEY_CONTEXT[LDAP_BASE_DN]="LDAP base DN (e.g. dc=metranova,dc=io). Derived from LDAP_DOMAIN if set."
-KEY_CONTEXT[LDAP_BIND_DN]="LDAP admin bind DN (e.g. cn=admin,dc=metranova,dc=io). Derived from LDAP_DOMAIN if set."
-KEY_CONTEXT[GLOBUS_CLIENT_ID]="Client ID from the Globus developer console (https://app.globus.org/settings/developers). Required for Globus OIDC federation."
-KEY_CONTEXT[GLOBUS_CLIENT_SECRET]="Client secret from the Globus developer console. Required for Globus OIDC federation."
+key_context() {
+  case "$1" in
+    KC_HOSTNAME)       echo "The public HTTPS URL of this server as seen by browsers (e.g. https://myserver.example.com:8443 or https://localhost:8443). Used by Keycloak to build redirect URIs." ;;
+    LDAP_DOMAIN)       echo "Your LDAP domain in dot notation (e.g. metranova.io). Used to construct the LDAP base DN (dc=metranova,dc=io)." ;;
+    LDAP_BASE_DN)      echo "LDAP base DN (e.g. dc=metranova,dc=io). Derived from LDAP_DOMAIN if set." ;;
+    LDAP_BIND_DN)      echo "LDAP admin bind DN (e.g. cn=admin,dc=metranova,dc=io). Derived from LDAP_DOMAIN if set." ;;
+    GLOBUS_CLIENT_ID)  echo "Client ID from the Globus developer console (https://app.globus.org/settings/developers). Required for Globus OIDC federation." ;;
+    GLOBUS_CLIENT_SECRET) echo "Client secret from the Globus developer console. Required for Globus OIDC federation." ;;
+    *) echo "" ;;
+  esac
+}
 
 # ── Helper: prompt for a value with context ───────────────────────────────────
 
 prompt_for_value() {
   local key="$1"
   local file="$2"
-  local current="$3"
+  local ctx
+  ctx=$(key_context "$key")
 
   echo ""
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo "  Missing required value: $key"
   echo "  File: ${file#$REPO_ROOT/}"
-  if [[ -n "${KEY_CONTEXT[$key]:-}" ]]; then
+  if [[ -n "$ctx" ]]; then
     echo ""
-    echo "  ${KEY_CONTEXT[$key]}"
+    echo "  $ctx"
   fi
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   printf "  Enter value: "
@@ -163,7 +168,7 @@ SYNC_WAIT_SECONDS="${SYNC_WAIT_SECONDS:-120}"
 
 echo "Waiting for Keycloak at $KEYCLOAK_URL ..."
 START=$(date +%s)
-until curl -sf "$KEYCLOAK_URL/health/ready" -o /dev/null 2>/dev/null; do
+until curl -sf "$KEYCLOAK_URL/realms/master" -o /dev/null 2>/dev/null; do
   if (( $(date +%s) - START >= SYNC_WAIT_SECONDS )); then
     echo "Timed out waiting for Keycloak after ${SYNC_WAIT_SECONDS}s." >&2
     exit 1

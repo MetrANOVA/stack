@@ -71,38 +71,40 @@ A rule can have one effect, the other, or both. Every row has exactly one TLP le
 
 Note: `policy_scope` carries BGP community labels (e.g. lhcone, lsst) — it is distinct from `policy_organizations`. Rules match on `policy_scope`/`policy_originator` and write to `policy_organizations`.
 
-### 1.4 User-Organization-TLP Access Grants
+### 1.4 Grants (principal-based, not user-based)
 
-Each grant specifies an organization, a maximum TLP level, and a permission type (read or write). Read and write are independent grants — a user may have tlp:amber:read but only tlp:green:write for the same org.
+Grants are attached to **Keycloak group names** (principals), not individual users. Keycloak evaluates its own group assignment rules at login time — the wizard never manages individual user accounts. Any user Keycloak places in a group automatically inherits that group's grants.
 
-|  |  |  |
-|----|----|----|
+ClickHouse enforces grants by checking `currentRoles()` — the set of CH roles the logged-in user holds, mapped from Keycloak groups via LDAP.
+
 | Field | Type | Description |
-| user_id | String | Keycloak/LDAP username |
+|-------|------|-------------|
+| id | UUID | Primary key |
+| group_name | String | Keycloak group name (e.g. `authz-tlp-esnet-amber-read`) |
 | organization_id | UUID | FK to organization |
 | max_tlp_level | String | Highest TLP level for this permission |
-| permission | Enum(read, write) | Whether this grants SELECT or INSERT/UPDATE |
-| granted_by | String | Admin who granted access |
-| granted_at | DateTime |  |
+| permission | String | `read` or `write` |
+| granted_by | String | Admin who created this grant |
+| granted_at | DateTime64(3) | |
+| revoked_at | Nullable(DateTime64(3)) | null = active |
 
 Access rules:
 
-- A user can read (SELECT) a row if: **any** of the row’s org tags (policy_organizations) matches a grant with permission=read AND the row’s TLP level ≤ max_tlp_level for that grant
-- A user can write (INSERT/UPDATE) a row if: **any** of the row’s org tags matches a grant with permission=write AND the row’s TLP level ≤ max_tlp_level for that grant
-- write does NOT imply read — both must be explicitly granted
-- Rows with no matching rules are tagged with only the custodial organization at tlp:red — only users with a custodial-org tlp:red grant can access them
+- A user can read (SELECT) a row if: **any** of the row's org tags (`policy_organizations`) matches a grant with `permission=read` for any of the user's current roles, AND the row's TLP level <= `max_tlp_level` for that grant
+- A user can write (INSERT/UPDATE) a row if: same check with `permission=write`
+- `write` does NOT imply `read` — both must be explicitly granted
+- Rows with no matching rules are tagged with only the custodial org at `tlp:red` — only principals with a custodial-org `tlp:red` grant can access them
 
-Example grant set for a user:
+Example grants:
 
-user: jsmith
+```
+group_name: authz-tlp-esnet-amber-read      -> org: esnet,              tlp:amber, read
+group_name: authz-tlp-esnet-green-write     -> org: esnet,              tlp:green, write
+group_name: authz-tlp-geant-amber-read      -> org: geant,              tlp:amber, read
+group_name: authz-tlp-geant-eng-amber-write -> org: geant-engineering,  tlp:amber, write
+```
 
-org: esnet, tlp:amber:read — can read Clear, Green, Amber rows for ESnet
-
-org: esnet, tlp:green:write — can write Clear, Green rows for ESnet
-
-org: geant, tlp:amber:read — can only read Amber rows for GEANT<sup>[\[j\]](#cmnt10)[\[k\]](#cmnt11)[\[l\]](#cmnt12)[\[m\]](#cmnt13)</sup>
-
-org: geant-engineers, tlp:amber:write — can write Clear, Green, Amber for geant-engineers (separate org from geant)
+Keycloak decides which groups a user belongs to via its own mappers (e.g. Globus organization attribute, IdP claims). The wizard creates the groups in Keycloak and the grants in ClickHouse — it never touches individual user accounts.
 
 ### 1.5 Audit Log
 
@@ -127,7 +129,7 @@ All authorization metadata lives in ClickHouse in a dedicated metranova_authz da
 
 - `organizations` — org definitions (fully qualified: `metranova_authz.organizations`)
 - `rules` — row classification rules (`metranova_authz.rules`)
-- `grants` — user↔︎org↔︎TLP↔︎permission mappings (`metranova_authz.grants`)
+- `grants` — principal (Keycloak group) ↔ org ↔ TLP ↔ permission mappings (`metranova_authz.grants`)
 - `audit_log` — append-only audit trail (`metranova_authz.audit_log`, MergeTree with no mutations allowed by policy)
 
 > **Table naming decision:** Tables are named without the `authz_` prefix because the `metranova_authz` database already provides the namespace. `metranova_authz.organizations` is clearer than `metranova_authz.authz_organizations`.
@@ -150,7 +152,7 @@ FOR SELECT
 USING (
   hasAny(
     policy_organizations,
-    dictGet('authz_user_read_orgs', 'org_slugs',
+    dictGet('authz_group_read_orgs', 'org_slugs',
             (currentUser(), tlp_numeric(policy_level)))
   )
 )
@@ -162,7 +164,7 @@ FOR INSERT
 USING (
   hasAny(
     policy_organizations,
-    dictGet('authz_user_write_orgs', 'org_slugs',
+    dictGet('authz_group_write_orgs', 'org_slugs',
             (currentUser(), tlp_numeric(policy_level)))
   )
 )
@@ -173,44 +175,59 @@ TO ALL EXCEPT pipeline, default;
 
 Key design decisions:
 
-- Service accounts (pipeline, default) are exempt from row policies — they need full access for ingest and admin
-- Grafana fallthrough user (grafana): limited to tlp:clear only (not exempt).
-
-<!-- -->
-
-- When Grafana proxies a logged-in user’s identity, that user’s actual grants apply.
-- The grafana service account is a fallback that can only see public data.
-
-<!-- -->
-
+- **`TO ALL EXCEPT` accepts roles as well as usernames.** LDAP-mapped roles work here. A user whose LDAP groups map to `clickhouse-admin` is exempt because the *role* is listed — no hardcoded usernames needed.
+- **`clickhouse-admin` role is exempt.** A principal with DROP TABLE / DROP ROW POLICY can bypass row policies through other means anyway — enforcing TLP on them provides false security, not real security. Trust is enforced at the role-grant level (who gets `clickhouse-admin` at all), not via row policy.
+- **Exempt list (keep minimal — every addition is a security bypass):**
+  - `clickhouse-admin` role — DDL superusers, LDAP-mapped
+  - `pipeline` username — ingest writer, stamps `policy_organizations` itself
+  - `default` username — ClickHouse built-in superuser, init scripts only
+- **External org service accounts are NOT exempt.** They must have entries in `authz_grants` and are subject to full TLP enforcement.
+- **Grafana fallthrough user (`grafana`):** limited to `tlp:clear` only via a separate policy (not globally exempt). When Grafana proxies a real user’s identity, that user’s own policy applies instead.
 - Policies use ClickHouse dictionaries for sub-millisecond lookups
 - Deny-by-default: if no grant matches, the row is invisible / write is rejected
 
 ### 3.2 Dictionary Design
 
-`dictGet` can return `Array(String)` values (keys must remain scalar). This lets us store the full set of orgs a user can access at a given TLP level as a single lookup, enabling `hasAny()` intersection in the row policy.
+`dictGet` returns `Array(String)` values (keys must remain scalar). The dictionaries store the full set of orgs accessible at a given TLP level for each principal, enabling `hasAny()` in the row policy.
+
+Row policies use `currentRoles()` — the set of CH roles the logged-in user holds — and union across all roles to build the full set of accessible orgs.
 
 ```
-authz_user_read_orgs (complex key dictionary):
-  key:   (user_id String, min_tlp_numeric Int8)
+authz_group_read_orgs (complex key dictionary):
+  key:   (group_name String, tlp_numeric Int8)
   value: org_slugs Array(String)
-  source: SELECT user_id, tlp_numeric, groupArray(org_slug)
+  source: SELECT group_name, tlp_numeric, groupArray(org_slug)
           FROM authz_grants JOIN authz_organizations
-          WHERE permission = 'read'
+          WHERE permission = 'read' AND revoked_at IS NULL
           -- cumulative: key for tlp=1 includes orgs granted at 0 and 1
-          GROUP BY user_id, tlp_numeric
+          GROUP BY group_name, tlp_numeric
   refresh: 30 seconds
 
-authz_user_write_orgs (complex key dictionary):
-  key:   (user_id String, min_tlp_numeric Int8)
+authz_group_write_orgs (complex key dictionary):
+  key:   (group_name String, tlp_numeric Int8)
   value: org_slugs Array(String)
   source: same shape, WHERE permission = 'write'
   refresh: 30 seconds
 ```
 
-The old `authz_row_org` dictionary (row→single org) is removed. Org tags are written directly to `policy_organizations` at ingest by the rules engine — no runtime per-row lookup needed.
+Row policy expression (SELECT):
+```sql
+USING hasAny(
+    policy_organizations,
+    arrayFlatten(arrayMap(
+        r -> dictGetOrDefault('metranova_authz.authz_group_read_orgs', 'org_slugs',
+                     (r, tlp_to_numeric(policy_level)), cast([], 'Array(String)')),
+        currentRoles()
+    ))
+)
+```
 
-⚠️ A revoked grant may allow up to ~30s of continued access — flagged for discussion.
+The `arrayMap` runs one dict lookup per role the user holds; `arrayFlatten` unions the results into a single array. `hasAny` then checks whether any of the row's org tags appear in that union.
+
+Org tags are written directly to `policy_organizations` at ingest by the rules engine — no runtime per-row lookup needed.
+
+⚠️ A revoked grant may allow up to ~30s of continued access (dict refresh interval).
+
 
 ### 3.3 Materialized Views
 
@@ -224,61 +241,65 @@ MetrANOVA instances don’t re-ingest each other’s data — they query each ot
 
 ------------------------------------------------------------------------
 
-## 4. LDAP / Keycloak / ClickHouse Synchronization
+## 4. Keycloak / LDAP / ClickHouse Synchronization
 
-Authorization grants are the source of truth in ClickHouse (authz_grants), but must be reflected in LDAP and Keycloak for the rest of the auth stack to function:
+**Keycloak is the source of truth for group membership. LDAP is a subordinate copy.**
+Keycloak syncs group changes to LDAP automatically. The wizard writes directly to both
+Keycloak (via Admin API) and ClickHouse — no sync daemon is required for initial setup
+or incremental updates.
 
 ### 4.1 Sync Flow
 
-authz CLI / API
+```
+auth_wizard.py (run from outside cluster, kubectl port-forward for access)
+    |
+    +-> Keycloak Admin API
+    |     create group authz-tlp-{org}-{level}-{read|write}
+    |     configure group mappers (Globus attribute -> group assignment)
+    |     Keycloak auto-syncs groups to LDAP (subordinate copy)
+    |
+    +-> ClickHouse (via clickhouse-client port-forward)
+    |     INSERT INTO metranova_authz.grants (principal, organization_id, ...)
+    |     Dictionaries auto-refresh every 30s -> row policies enforce
+    |
+    (pipeline reads metranova_authz.rules async at next row ingest — no wizard action)
+```
 
-↓ writes to
+No long-running sync daemon is needed. The wizard is idempotent and can be re-run to
+make incremental changes after initial setup.
 
-ClickHouse (authz_grants, authz_organizations, authz_rules)
+### 4.2 Keycloak Group Structure
 
-↓ triggers
+Keycloak groups created per org/TLP/permission combination:
 
-authz-sync daemon (new service in metranova/auth)
+```
+authz-tlp-{org_slug}-clear-read
+authz-tlp-{org_slug}-green-read
+authz-tlp-{org_slug}-green-write
+authz-tlp-{org_slug}-amber-read
+authz-tlp-{org_slug}-amber-write
+authz-tlp-{org_slug}-red-read
+authz-tlp-{org_slug}-red-write
+```
 
-↓ mirrors to
+Keycloak group mappers (configured per IdP / realm) assign users to these groups based
+on attributes from Globus or other IdPs (e.g. organization claim, role claim). The wizard
+creates the groups and a default mapper template; administrators configure the specific
+attribute matching rules in the Keycloak UI.
 
-LDAP: creates org-specific groups (e.g. cn=authz-tlp-esnet-amber-read,ou=groups)
+### 4.3 LDAP (subordinate copy)
 
-Keycloak: creates matching realm groups + role mappings
+Keycloak syncs groups to LDAP automatically. LDAP groups follow the same naming pattern:
 
-ClickHouse: applies/updates ROW POLICY and DICTIONARY definitions
-
-### 4.2 LDAP Group Structure (extended)
-
-Current groups stay unchanged. New authorization groups follow the pattern:
-
-ou=groups,dc=metranova,dc=io
-
-cn=clickhouse-admin (existing)
-
-cn=clickhouse-operator (existing)
-
-cn=clickhouse-viewer (existing)
-
-cn=esnet-staff-user (existing)
-
-cn=authz-org-esnet (new: org membership)
-
-cn=authz-org-internet2 (new: org membership)
-
-cn=authz-tlp-esnet-clear-read (new: org+TLP+perm)
-
-cn=authz-tlp-esnet-green-read (new: org+TLP+perm)
-
-cn=authz-tlp-esnet-green-write (new: org+TLP+perm)
-
-cn=authz-tlp-esnet-amber-read (new: org+TLP+perm)
-
+```
+cn=authz-tlp-esnet-clear-read,ou=groups,dc=metranova,dc=io
+cn=authz-tlp-esnet-green-read,ou=groups,dc=metranova,dc=io
 ...
+```
 
-### 4.3 Keycloak Groups (extended)
-
-Mirror the LDAP authz groups into Keycloak realm groups so they appear in JWT tokens and can be managed via Keycloak admin UI as a secondary interface.
+ClickHouse maps LDAP groups to CH roles via its LDAP user directory config (already in
+place). New authz groups are automatically picked up — no ClickHouse config change needed
+when a new grant is added.
 
 ------------------------------------------------------------------------
 
@@ -328,29 +349,28 @@ Python TUI application using python-dialog (the standard FreeBSD/Debian installe
 
 Every TUI operation has a CLI equivalent:
 
-metranova-authz org create --name "ESnet" --slug esnet --master
-
+```bash
+# Organizations
+metranova-authz org create --name "ESnet" --slug esnet --custodial
 metranova-authz org list
 
-metranova-authz rule create --org esnet \\
+# Classification rules (pipeline reads async at next ingest)
+metranova-authz rule create --org esnet \
+  --originator-pattern "esnet-*" \
+  --scope-pattern "*" \
+  --priority 100
 
---originator-pattern "esnet-\*" \\
+# Grants: principal is a Keycloak group name, not a username
+metranova-authz grant create --group authz-tlp-esnet-amber-read \
+  --org esnet --tlp-level amber --permission read
+metranova-authz grant create --group authz-tlp-esnet-green-write \
+  --org esnet --tlp-level green --permission write
+metranova-authz grant list
 
---scope-pattern "\*" \\
-
---priority 100
-
-metranova-authz grant create --user jsmith --org esnet --tlp-level amber --permission read
-
-metranova-authz grant create --user jsmith --org esnet --tlp-level green --permission write
-
-metranova-authz grant list --user jsmith
-
+# Audit
 metranova-authz test run --verbose
-
-metranova-authz audit report --from 2026-01-01 --to 2026-08-12
-
-
+metranova-authz audit report --from 2026-01-01 --to 2026-09-09
+```
 
 ------------------------------------------------------------------------
 
@@ -478,24 +498,29 @@ The metranova-authz test run command executes against the live system:
 
 ## 9. Decision Log
 
-|  |  |
-|----|----|
 | Decision | Resolution |
+|----------|-----------|
 | TLP hierarchy | Cumulative downward (Green = Green + Clear) |
-| Storage backend | ClickHouse (dedicated metranova_authz database) |
-| Code location | metranova/auth repo (alongside existing auth services) |
-| CLI language | Python with python-dialog TUI |
+| Storage backend | ClickHouse (dedicated `metranova_authz` database) |
+| Code location | `metranova/auth` repo (alongside existing auth services) |
+| CLI language | Python with `python-dialog` TUI |
 | Audit storage | ClickHouse (dedicated audit table with HMAC tamper detection) |
-| Row tagging | Single TLP level per row (policy_level); multiple org tags per row (new policy_organizations Array(String) column stamped at ingest) |
-| Multi-org access check | User sees a row if any of the row's org tags matches a grant at or above the row's TLP level (hasAny() intersection) |
+| Row tagging | Single TLP level per row (`policy_level`); multiple org tags per row (`policy_organizations Array(String)`, stamped at ingest) |
+| Multi-org access check | `hasAny(policy_organizations, union_of_orgs_from_currentRoles())` |
+| Grants are group-based | Grants attach to Keycloak group names (`group_name`), not usernames. Keycloak decides group membership via mappers. |
+| Identity authority | Keycloak is source of truth; LDAP is a subordinate copy. Keycloak auto-syncs to LDAP. |
+| No sync daemon | `auth_wizard.py` writes directly to Keycloak Admin API + ClickHouse. No long-running daemon needed for setup or incremental updates. |
+| Row policy enforcement | `currentRoles()` + `arrayMap` over `authz_group_read_orgs` / `authz_group_write_orgs` dictionaries |
+| `clickhouse-admin` exemption | DDL superusers exempt from row policies by role name (not username). Enforcing TLP on them is false security — they can DROP ROW POLICY anyway. |
 | Cross-instance | Not applicable — instances query each other via federated ID, remote policies enforce |
 | Dictionary refresh | 30 seconds (acceptable for grant revocation latency) |
-| Grafana access | User-identity passthrough; grafana fallthrough user limited to tlp:clear |
-| MV enforcement | Deferred post-POC — discuss later |
-| Read/write | Independent grants per TLP level: tlp:X:read and tlp:X:write are separate |
-| Issue tracking | bd (beads) — Dolt-backed local issue tracker |
+| Grafana access | User-identity passthrough; `grafana` service account limited to `tlp:clear` via separate policy |
+| MV enforcement | Deferred post-POC |
+| Read/write | Independent grants per TLP level: `tlp:X:read` and `tlp:X:write` are separate |
+| Issue tracking | `bd` (beads) — Dolt-backed local issue tracker |
 
 ------------------------------------------------------------------------
+
 
 ## 10. Future Work (post-POC)
 
