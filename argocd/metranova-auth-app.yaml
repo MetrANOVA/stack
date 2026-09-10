@@ -1,0 +1,25 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: metranova-auth
+  namespace: argocd
+spec:
+  project: default
+  destination:
+    namespace: metranova
+    server: https://kubernetes.default.svc
+  source:
+    repoURL: https://github.com/MetrANOVA/stack.git
+    targetRevision: main
+    path: helm/charts/auth
+    helm:
+      valueFiles:
+        - values.yaml.example
+      parameters:
+        - name: envoy.tls.existingTLSSecret
+          value: metranova-auth-tls
+        - name: secrets.existingSecret
+          value: metranova-auth-secrets
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true

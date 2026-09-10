@@ -89,6 +89,75 @@ def gen_selfsigned_tls():
 
 def make_fields(release: str) -> list[SecretField]:
     return [
+        # ── Keycloak ──────────────────────────────────────────────────────────
+        SecretField(
+            key=f"{release}-secrets/KEYCLOAK_ADMIN_PASSWORD",
+            label="Keycloak admin password",
+            description="Password for the Keycloak admin account.",
+            group="Keycloak",
+            generate=gen_password,
+        ),
+        SecretField(
+            key=f"{release}-secrets/CROSS_INSTANCE_CLIENT_SECRET",
+            label="Cross-instance OIDC client secret",
+            description="Client secret for federated cross-instance queries.",
+            group="Keycloak",
+            generate=gen_token,
+        ),
+        # ── OpenLDAP ──────────────────────────────────────────────────────────
+        SecretField(
+            key=f"{release}-secrets/LDAP_ADMIN_PASSWORD",
+            label="LDAP admin password",
+            description="Password for cn=admin in OpenLDAP. Used by all services that bind to LDAP.",
+            group="LDAP",
+            generate=gen_password,
+        ),
+        SecretField(
+            key=f"{release}-secrets/LDAP_CONFIG_PASSWORD",
+            label="LDAP config password",
+            description="Password for the OpenLDAP config DN (cn=config).",
+            group="LDAP",
+            generate=gen_password,
+        ),
+        # ── Token store ───────────────────────────────────────────────────────
+        SecretField(
+            key=f"{release}-secrets/TOKEN_STORE_ENCRYPTION_KEY",
+            label="Token store encryption key",
+            description="Fernet encryption key for the token-store service.",
+            group="Token Store",
+            generate=gen_fernet,
+        ),
+        # ── Grafana ───────────────────────────────────────────────────────────
+        SecretField(
+            key=f"{release}-secrets/GRAFANA_ADMIN_PASSWORD",
+            label="Grafana admin password",
+            description="Password for the Grafana admin UI account.",
+            group="Grafana",
+            generate=gen_password,
+        ),
+        SecretField(
+            key=f"{release}-secrets/GRAFANA_CLICKHOUSE_PASSWORD",
+            label="Grafana ClickHouse password",
+            description="Password the Grafana ClickHouse datasource uses to connect.",
+            group="Grafana",
+            generate=gen_password,
+        ),
+        # ── Envoy ─────────────────────────────────────────────────────────────
+        SecretField(
+            key=f"{release}-secrets/ENVOY_OIDC_CLIENT_SECRET",
+            label="Envoy OIDC client secret",
+            description="OAuth2 client secret for the Envoy proxy.",
+            group="Envoy",
+            generate=gen_token,
+        ),
+        SecretField(
+            key=f"{release}-secrets/ENVOY_HMAC_SECRET",
+            label="Envoy HMAC secret",
+            description="HMAC signing secret for Envoy session cookies.",
+            group="Envoy",
+            generate=gen_hex,
+        ),
+        # ── ClickHouse (separate secret) ──────────────────────────────────────
         SecretField(
             key="clickhouse-users/admin-password",
             label="ClickHouse admin password",
@@ -106,38 +175,11 @@ def make_fields(release: str) -> list[SecretField]:
         SecretField(
             key="clickhouse-users/grafana-password",
             label="ClickHouse Grafana password",
-            description="Password for the Grafana read-only user.",
+            description="Password for the Grafana read-only ClickHouse user.",
             group="ClickHouse",
             generate=gen_password,
         ),
-        SecretField(
-            key=f"{release}-secrets/KEYCLOAK_ADMIN_PASSWORD",
-            label="Keycloak admin password",
-            description="Password for the Keycloak admin account.",
-            group="Keycloak",
-            generate=gen_password,
-        ),
-        SecretField(
-            key=f"{release}-secrets/ENVOY_OIDC_CLIENT_SECRET",
-            label="Envoy OIDC client secret",
-            description="OAuth2 client secret for the Envoy proxy.",
-            group="Envoy",
-            generate=gen_token,
-        ),
-        SecretField(
-            key=f"{release}-secrets/ENVOY_HMAC_SECRET",
-            label="Envoy HMAC secret",
-            description="HMAC signing secret for Envoy session cookies.",
-            group="Envoy",
-            generate=gen_hex,
-        ),
-        SecretField(
-            key=f"{release}-secrets/CROSS_INSTANCE_CLIENT_SECRET",
-            label="Cross-instance OIDC client secret",
-            description="Client secret for federated cross-instance queries.",
-            group="Keycloak",
-            generate=gen_token,
-        ),
+        # ── TLS ───────────────────────────────────────────────────────────────
         SecretField(
             key=f"{release}-tls/combined",
             label="TLS certificate + key",
@@ -147,6 +189,59 @@ def make_fields(release: str) -> list[SecretField]:
             sensitive=False,
         ),
     ]
+
+
+# ── Preflight dependency checks ────────────────────────────────────────────────
+
+REQUIRED_BINARIES = [
+    ("kubectl", "install kubectl: https://kubernetes.io/docs/tasks/tools/"),
+    ("openssl",  "install openssl (e.g. brew install openssl)"),
+]
+
+# ClickHouse ships either as a standalone 'clickhouse-client' binary (older) or
+# as 'clickhouse client' subcommand (modern unified binary). Accept either.
+def _clickhouse_client_available() -> bool:
+    for cmd in (["which", "clickhouse-client"], ["clickhouse", "client", "--version"]):
+        r = subprocess.run(cmd, capture_output=True)
+        if r.returncode == 0:
+            return True
+    return False
+
+REQUIRED_PYTHON_PACKAGES = [
+    ("dialog", "pip install python-dialog"),
+    ("yaml",   "pip install pyyaml"),
+]
+
+
+def preflight_check(skip_tui: bool = False) -> list[str]:
+    """Return a list of human-readable missing-dependency messages.
+
+    Returns an empty list if all dependencies are satisfied.
+    When skip_tui is True, the 'dialog' package is not required.
+    """
+    missing = []
+
+    for binary, hint in REQUIRED_BINARIES:
+        result = subprocess.run(["which", binary], capture_output=True)
+        if result.returncode != 0:
+            missing.append(f"Missing binary '{binary}': {hint}")
+
+    if not _clickhouse_client_available():
+        missing.append(
+            "Missing ClickHouse client: install via https://clickhouse.com/docs/en/install"
+            " ('clickhouse' or 'clickhouse-client' must be on PATH)"
+        )
+
+    packages = REQUIRED_PYTHON_PACKAGES if not skip_tui else [
+        p for p in REQUIRED_PYTHON_PACKAGES if p[0] != "dialog"
+    ]
+    for module, hint in packages:
+        try:
+            __import__(module)
+        except ImportError:
+            missing.append(f"Missing Python package '{module}': {hint}")
+
+    return missing
 
 
 # ── Port-forward management ────────────────────────────────────────────────────
@@ -202,8 +297,11 @@ class ClickHouseClient:
         self.port = port
         self.user = user
         self.password = password
-        self._base_cmd = [
-            "clickhouse-client",
+        # Support both 'clickhouse-client' (legacy) and 'clickhouse client' (modern)
+        import shutil
+        _binary = ["clickhouse-client"] if shutil.which("clickhouse-client") \
+                  else ["clickhouse", "client"]
+        self._base_cmd = _binary + [
             "--host", host, "--secure", "--port", str(port),
             "--user", user, "--password", password,
             "--accept-invalid-certificate",
@@ -339,81 +437,97 @@ def cluster_is_reachable(namespace: str) -> bool:
 
 # ── Secret bootstrap helpers (step 0) ─────────────────────────────────────────
 
+_ALREADY_SET_SENTINEL = "(already set in cluster)"
+
+
 def group_fields(fields: list[SecretField]) -> dict:
+    """Group confirmed, writable fields by secret name.
+
+    Excludes TLS combined fields (handled separately) and fields
+    that were loaded from the cluster as already-set (sentinel value).
+    """
     groups: dict[str, dict] = {}
     for f in fields:
         if f.value and "---KEY---" in f.value:
+            continue
+        if f.value == _ALREADY_SET_SENTINEL:
             continue
         secret_name, key = f.key.split("/", 1)
         groups.setdefault(secret_name, {})[key] = f.value
     return groups
 
 
+def _sds_yaml(secret_name: str, inline_string: str) -> str:
+    return (
+        'resources:\n'
+        '- "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.Secret\n'
+        f'  name: {secret_name}\n'
+        '  generic_secret:\n'
+        '    secret:\n'
+        f'      inline_string: {inline_string}\n'
+    )
+
+
+def _apply_secret_manifest(secret_name: str, namespace: str,
+                            data: dict[str, str], dry_run: bool):
+    """Apply a K8s Secret from a Python dict, bypassing shell quoting."""
+    import tempfile
+    import yaml as _yaml  # only needed here
+
+    manifest = {
+        "apiVersion": "v1",
+        "kind": "Secret",
+        "metadata": {"name": secret_name, "namespace": namespace},
+        "stringData": data,
+    }
+    manifest_yaml = _yaml.dump(manifest, default_flow_style=False, allow_unicode=True)
+
+    if dry_run:
+        print(f"# Secret: {secret_name}\n{manifest_yaml}")
+        return
+
+    print(f"  Applying secret: {secret_name}")
+    r = subprocess.run(
+        ["kubectl", "apply", "-f", "-"],
+        input=manifest_yaml, capture_output=True, text=True,
+    )
+    if r.returncode != 0:
+        print(f"  ERROR: {r.stderr}", file=sys.stderr)
+    else:
+        print(f"  OK: {secret_name}")
+
+
 def apply_secrets(groups: dict, namespace: str, release: str,
                   dry_run: bool, fields: list[SecretField] = None):
+    import importlib
+    # pyyaml is available in most Python envs; fall back to json if not
+    try:
+        importlib.import_module("yaml")
+    except ImportError:
+        subprocess.run([sys.executable, "-m", "pip", "install", "pyyaml", "-q"])
+
     for secret_name, kv in groups.items():
-        literals = [f"--from-literal={k}={v!r}" for k, v in kv.items()]
+        data = dict(kv)  # copy
 
         if secret_name == f"{release}-secrets":
-            literals.append("--from-literal=KEYCLOAK_ADMIN=admin")
-            oidc = kv.get("ENVOY_OIDC_CLIENT_SECRET", "")
-            hmac = kv.get("ENVOY_HMAC_SECRET", "")
-            token_yaml = (
-                "resources:\n"
-                "- \"@type\": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.Secret\n"
-                "  name: token-secret\n  generic_secret:\n    secret:\n"
-                f"      inline_string: {oidc}"
-            )
-            hmac_yaml = (
-                "resources:\n"
-                "- \"@type\": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.Secret\n"
-                "  name: hmac-secret\n  generic_secret:\n    secret:\n"
-                f"      inline_string: {hmac}"
-            )
-            literals += [
-                f"--from-literal=token.yaml={token_yaml!r}",
-                f"--from-literal=hmac.yaml={hmac_yaml!r}",
-            ]
+            data["KEYCLOAK_ADMIN"] = "admin"
+            oidc = data.get("ENVOY_OIDC_CLIENT_SECRET", "")
+            hmac = data.get("ENVOY_HMAC_SECRET", "")
+            data["token.yaml"] = _sds_yaml("token-secret", oidc)
+            data["hmac.yaml"]  = _sds_yaml("hmac-secret",  hmac)
 
-        cmd = (
-            f"kubectl create secret generic {secret_name} "
-            f"-n {namespace} {' '.join(literals)} "
-            f"--dry-run=client -o yaml | kubectl apply -f -"
-        )
-        if dry_run:
-            print(cmd)
-        else:
-            print(f"  Creating secret: {secret_name}")
-            r = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-            if r.returncode != 0:
-                print(f"  ERROR: {r.stderr}", file=sys.stderr)
-            else:
-                print(f"  OK: {secret_name}")
+        _apply_secret_manifest(secret_name, namespace, data, dry_run)
 
     tls_field = next((f for f in (fields or []) if f.value and "---KEY---" in f.value), None)
     if tls_field:
         cert, key = tls_field.value.split("---KEY---\n", 1)
         tls_secret = tls_field.key.split("/")[0]
-        if dry_run:
-            print(f"# kubectl create secret generic {tls_secret} -n {namespace} --from-file=...")
-        else:
-            import tempfile
-            with tempfile.TemporaryDirectory() as d:
-                crt_path = os.path.join(d, "server.crt")
-                key_path = os.path.join(d, "server.key")
-                open(crt_path, "w").write(cert)
-                open(key_path, "w").write(key)
-                cmd = (
-                    f"kubectl create secret generic {tls_secret} -n {namespace} "
-                    f"--from-file=server.crt={crt_path} --from-file=server.key={key_path} "
-                    f"--from-file=tls.crt={crt_path} --from-file=tls.key={key_path} "
-                    f"--dry-run=client -o yaml | kubectl apply -f -"
-                )
-                r = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-                if r.returncode != 0:
-                    print(f"  ERROR: {r.stderr}", file=sys.stderr)
-                else:
-                    print(f"  OK: {tls_secret}")
+        _apply_secret_manifest(tls_secret, namespace, {
+            "tls.crt":    cert,
+            "tls.key":    key,
+            "server.crt": cert,
+            "server.key": key,
+        }, dry_run)
 
 
 def export_csv(fields: list[SecretField], path: str):
@@ -453,7 +567,7 @@ def load_existing_secrets(fields: list[SecretField], namespace: str, d=None):
         if secret_name not in existing:
             continue
         if key == "combined" or key in existing[secret_name]:
-            f.value = "(already set in cluster)"
+            f.value = _ALREADY_SET_SENTINEL
             f.sensitive = False
             f.confirmed = True
 
@@ -579,7 +693,7 @@ _PHASE_MSGS = [
     "Signalling ArgoCD...",
     "ArgoCD reconciling resources...",
     "Waiting for pods to be scheduled...",
-    "Pods initialising...",
+    "Pods initializing...",
     "Waiting for health probes...",
     "Almost there...",
 ]
@@ -637,13 +751,17 @@ def argocd_sync_and_wait(d, namespace: str, app_name: str = "metranova-auth",
         if stop_event.is_set():
             return
 
-        update(5, "→ Triggering ArgoCD sync...")
+        update(5, "→ Triggering ArgoCD sync via kubectl patch...")
         r = subprocess.run(
-            ["argocd", "app", "sync", app_name, "--async"],
+            ["kubectl", "patch", "application", app_name,
+             "-n", "argocd",
+             "--type=merge",
+             "-p", '{"operation":{"sync":{"syncStrategy":{"apply":{"force":false}}},"initiatedBy":{"username":"auth-wizard"}}}']
+            + ctx_flag,
             capture_output=True, text=True,
         )
-        argocd_note = "✓ argocd sync triggered" if r.returncode == 0 \
-                      else "(argocd CLI not found — annotation only)"
+        argocd_note = "✓ ArgoCD sync triggered" if r.returncode == 0 \
+                      else f"⚠ sync patch failed: {r.stderr.strip()[:80]}"
         log.append(argocd_note)
 
         # Step 2: poll pods
@@ -831,7 +949,8 @@ class WizardConnections:
         self.ch = self.kc = self.ch_pf = self.kc_pf = None
 
 
-def section_connect(d, conn: WizardConnections, namespace: str, release: str):
+def section_connect(d, conn: WizardConnections, namespace: str, release: str,
+                    ch_service: str = ""):
     """Open port-forwards and authenticate. Shows progress, reports errors."""
 
     conn.stop()  # clean up any previous attempt
@@ -839,20 +958,49 @@ def section_connect(d, conn: WizardConnections, namespace: str, release: str):
     d.infobox("Connecting to cluster...\n\nOpening ClickHouse port-forward...",
               width=56, height=8, title="Connecting")
 
-    # ClickHouse
-    ch_svc = f"svc/{release}-clickhouse"
-    ch_pf = PortForward(namespace, ch_svc, remote_port=9440, local_port=PF_CH_LOCAL_PORT)
-    if not ch_pf.start(timeout=12):
-        ch_pf.stop()
-        _error(d, f"Could not reach ClickHouse.\n\nIs the cluster running?\n"
-               f"Service: {ch_svc}\nNamespace: {namespace}")
+    # ClickHouse — try the provided service, then common defaults
+    ch_candidates = []
+    if ch_service:
+        ch_candidates.append(ch_service)
+    ch_candidates += [
+        f"svc/{release}-clickhouse",
+        "svc/clickhouse-ch-cluster",
+        "svc/clickhouse",
+    ]
+
+    ch_pf = None
+    ch_svc_used = None
+    for candidate in ch_candidates:
+        # Determine namespace: allow "ns/svc-name" syntax
+        if "/" in candidate and not candidate.startswith("svc/"):
+            ch_ns, ch_svc_name = candidate.split("/", 1)
+            pf = PortForward(ch_ns, f"svc/{ch_svc_name}", remote_port=9440,
+                             local_port=PF_CH_LOCAL_PORT)
+        else:
+            pf = PortForward(namespace, candidate, remote_port=9440,
+                             local_port=PF_CH_LOCAL_PORT)
+        if pf.start(timeout=6):
+            ch_pf = pf
+            ch_svc_used = candidate
+            break
+        pf.stop()
+
+    if ch_pf is None:
+        tried = "\n  ".join(ch_candidates)
+        _error(d,
+            f"Could not reach ClickHouse.\n\n"
+            f"Tried:\n  {tried}\n\n"
+            f"If ClickHouse is in a different namespace or has a\n"
+            f"non-standard service name, restart the wizard with:\n"
+            f"  --clickhouse-service <svc-name>\n"
+            f"or  --clickhouse-service <namespace>/<svc-name>")
         return
 
     d.infobox("Opening Keycloak port-forward...", width=56, height=8, title="Connecting")
 
-    # Keycloak (management port via service)
+    # Keycloak HTTP port
     kc_svc = f"svc/{release}-keycloak"
-    kc_pf = PortForward(namespace, kc_svc, remote_port=9000, local_port=PF_KC_LOCAL_PORT)
+    kc_pf = PortForward(namespace, kc_svc, remote_port=8080, local_port=PF_KC_LOCAL_PORT)
     if not kc_pf.start(timeout=15):
         kc_pf.stop()
         ch_pf.stop()
@@ -1387,9 +1535,128 @@ def section_audit(d, conn: WizardConnections):
                 _error(d, f"Query failed:\n{e}")
 
 
+# ── Preflight: stack deployment check ─────────────────────────────────────────
+
+ARGOCD_APP_MANIFEST = (
+    # Path relative to repo root — applied as-is
+    "argocd/metranova-app.yaml"
+)
+
+def _argocd_app_exists(app_name: str) -> bool:
+    r = subprocess.run(
+        ["kubectl", "get", "application", app_name, "-n", "argocd",
+         "--context", _kubectl_context()],
+        capture_output=True,
+    )
+    return r.returncode == 0
+
+
+def _ch_reachable(namespace: str, ch_service: str) -> bool:
+    """Quick check: can we open a TCP connection to ClickHouse?"""
+    candidates = []
+    if ch_service:
+        candidates.append(ch_service)
+    candidates += [
+        f"svc/metranova-clickhouse",
+        "svc/clickhouse-ch-cluster",
+        "svc/clickhouse",
+    ]
+    for candidate in candidates:
+        pf = PortForward(namespace, candidate, remote_port=9440,
+                         local_port=PF_CH_LOCAL_PORT + 1)
+        reachable = pf.start(timeout=4)
+        pf.stop()
+        if reachable:
+            return True
+    return False
+
+
+def _apply_argocd_manifest(manifest_rel_path: str) -> tuple[bool, str]:
+    """Apply an ArgoCD Application manifest from the repo root. Returns (ok, msg)."""
+    repo_root = os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))))
+    full_path = os.path.join(repo_root, manifest_rel_path)
+    if not os.path.exists(full_path):
+        return False, f"Manifest not found: {full_path}"
+    r = subprocess.run(
+        ["kubectl", "apply", "-f", full_path,
+         "--context", _kubectl_context()],
+        capture_output=True, text=True,
+    )
+    if r.returncode != 0:
+        return False, r.stderr.strip()
+    return True, r.stdout.strip()
+
+
+def section_stack_preflight(d, namespace: str, ch_service: str) -> bool:
+    """Check if the metranova stack (ClickHouse etc.) is deployed.
+
+    Returns True to proceed, False if user aborted.
+    Offers Deploy or Ignore when the stack is missing.
+    """
+    d.infobox("Checking metranova stack deployment...", width=52, height=6,
+              title="Preflight")
+
+    app_exists = _argocd_app_exists("metranova")
+    ch_up = app_exists and _ch_reachable(namespace, ch_service)
+
+    if ch_up:
+        return True  # all good, proceed silently
+
+    # Build status message
+    if not app_exists:
+        status = (
+            "The 'metranova' ArgoCD application does not exist.\n\n"
+            "ClickHouse, Kafka, and the pipeline are not deployed.\n"
+            "The auth system cannot be fully configured without them."
+        )
+    else:
+        status = (
+            "The 'metranova' ArgoCD application exists but\n"
+            "ClickHouse does not appear to be reachable yet.\n\n"
+            "The cluster may still be starting up, or ClickHouse\n"
+            "may be in a different namespace."
+        )
+
+    code = d.yesno(
+        status,
+        title="Stack not deployed",
+        width=66, height=16,
+        yes_label="Deploy",
+        no_label="Ignore",
+    )
+
+    if code != d.OK:
+        return True  # user chose Ignore — proceed anyway
+
+    # Deploy
+    if not app_exists:
+        d.infobox("Creating metranova ArgoCD application...", width=56, height=6,
+                  title="Deploying")
+        ok, msg = _apply_argocd_manifest(ARGOCD_APP_MANIFEST)
+        if not ok:
+            _error(d, f"Failed to create ArgoCD application:\n\n{msg}\n\n"
+                   f"You can apply it manually:\n"
+                   f"  kubectl apply -f argocd/metranova-app.yaml")
+            return True  # non-fatal — let wizard continue
+
+    # Trigger sync and watch
+    ok = argocd_sync_and_wait(d, namespace, app_name="metranova", timeout=600)
+    if not ok:
+        _msgbox(d,
+            "Timed out waiting for the metranova stack.\n\n"
+            "ClickHouse may still be starting. You can\n"
+            "proceed and use Connect (step 1) once it\n"
+            "is ready, or check pod status with:\n"
+            "  kubectl get pods -n " + namespace,
+            title="Still starting", width=64, height=14)
+
+    return True
+
+
 # ── Main TUI loop ──────────────────────────────────────────────────────────────
 
-def run_wizard(namespace: str, release: str, dry_run: bool):
+def run_wizard(namespace: str, release: str, dry_run: bool, ch_service: str = ""):
     d = _make_dialog(namespace)
     conn = WizardConnections()
 
@@ -1400,6 +1667,10 @@ def run_wizard(namespace: str, release: str, dry_run: bool):
     signal.signal(signal.SIGINT,  _cleanup)
 
     try:
+        # Preflight: ensure the metranova stack (ClickHouse etc.) is deployed
+        if not section_stack_preflight(d, namespace, ch_service):
+            return
+
         while True:
             status = "connected" if conn.connected else "not connected"
             locked = not conn.connected
@@ -1430,7 +1701,7 @@ def run_wizard(namespace: str, release: str, dry_run: bool):
             if tag == "0":
                 section_secrets(d, namespace, release, dry_run)
             elif tag == "1":
-                section_connect(d, conn, namespace, release)
+                section_connect(d, conn, namespace, release, ch_service=ch_service)
             elif tag == "2":
                 if locked:
                     _msgbox(d, "Connect first (step 1).", title="Not connected")
@@ -1478,12 +1749,22 @@ def main():
     parser.add_argument("--export-csv", metavar="PATH")
     parser.add_argument("--dry-run",    action="store_true")
     parser.add_argument("--no-tui",     action="store_true", help="Generate secrets non-interactively")
+    parser.add_argument("--clickhouse-service", default="", metavar="SVC",
+                        help="ClickHouse K8s service name or namespace/name (default: auto-detect)")
     args = parser.parse_args()
+
+    problems = preflight_check(skip_tui=args.no_tui)
+    if problems:
+        print("Cannot start — missing dependencies:\n", file=sys.stderr)
+        for p in problems:
+            print(f"  • {p}", file=sys.stderr)
+        sys.exit(1)
 
     if args.no_tui:
         run_headless(args.namespace, args.release, args.dry_run, args.export_csv)
     else:
-        run_wizard(args.namespace, args.release, args.dry_run)
+        run_wizard(args.namespace, args.release, args.dry_run,
+                   ch_service=args.clickhouse_service)
 
 
 if __name__ == "__main__":

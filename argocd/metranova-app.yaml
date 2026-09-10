@@ -1,0 +1,20 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: metranova
+  namespace: argocd
+spec:
+  project: default
+  destination:
+    namespace: metranova
+    server: https://kubernetes.default.svc
+  source:
+    repoURL: https://github.com/MetrANOVA/stack.git
+    targetRevision: main
+    path: helm/metranova
+    helm:
+      valueFiles:
+        - values.yaml
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true

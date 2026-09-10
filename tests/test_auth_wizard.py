@@ -123,6 +123,25 @@ class TestGroupFields:
         assert "my-tls" not in groups
         assert "other" in groups
 
+    def test_already_set_sentinel_excluded(self):
+        """Fields with the cluster-sentinel value must NOT be written back."""
+        fields = [
+            self._make_field("my-secret/real-key", "real-value"),
+            self._make_field("my-secret/already-set", W._ALREADY_SET_SENTINEL),
+        ]
+        groups = W.group_fields(fields)
+        assert "real-key" in groups["my-secret"]
+        assert "already-set" not in groups["my-secret"]
+
+    def test_already_set_sentinel_not_written_for_any_field(self):
+        """Even if every field is already-set, group_fields returns no values."""
+        fields = [
+            self._make_field("sec/a", W._ALREADY_SET_SENTINEL),
+            self._make_field("sec/b", W._ALREADY_SET_SENTINEL),
+        ]
+        groups = W.group_fields(fields)
+        assert groups.get("sec", {}) == {}
+
     def test_empty(self):
         assert W.group_fields([]) == {}
 
@@ -151,6 +170,166 @@ class TestMakeFields:
         assert any("Keycloak admin" in l for l in labels)
         assert any("TLS" in l for l in labels)
         assert any("HMAC" in l for l in labels)
+
+    def test_contains_ldap_secrets(self):
+        fields = W.make_fields("r")
+        labels = [f.label for f in fields]
+        assert any("LDAP admin" in l for l in labels)
+        assert any("LDAP config" in l for l in labels)
+
+    def test_contains_token_store_key(self):
+        fields = W.make_fields("r")
+        labels = [f.label for f in fields]
+        assert any("Token store" in l for l in labels)
+
+    def test_contains_grafana_secrets(self):
+        fields = W.make_fields("r")
+        labels = [f.label for f in fields]
+        assert any("Grafana admin" in l for l in labels)
+        assert any("Grafana ClickHouse" in l for l in labels)
+
+    def test_all_keys_in_correct_secrets(self):
+        fields = W.make_fields("auth")
+        # All non-TLS, non-CH fields should land in auth-secrets
+        for f in fields:
+            secret, _ = f.key.split("/", 1)
+            assert secret in ("auth-secrets", "clickhouse-users", "auth-tls"), \
+                f"Unexpected secret name '{secret}' for field '{f.label}'"
+
+
+class TestPreflightCheck:
+    def test_all_present_returns_empty(self):
+        with patch("subprocess.run") as mock_run, \
+             patch("builtins.__import__", side_effect=lambda name, *a, **kw: None):
+            mock_run.return_value = SimpleNamespace(returncode=0, stdout="/usr/bin/kubectl", stderr="")
+            # Don't patch __import__ for real — use importlib mock instead
+        # Real environment: binaries exist, packages importable
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = SimpleNamespace(returncode=0, stdout="/usr/bin/x", stderr="")
+            result = W.preflight_check(skip_tui=True)
+            # yaml may or may not be installed; only check binary errors absent
+            binary_errors = [m for m in result if "Missing binary" in m]
+            assert binary_errors == []
+
+    def test_missing_binary_reported(self):
+        # All subprocess calls fail: which-checks and clickhouse subcommand check
+        def fake_run(cmd, **kwargs):
+            return SimpleNamespace(returncode=1, stdout="", stderr="")
+
+        with patch("subprocess.run", side_effect=fake_run):
+            result = W.preflight_check(skip_tui=True)
+        assert any("kubectl" in m for m in result)
+        assert any("ClickHouse" in m for m in result)
+        assert any("openssl" in m for m in result)
+
+    def test_clickhouse_client_legacy_binary_accepted(self):
+        """'clickhouse-client' on PATH satisfies the ClickHouse requirement."""
+        import shutil
+        def fake_run(cmd, **kwargs):
+            # which clickhouse-client succeeds
+            if cmd == ["which", "clickhouse-client"]:
+                return SimpleNamespace(returncode=0, stdout="/usr/bin/clickhouse-client", stderr="")
+            return SimpleNamespace(returncode=0, stdout="/x", stderr="")
+
+        with patch("subprocess.run", side_effect=fake_run), \
+             patch("shutil.which", return_value="/usr/bin/clickhouse-client"):
+            result = W.preflight_check(skip_tui=True)
+        ch_errors = [m for m in result if "ClickHouse" in m]
+        assert ch_errors == []
+
+    def test_clickhouse_modern_subcommand_accepted(self):
+        """'clickhouse client --version' succeeding satisfies the requirement."""
+        def fake_run(cmd, **kwargs):
+            if cmd == ["which", "clickhouse-client"]:
+                return SimpleNamespace(returncode=1, stdout="", stderr="")
+            if cmd == ["clickhouse", "client", "--version"]:
+                return SimpleNamespace(returncode=0, stdout="ClickHouse 25.9", stderr="")
+            return SimpleNamespace(returncode=0, stdout="/x", stderr="")
+
+        with patch("subprocess.run", side_effect=fake_run):
+            result = W.preflight_check(skip_tui=True)
+        ch_errors = [m for m in result if "ClickHouse" in m]
+        assert ch_errors == []
+
+    def test_clickhouse_missing_when_both_absent(self):
+        """Neither legacy nor modern binary → ClickHouse error reported."""
+        def fake_run(cmd, **kwargs):
+            if cmd[0] in ("which", "clickhouse"):
+                return SimpleNamespace(returncode=1, stdout="", stderr="")
+            return SimpleNamespace(returncode=0, stdout="/x", stderr="")
+
+        with patch("subprocess.run", side_effect=fake_run):
+            result = W.preflight_check(skip_tui=True)
+        assert any("ClickHouse" in m for m in result)
+
+    def test_missing_binary_includes_hint(self):
+        def fake_run(cmd, **kwargs):
+            return SimpleNamespace(returncode=1, stdout="", stderr="")
+
+        with patch("subprocess.run", side_effect=fake_run):
+            result = W.preflight_check(skip_tui=True)
+        kubectl_msg = next(m for m in result if "kubectl" in m)
+        assert "https://" in kubectl_msg or "install" in kubectl_msg.lower()
+
+    def test_missing_python_package_reported(self):
+        import builtins
+        real_import = builtins.__import__
+
+        def failing_import(name, *args, **kwargs):
+            if name == "yaml":
+                raise ImportError("no module named yaml")
+            return real_import(name, *args, **kwargs)
+
+        with patch("subprocess.run") as mock_run, \
+             patch("builtins.__import__", side_effect=failing_import):
+            mock_run.return_value = SimpleNamespace(returncode=0, stdout="/x", stderr="")
+            result = W.preflight_check(skip_tui=True)
+
+        assert any("yaml" in m for m in result)
+
+    def test_dialog_not_required_in_headless_mode(self):
+        import builtins
+        real_import = builtins.__import__
+
+        def failing_import(name, *args, **kwargs):
+            if name == "dialog":
+                raise ImportError("no dialog")
+            return real_import(name, *args, **kwargs)
+
+        with patch("subprocess.run") as mock_run, \
+             patch("builtins.__import__", side_effect=failing_import):
+            mock_run.return_value = SimpleNamespace(returncode=0, stdout="/x", stderr="")
+            result = W.preflight_check(skip_tui=True)
+
+        assert not any("dialog" in m for m in result)
+
+    def test_dialog_required_in_tui_mode(self):
+        import builtins
+        real_import = builtins.__import__
+
+        def failing_import(name, *args, **kwargs):
+            if name == "dialog":
+                raise ImportError("no dialog")
+            return real_import(name, *args, **kwargs)
+
+        with patch("subprocess.run") as mock_run, \
+             patch("builtins.__import__", side_effect=failing_import):
+            mock_run.return_value = SimpleNamespace(returncode=0, stdout="/x", stderr="")
+            result = W.preflight_check(skip_tui=False)
+
+        assert any("dialog" in m for m in result)
+
+    def test_returns_list(self):
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = SimpleNamespace(returncode=0, stdout="/x", stderr="")
+            result = W.preflight_check(skip_tui=True)
+        assert isinstance(result, list)
+
+    def test_required_binaries_coverage(self):
+        # Ensure every entry in REQUIRED_BINARIES has a name and a hint
+        for binary, hint in W.REQUIRED_BINARIES:
+            assert binary
+            assert hint
 
 
 # ── Layer 2: mock-based tests ──────────────────────────────────────────────────
@@ -388,7 +567,25 @@ class TestLoadExistingSecrets:
             W.load_existing_secrets(fields, "metranova", d=None)
 
         assert fields[0].confirmed is True
-        assert fields[0].value == "(already set in cluster)"
+        assert fields[0].value == W._ALREADY_SET_SENTINEL
+
+    def test_sentinel_value_not_written_back_via_group_fields(self):
+        """The sentinel value must never reach group_fields as a real secret value."""
+        fields = [self._make_field("clickhouse-users/admin-password")]
+        existing_data = json.dumps({"admin-password": base64.b64encode(b"realpassword").decode()})
+
+        def fake_run(cmd, **kwargs):
+            return SimpleNamespace(returncode=0, stdout=existing_data, stderr="")
+
+        with patch("subprocess.run", side_effect=fake_run):
+            W.load_existing_secrets(fields, "metranova", d=None)
+
+        # group_fields must skip the sentinel — no key should appear
+        groups = W.group_fields(fields)
+        for secret_vals in groups.values():
+            for v in secret_vals.values():
+                assert v != W._ALREADY_SET_SENTINEL, \
+                    "Sentinel value must not be written to the cluster"
 
     def test_missing_secret_leaves_unconfirmed(self):
         fields = [self._make_field("clickhouse-users/admin-password")]
@@ -530,7 +727,7 @@ class TestApplySecrets:
         mock_run.assert_not_called()
 
     def test_applies_release_secrets_extra_fields(self):
-        """release-secrets secret gets token.yaml and hmac.yaml injected."""
+        """release-secrets secret gets token.yaml and hmac.yaml injected into manifest."""
         fields = [
             W.SecretField(key="rel-secrets/ENVOY_OIDC_CLIENT_SECRET", label="", description="",
                           group="", generate=W.gen_token, value="my-oidc", confirmed=True),
@@ -538,19 +735,21 @@ class TestApplySecrets:
                           group="", generate=W.gen_hex, value="my-hmac", confirmed=True),
         ]
         groups = W.group_fields(fields)
-        calls_seen = []
+        inputs_seen = []
 
         def fake_run(cmd, **kwargs):
-            calls_seen.append(cmd)
+            inputs_seen.append(kwargs.get("input", ""))
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
         with patch("subprocess.run", side_effect=fake_run):
             W.apply_secrets(groups, "ns", "rel", dry_run=False, fields=fields)
 
-        assert calls_seen, "subprocess.run was never called"
-        joined = " ".join(str(c) for c in calls_seen)
-        assert "token.yaml" in joined
-        assert "hmac.yaml" in joined
+        assert inputs_seen, "subprocess.run was never called"
+        manifest_text = "\n".join(inputs_seen)
+        assert "token.yaml" in manifest_text
+        assert "hmac.yaml" in manifest_text
+        assert "my-oidc" in manifest_text
+        assert "my-hmac" in manifest_text
 
 
 class TestEnsureChRole:
