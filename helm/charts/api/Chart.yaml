@@ -3,4 +3,4 @@ name: metranova-api
 description: MetrANOVA Admin API
 type: application
 version: "0.2.1"
-appVersion: "v0.3.1"
+appVersion: "v0.3.3"
