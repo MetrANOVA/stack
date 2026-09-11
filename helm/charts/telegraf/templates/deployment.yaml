@@ -64,14 +64,24 @@ spec:
             - name: telegraf-config
               mountPath: /etc/telegraf/telegraf.conf
               subPath: telegraf.conf
-            - mountPath: /etc/telegraf/certs
-              name: kafka-certs
-            - mountPath: /etc/telegraf/cluster-ca
-              name: kafka-cluster-ca
+            - name: telegraf-configs
+              mountPath: /etc/telegraf/telegraf.d
+            - name: kafka-certs
+              mountPath: /etc/telegraf/certs
+            - name: kafka-cluster-ca
+              mountPath: /etc/telegraf/cluster-ca
       volumes:
         - name: telegraf-config
           configMap:
             name: {{ .Release.Name }}-telegraf-config
+        - name: telegraf-configs
+          projected:
+            sources:
+              - configMap:
+                  name: {{ .Release.Name }}-telegraf-config-dummy
+              - configMap:
+                  name: {{ .Release.Name }}-telegraf-resource-configurations
+                  optional: true
         - name: kafka-certs
           secret:
             defaultMode: 420

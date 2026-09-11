@@ -61,8 +61,10 @@ spec:
             timeoutSeconds: {{ .Values.probes.readiness.timeoutSeconds }}
             failureThreshold: {{ .Values.probes.readiness.failureThreshold }}
           env:
-            - name: METRANOVA_KUBE_NAMESPACE
+            - name: METRANOVA_KUBE_RELEASE_NAMESPACE
               value: {{ .Release.Namespace | quote }}
+            - name: METRANOVA_KUBE_RELEASE_NAME
+              value: {{ .Release.Name | quote }}
             - name: ADMIN_API_HOST
               value: {{ .Values.adminApi.host | quote }}
             - name: ADMIN_API_PORT

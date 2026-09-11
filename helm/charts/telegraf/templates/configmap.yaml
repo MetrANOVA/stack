@@ -1,3 +1,4 @@
+---
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -20,3 +21,15 @@ data:
 {{- if .Values.inputs.netflow.enabled }}
 {{ .Files.Get "configs/input-netflow.conf" | trim | nindent 4 }}
 {{- end }}
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-telegraf-config-dummy
+  labels:
+    app.kubernetes.io/name: telegraf
+    app.kubernetes.io/instance: {{ .Release.Name }}
+data:
+  dummy: |
+    dummy
