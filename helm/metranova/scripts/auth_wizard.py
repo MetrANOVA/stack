@@ -51,6 +51,7 @@ class SecretField:
     value: str = ""
     confirmed: bool = False
     sensitive: bool = True
+    cluster_value: str = ""  # decoded value from cluster (set when sentinel is applied)
 
 
 def gen_password(length=24):
@@ -440,17 +441,22 @@ def cluster_is_reachable(namespace: str) -> bool:
 _ALREADY_SET_SENTINEL = "(already set in cluster)"
 
 
-def group_fields(fields: list[SecretField]) -> dict:
+def group_fields(fields: list[SecretField], include_cluster: bool = False) -> dict:
     """Group confirmed, writable fields by secret name.
 
-    Excludes TLS combined fields (handled separately) and fields
-    that were loaded from the cluster as already-set (sentinel value).
+    Excludes TLS combined fields (handled separately).
+    Sentinel fields (already in cluster) are normally excluded; pass
+    include_cluster=True to include them using their decoded cluster value
+    (used when writing to files so the file reflects actual cluster state).
     """
     groups: dict[str, dict] = {}
     for f in fields:
         if f.value and "---KEY---" in f.value:
             continue
         if f.value == _ALREADY_SET_SENTINEL:
+            if include_cluster and f.cluster_value:
+                secret_name, key = f.key.split("/", 1)
+                groups.setdefault(secret_name, {})[key] = f.cluster_value
             continue
         secret_name, key = f.key.split("/", 1)
         groups.setdefault(secret_name, {})[key] = f.value
@@ -468,19 +474,31 @@ def _sds_yaml(secret_name: str, inline_string: str) -> str:
     )
 
 
-def _apply_secret_manifest(secret_name: str, namespace: str,
-                            data: dict[str, str], dry_run: bool):
-    """Apply a K8s Secret from a Python dict, bypassing shell quoting."""
-    import tempfile
-    import yaml as _yaml  # only needed here
-
+def _secret_manifest_yaml(secret_name: str, namespace: str, data: dict[str, str]) -> str:
+    import yaml as _yaml
     manifest = {
         "apiVersion": "v1",
         "kind": "Secret",
         "metadata": {"name": secret_name, "namespace": namespace},
         "stringData": data,
     }
-    manifest_yaml = _yaml.dump(manifest, default_flow_style=False, allow_unicode=True)
+    return _yaml.dump(manifest, default_flow_style=False, allow_unicode=True)
+
+
+def _write_secret_to_file(secret_name: str, namespace: str,
+                           data: dict[str, str], secrets_dir: str):
+    """Write a K8s Secret manifest to secrets/<name>.yaml."""
+    os.makedirs(secrets_dir, exist_ok=True)
+    path = os.path.join(secrets_dir, f"{secret_name}.yaml")
+    with open(path, "w") as f:
+        f.write(_secret_manifest_yaml(secret_name, namespace, data))
+    print(f"  Written: {path}")
+
+
+def _apply_secret_to_cluster(secret_name: str, namespace: str,
+                              data: dict[str, str], dry_run: bool):
+    """Apply a K8s Secret directly to the cluster via kubectl."""
+    manifest_yaml = _secret_manifest_yaml(secret_name, namespace, data)
 
     if dry_run:
         print(f"# Secret: {secret_name}\n{manifest_yaml}")
@@ -488,7 +506,8 @@ def _apply_secret_manifest(secret_name: str, namespace: str,
 
     print(f"  Applying secret: {secret_name}")
     r = subprocess.run(
-        ["kubectl", "apply", "-f", "-"],
+        ["kubectl", "apply", "-f", "-",
+         "--context", _kubectl_context()],
         input=manifest_yaml, capture_output=True, text=True,
     )
     if r.returncode != 0:
@@ -497,17 +516,25 @@ def _apply_secret_manifest(secret_name: str, namespace: str,
         print(f"  OK: {secret_name}")
 
 
+def _repo_root() -> str:
+    return os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.dirname(os.path.abspath(__file__)))))
+
+
 def apply_secrets(groups: dict, namespace: str, release: str,
-                  dry_run: bool, fields: list[SecretField] = None):
+                  dry_run: bool, fields: list[SecretField] = None,
+                  dest: str = "files"):
+    """Write secrets. dest='files' writes to secrets/ dir; dest='cluster' applies via kubectl."""
     import importlib
-    # pyyaml is available in most Python envs; fall back to json if not
     try:
         importlib.import_module("yaml")
     except ImportError:
         subprocess.run([sys.executable, "-m", "pip", "install", "pyyaml", "-q"])
 
+    secrets_dir = os.path.join(_repo_root(), "secrets")
+
     for secret_name, kv in groups.items():
-        data = dict(kv)  # copy
+        data = dict(kv)
 
         if secret_name == f"{release}-secrets":
             data["KEYCLOAK_ADMIN"] = "admin"
@@ -516,18 +543,25 @@ def apply_secrets(groups: dict, namespace: str, release: str,
             data["token.yaml"] = _sds_yaml("token-secret", oidc)
             data["hmac.yaml"]  = _sds_yaml("hmac-secret",  hmac)
 
-        _apply_secret_manifest(secret_name, namespace, data, dry_run)
+        if dest == "cluster":
+            _apply_secret_to_cluster(secret_name, namespace, data, dry_run)
+        else:
+            _write_secret_to_file(secret_name, namespace, data, secrets_dir)
 
     tls_field = next((f for f in (fields or []) if f.value and "---KEY---" in f.value), None)
     if tls_field:
         cert, key = tls_field.value.split("---KEY---\n", 1)
         tls_secret = tls_field.key.split("/")[0]
-        _apply_secret_manifest(tls_secret, namespace, {
+        tls_data = {
             "tls.crt":    cert,
             "tls.key":    key,
             "server.crt": cert,
             "server.key": key,
-        }, dry_run)
+        }
+        if dest == "cluster":
+            _apply_secret_to_cluster(tls_secret, namespace, tls_data, dry_run)
+        else:
+            _write_secret_to_file(tls_secret, namespace, tls_data, secrets_dir)
 
 
 def export_csv(fields: list[SecretField], path: str):
@@ -570,6 +604,11 @@ def load_existing_secrets(fields: list[SecretField], namespace: str, d=None):
             f.value = _ALREADY_SET_SENTINEL
             f.sensitive = False
             f.confirmed = True
+            if key in existing[secret_name]:
+                try:
+                    f.cluster_value = base64.b64decode(existing[secret_name][key]).decode()
+                except Exception:
+                    pass
 
 
 # ── TUI: dialog helpers ────────────────────────────────────────────────────────
@@ -586,7 +625,7 @@ def _msgbox(d, msg: str, title: str = "", width: int = 60, height: int = 10):
 
 
 def _error(d, msg: str):
-    _msgbox(d, msg, title="Error")
+    d.scrollbox(msg, title="Error", width=80, height=24)
 
 
 def _confirm(d, msg: str, title: str = "", width: int = 60, height: int = 10) -> bool:
@@ -638,7 +677,8 @@ def _edit_secret_field(d, f: SecretField):
                     f.confirmed = False
 
 
-def _run_secrets_menu(d, fields: list[SecretField]):
+def _run_secrets_menu(d, fields: list[SecretField],
+                       namespace: str = "", release: str = "", dry_run: bool = False):
     while True:
         done  = sum(1 for f in fields if f.confirmed)
         total = len(fields)
@@ -661,7 +701,7 @@ def _run_secrets_menu(d, fields: list[SecretField]):
         )
 
         if code in (d.CANCEL, d.ESC):
-            return False
+            return
 
         if code == "extra":
             for f in fields:
@@ -675,16 +715,49 @@ def _run_secrets_menu(d, fields: list[SecretField]):
                 _msgbox(d, f"Not all secrets confirmed ({done}/{total}).\n"
                         "Confirm all before writing.", title="Cannot write yet")
                 continue
-            # confirm write
-            c2, tag2 = d.menu(
-                f"Write {len(group_fields(fields))} secrets to namespace?",
-                title="Write secrets", width=60, height=12, menu_height=3,
-                choices=[("W", "Write now"), ("X", "Export CSV then write"), ("Q", "Abort")],
-                ok_label="Select", cancel_label="Abort",
+
+            c2, selected = d.checklist(
+                f"Select all destinations for {len(group_fields(fields))} secrets:",
+                title="Write secrets", width=68, height=14, list_height=4,
+                choices=[
+                    ("F", "Write to files  (secrets/ dir, gitignored)", True),
+                    ("C", "Apply to cluster  (kubectl apply direct)", False),
+                    ("X", "Export CSV", False),
+                ],
             )
-            if c2 in (d.CANCEL, d.ESC) or tag2 == "Q":
+            if c2 in (d.CANCEL, d.ESC) or not selected:
                 continue
-            return ("export_write" if tag2 == "X" else "write")
+
+            if "X" in selected:
+                csv_path = f"metranova-secrets-{namespace}.csv"
+                export_csv(fields, csv_path)
+                _msgbox(d, f"Exported to {csv_path}\nStore in a password manager, then delete.",
+                        title="CSV exported")
+
+            if "F" in selected:
+                groups = group_fields(fields, include_cluster=True)
+                apply_secrets(groups, namespace, release, dry_run, fields, dest="files")
+                if not dry_run:
+                    secrets_dir = os.path.join(_repo_root(), "secrets")
+                    _msgbox(d,
+                        f"Secrets written to:\n  {secrets_dir}/\n\n"
+                        "Apply with:\n"
+                        f"  kubectl apply -f secrets/ -n {namespace}\n\n"
+                        "Or point ArgoCD / Flux at the secrets/ directory.\n"
+                        "Use step A to have the wizard sync ArgoCD.",
+                        title="Files written", width=70, height=16)
+
+            if "C" in selected:
+                groups = group_fields(fields)
+                apply_secrets(groups, namespace, release, dry_run, fields, dest="cluster")
+                if not dry_run:
+                    _msgbox(d,
+                        "Secrets applied directly to the cluster.\n\n"
+                        "Use step A if you are using ArgoCD, or deploy\n"
+                        "with your preferred tool. Then use step 1 (Connect).",
+                        title="Applied to cluster", width=66, height=12)
+
+            continue  # loop back — user can write again or edit more
 
         _edit_secret_field(d, fields[int(tag)])
 
@@ -774,7 +847,8 @@ def argocd_sync_and_wait(d, namespace: str, app_name: str = "metranova-auth",
                 state["done"] = True
                 return
 
-            result = subprocess.run(
+            # All pods in namespace — shown in gauge for full visibility
+            all_result = subprocess.run(
                 ["kubectl", "get", "pods", "-n", namespace, "--no-headers",
                  "-o", "custom-columns="
                        "NAME:.metadata.name,"
@@ -783,41 +857,56 @@ def argocd_sync_and_wait(d, namespace: str, app_name: str = "metranova-auth",
                        "RESTARTS:.status.containerStatuses[0].restartCount"] + ctx_flag,
                 capture_output=True, text=True,
             )
-            raw = [l for l in result.stdout.splitlines() if l.strip()]
+            all_raw = [l for l in all_result.stdout.splitlines() if l.strip()]
 
-            if not raw:
+            # App-specific pods — used for ready-check so each sync waits for its own pods
+            app_result = subprocess.run(
+                ["kubectl", "get", "pods", "-n", namespace, "--no-headers",
+                 "-l", f"app.kubernetes.io/instance={app_name}",
+                 "-o", "custom-columns="
+                       "NAME:.metadata.name,"
+                       "READY:.status.containerStatuses[0].ready,"
+                       "STATUS:.status.phase,"
+                       "RESTARTS:.status.containerStatuses[0].restartCount"] + ctx_flag,
+                capture_output=True, text=True,
+            )
+            app_raw = [l for l in app_result.stdout.splitlines() if l.strip()]
+
+            if not app_raw:
                 phase = _PHASE_MSGS[1] if elapsed < 15 else _PHASE_MSGS[2]
                 pct   = min(5 + int(elapsed / timeout * 20), 25)
-                update(pct, f"{phase}\n\n{argocd_note}")
+                ns_summary = [_pod_line(l.split()) for l in all_raw]
+                ns_block = ("\n".join(ns_summary) + "\n\n") if ns_summary else ""
+                update(pct, f"{phase}\n\n{ns_block}{argocd_note}")
                 time.sleep(2)
                 continue
 
-            ready = sum(1 for l in raw if len(l.split()) > 1 and l.split()[1].lower() == "true")
-            total = len(raw)
-            summary = [_pod_line(l.split()) for l in raw]
+            app_ready = sum(1 for l in app_raw if len(l.split()) > 1 and l.split()[1].lower() == "true")
+            app_total = len(app_raw)
+            all_summary = [_pod_line(l.split()) for l in all_raw]
 
             # append new/changed lines to the running log
-            for line in summary:
+            for line in all_summary:
                 if line not in prev_summary:
                     log.append(line.strip())
-            prev_summary = summary
+            prev_summary = all_summary
 
-            frac  = ready / max(total, 1)
+            frac  = app_ready / max(app_total, 1)
             pct   = min(10 + int(frac * 85), 99)
             if   frac == 0:   phase = _PHASE_MSGS[3]
             elif frac < 0.5:  phase = _PHASE_MSGS[4]
             elif frac < 1.0:  phase = _PHASE_MSGS[5]
-            else:             phase = f"All {total} pods ready!"
+            else:             phase = f"All {app_name} pods ready!"
 
             body = (
-                f"{phase}  ({ready}/{total} ready)  [{int(elapsed)}s]\n\n"
-                + "\n".join(summary)
+                f"{phase}  ({app_ready}/{app_total} for {app_name})  [{int(elapsed)}s]\n\n"
+                + "\n".join(all_summary)
                 + "\n\n"
                 + "\n".join(log[-3:])
             )
             update(pct, body)
 
-            if ready == total and total > 0:
+            if app_ready == app_total and app_total > 0:
                 result_box[0] = True
                 state["done"] = True
                 return
@@ -890,40 +979,7 @@ def _kubectl_context() -> str:
 def section_secrets(d, namespace: str, release: str, dry_run: bool):
     fields = make_fields(release)
     load_existing_secrets(fields, namespace, d)
-
-    result = _run_secrets_menu(d, fields)
-    if not result:
-        return
-
-    groups = group_fields(fields)
-    if result == "export_write":
-        csv_path = f"metranova-secrets-{namespace}.csv"
-        export_csv(fields, csv_path)
-        _msgbox(d, f"Exported to {csv_path}\nStore in password manager, then delete.",
-                title="Exported")
-
-    apply_secrets(groups, namespace, release, dry_run, fields)
-
-    if dry_run:
-        _msgbox(d, "Dry run complete — no secrets written.", title="Done")
-        return
-
-    # Trigger ArgoCD sync and watch pods come up
-    ok = argocd_sync_and_wait(d, namespace, app_name=release)
-    if ok:
-        _msgbox(d,
-            "All pods are ready.\n\n"
-            "Use step 1 (Connect) to open port-forwards,\n"
-            "then proceed to Organizations and Grants.",
-            title="Cluster ready", width=62, height=12)
-    else:
-        _msgbox(d,
-            "Timed out waiting for pods.\n\n"
-            "The cluster may still be starting. Check:\n"
-            "  kubectl get pods -n " + namespace + "\n\n"
-            "Once all pods are 1/1 Running, use step 1\n"
-            "to connect.",
-            title="Timeout", width=64, height=14)
+    _run_secrets_menu(d, fields, namespace=namespace, release=release, dry_run=dry_run)
 
 
 # ── TUI: connectivity layer ────────────────────────────────────────────────────
@@ -1025,7 +1081,7 @@ def section_connect(d, conn: WizardConnections, namespace: str, release: str,
                "Run step 0 (Secrets) first.")
         return
 
-    ch_client = ClickHouseClient(port=PF_CH_LOCAL_PORT, password=ch_pass)
+    ch_client = ClickHouseClient(port=PF_CH_LOCAL_PORT, user="admin", password=ch_pass)
     if not ch_client.ping():
         ch_pf.stop(); kc_pf.stop()
         _error(d, "ClickHouse port-forward is up but authentication failed.\n"
@@ -1051,11 +1107,125 @@ def section_connect(d, conn: WizardConnections, namespace: str, release: str,
             title="Connected", width=56, height=10)
 
 
-# ── TUI: section 1 — organizations ────────────────────────────────────────────
+# ── TUI: section 2 — init authz schema ────────────────────────────────────────
+
+_AUTHZ_SCHEMA_SQL = """\
+CREATE DATABASE IF NOT EXISTS metranova_authz;
+
+CREATE TABLE IF NOT EXISTS metranova_authz.organizations
+(
+    id            UUID          DEFAULT generateUUIDv4(),
+    name          String,
+    slug          String,
+    is_custodial  Bool          DEFAULT false,
+    created_at    DateTime64(3) DEFAULT now64(),
+    updated_at    DateTime64(3) DEFAULT now64()
+)
+ENGINE = ReplacingMergeTree(updated_at)
+ORDER BY id;
+
+CREATE TABLE IF NOT EXISTS metranova_authz.rules
+(
+    id                        UUID          DEFAULT generateUUIDv4(),
+    organization_id           UUID,
+    policy_originator_pattern String,
+    policy_scope_pattern      String,
+    assigned_tlp              Nullable(String),
+    priority                  Int32         DEFAULT 0,
+    description               String        DEFAULT '',
+    created_at                DateTime64(3) DEFAULT now64()
+)
+ENGINE = ReplacingMergeTree(created_at)
+ORDER BY (priority, id);
+
+CREATE TABLE IF NOT EXISTS metranova_authz.grants
+(
+    id              UUID     DEFAULT generateUUIDv4(),
+    group_name      String,
+    organization_id UUID,
+    max_tlp_level   String,
+    permission      String,
+    granted_by      String,
+    granted_at      DateTime64(3)          DEFAULT now64(),
+    revoked_at      Nullable(DateTime64(3))
+)
+ENGINE = ReplacingMergeTree(granted_at)
+ORDER BY (group_name, organization_id, permission);
+
+CREATE TABLE IF NOT EXISTS metranova_authz.audit_log
+(
+    timestamp    DateTime64(3) DEFAULT now64(),
+    event_type   String,
+    actor        String,
+    target_user  String        DEFAULT '',
+    organization String        DEFAULT '',
+    details      String        DEFAULT '',
+    checksum     String        DEFAULT ''
+)
+ENGINE = MergeTree()
+ORDER BY (timestamp, event_type, actor)
+SETTINGS allow_nullable_key = 0;
+
+CREATE ROLE IF NOT EXISTS `authz-admin`;
+GRANT SELECT, INSERT, ALTER, CREATE, DROP ON metranova_authz.* TO `authz-admin`;
+
+CREATE ROLE IF NOT EXISTS `authz-reader`;
+GRANT SELECT ON metranova_authz.* TO `authz-reader`;
+"""
+
+
+def _authz_schema_exists(ch: ClickHouseClient) -> bool:
+    try:
+        out = ch.query(
+            "SELECT count() FROM system.databases WHERE name = 'metranova_authz'"
+        )
+        return out.strip() == "1"
+    except Exception:
+        return False
+
+
+def section_init_authz(d, conn: WizardConnections):
+    if _authz_schema_exists(conn.ch):
+        code = d.yesno(
+            "The metranova_authz schema already exists.\n\n"
+            "Re-run initialization? (All CREATE statements use IF NOT EXISTS — "
+            "no data will be dropped.)",
+            title="Schema exists", width=66, height=10,
+            yes_label="Re-run", no_label="Skip",
+        )
+        if code != d.OK:
+            return
+
+    d.infobox("Initializing metranova_authz schema...", width=56, height=6,
+              title="Init authz schema")
+    try:
+        conn.ch.multiquery(_AUTHZ_SCHEMA_SQL)
+    except Exception as exc:
+        _error(d, f"Schema initialization failed:\n\n{exc}")
+        return
+
+    # Best-effort: add policy_organizations to data_flow if that table exists.
+    # Fails silently if metranova.data_flow hasn't been created yet.
+    try:
+        conn.ch.query(
+            "ALTER TABLE metranova.data_flow"
+            " ADD COLUMN IF NOT EXISTS policy_organizations Array(String) DEFAULT []"
+        )
+    except Exception:
+        pass
+
+    _msgbox(d,
+            "metranova_authz schema initialized.\n\n"
+            "Database, tables, and roles created (IF NOT EXISTS).\n"
+            "You can now manage Organizations, Rules, and Grants.",
+            title="Schema ready", width=64, height=12)
+
+
+# ── TUI: section 3 — organizations ────────────────────────────────────────────
 
 def _list_orgs(ch: ClickHouseClient) -> list[dict]:
     out = ch.query(
-        "SELECT id, name, slug, is_custodial FROM metranova_authz.organizations FINAL "
+        "SELECT id, name, slug, is_custodial, created_at FROM metranova_authz.organizations FINAL "
         "ORDER BY name FORMAT JSONEachRow"
     )
     return [json.loads(line) for line in out.splitlines() if line.strip()]
@@ -1064,10 +1234,11 @@ def _list_orgs(ch: ClickHouseClient) -> list[dict]:
 def section_orgs(d, conn: WizardConnections):
     while True:
         orgs = _list_orgs(conn.ch)
+        org_index = {str(i): o for i, o in enumerate(orgs)}
         choices = []
-        for o in orgs:
+        for i, o in enumerate(orgs):
             flag = " [custodial]" if o["is_custodial"] else ""
-            choices.append((o["id"], f"{o['name']}  ({o['slug']}){flag}"))
+            choices.append((str(i), f"{o['name']}  ({o['slug']}){flag}"))
         choices.append(("__new__", "+ Add organization"))
 
         code, tag = d.menu(
@@ -1086,8 +1257,9 @@ def section_orgs(d, conn: WizardConnections):
             _org_create(d, conn)
             continue
 
+        org = org_index[tag]
+
         if code == "extra":
-            org = next(o for o in orgs if o["id"] == tag)
             if org["is_custodial"]:
                 _msgbox(d, "Cannot delete the custodial organization.", title="Error")
                 continue
@@ -1095,14 +1267,12 @@ def section_orgs(d, conn: WizardConnections):
                         title="Confirm delete"):
                 try:
                     conn.ch.multiquery(
-                        f"ALTER TABLE metranova_authz.organizations DELETE WHERE id = '{tag}';"
+                        f"ALTER TABLE metranova_authz.organizations DELETE WHERE id = '{org['id']}';"
                     )
                 except RuntimeError as e:
                     _error(d, f"Delete failed:\n{e}")
             continue
 
-        # Edit
-        org = next(o for o in orgs if o["id"] == tag)
         _org_edit(d, conn, org)
 
 
@@ -1120,8 +1290,16 @@ def _org_create(d, conn: WizardConnections):
         return
     slug = slug.strip().lower()
 
-    is_custodial = _confirm(d, f"Is '{name}' the custodial organization for this installation?\n\n"
-                            "(Only one org can be custodial.)", title="Custodial?")
+    already_has_custodial = any(o.get("is_custodial") for o in _list_orgs(conn.ch))
+    custodial_code = d.yesno(
+        f"Is '{name}' the custodial organization?\n\n"
+        "The custodial org is the one that operates this cluster — usually the organization the person doing this installation works for.\n\n"
+        "Only one organization can be custodial. Rows not matched by any classification rule are owned by the custodial org at tlp:red.",
+        title="Custodial organization?", width=66, height=14,
+        yes_label="Yes", no_label="No",
+        defaultno=already_has_custodial,
+    )
+    is_custodial = custodial_code == d.OK
 
     try:
         conn.ch.multiquery(
@@ -1140,15 +1318,18 @@ def _org_edit(d, conn: WizardConnections, org: dict):
         return
     try:
         conn.ch.multiquery(
-            f"ALTER TABLE metranova_authz.organizations UPDATE name = '{name.strip()}', "
-            f"updated_at = now64() WHERE id = '{org['id']}';"
+            f"INSERT INTO metranova_authz.organizations "
+            f"(id, name, slug, is_custodial, created_at, updated_at) VALUES "
+            f"('{org['id']}', '{name.strip()}', '{org['slug']}', "
+            f"{'true' if org['is_custodial'] else 'false'}, "
+            f"'{org['created_at']}', now64());"
         )
-        _msgbox(d, f"Updated.", title="Saved")
+        _msgbox(d, "Updated.", title="Saved")
     except RuntimeError as e:
         _error(d, f"Update failed:\n{e}")
 
 
-# ── TUI: section 2 — rules ────────────────────────────────────────────────────
+# ── TUI: section 4 — rules ────────────────────────────────────────────────────
 
 def _list_rules(ch: ClickHouseClient) -> list[dict]:
     out = ch.query(
@@ -1164,12 +1345,15 @@ def _list_rules(ch: ClickHouseClient) -> list[dict]:
 def section_rules(d, conn: WizardConnections):
     while True:
         rules = _list_rules(conn.ch)
+        rule_index = {str(i): r for i, r in enumerate(rules)}
         choices = []
-        for r in rules:
-            tlp_str = f" → TLP:{r['assigned_tlp']}" if r["assigned_tlp"] else ""
-            choices.append((r["id"],
-                f"[{r['priority']:4d}] {r['policy_originator_pattern']} / "
-                f"{r['policy_scope_pattern']} → {r['org_name']}{tlp_str}"))
+        for i, r in enumerate(rules):
+            tlp_str = f" → {r['assigned_tlp']}" if r["assigned_tlp"] else ""
+            desc = f"  {r['description']}" if r.get("description") else ""
+            choices.append((str(i),
+                f"[p{r['priority']}] {r['org_name']:<18} "
+                f"{r['policy_originator_pattern']} / {r['policy_scope_pattern']}"
+                f"{tlp_str}{desc}"))
         choices.append(("__new__", "+ Add rule"))
 
         code, tag = d.menu(
@@ -1177,7 +1361,7 @@ def section_rules(d, conn: WizardConnections):
             "All matching rules fire (org-tagging is additive).\n"
             "For TLP overrides, the highest-priority rule wins.",
             choices=choices, title="Classification Rules",
-            width=78, height=22, menu_height=12,
+            width=90, height=22, menu_height=12,
             ok_label="Edit", cancel_label="Back",
             extra_button=True, extra_label="Delete",
         )
@@ -1189,18 +1373,19 @@ def section_rules(d, conn: WizardConnections):
             _rule_create(d, conn)
             continue
 
+        rule = rule_index[tag]
+
         if code == "extra":
             if _confirm(d, "Delete this rule?\n\nRows already ingested are not re-tagged.",
                         title="Confirm delete"):
                 try:
                     conn.ch.multiquery(
-                        f"ALTER TABLE metranova_authz.rules DELETE WHERE id = '{tag}';"
+                        f"ALTER TABLE metranova_authz.rules DELETE WHERE id = '{rule['id']}';"
                     )
                 except RuntimeError as e:
                     _error(d, f"Delete failed:\n{e}")
             continue
 
-        rule = next(r for r in rules if r["id"] == tag)
         _rule_edit(d, conn, rule)
 
 
@@ -1218,25 +1403,83 @@ def _pick_org(d, conn: WizardConnections) -> Optional[dict]:
     return next(o for o in orgs if o["id"] == tag)
 
 
+def _rule_so_far(org=None, orig=None, scope=None, prio=None, tlp=None) -> str:
+    """One-line-per-field summary prepended to each rule creation dialog."""
+    parts = []
+    if org:           parts.append(f"  Org:      {org['name']} ({org['slug']})")
+    if orig:          parts.append(f"  Source:   {orig}")
+    if scope:         parts.append(f"  Scope:    {scope}")
+    if prio is not None: parts.append(f"  Priority: {prio}")
+    if tlp:           parts.append(f"  TLP:      {tlp}")
+    if not parts:
+        return ""
+    return "Rule so far:\n" + "\n".join(parts) + "\n\n"
+
+
+def _rule_match_count(ch: ClickHouseClient, orig: str, scope: str) -> Optional[int]:
+    """COUNT rows in metranova.data_flow matching the given patterns. Returns None on error."""
+    conditions = []
+    if orig.strip() not in ("*", ""):
+        conditions.append(f"policy_originator LIKE '{orig.strip().replace('*', '%')}'")
+    if scope.strip() not in ("*", ""):
+        s = scope.strip()
+        if "*" in s:
+            conditions.append(f"arrayExists(x -> x LIKE '{s.replace('*', '%')}', policy_scope)")
+        else:
+            conditions.append(f"has(policy_scope, '{s}')")
+    where = " AND ".join(conditions) if conditions else "1=1"
+    try:
+        out = ch.query(f"SELECT formatReadableQuantity(count()) FROM metranova.data_flow WHERE {where}")
+        return out.strip()
+    except Exception:
+        return None
+
+
 def _rule_create(d, conn: WizardConnections):
     org = _pick_org(d, conn)
     if not org:
         return
 
+    # Step 1: source/router pattern
     c, orig = d.inputbox(
-        "policy_originator pattern (glob, e.g. esnet-* or exact value):",
-        title="New Rule", width=68, height=10)
+        _rule_so_far(org=org) +
+        "Router / collector pattern — which device does this data come from?\n"
+        "For flow data use * (any source). For SNMP use a router name or glob (e.g. 'esnet-cr*').",
+        title="New Rule (1/5)", width=72, height=14, init="*")
     if c != d.OK or not orig.strip():
         return
+    orig = orig.strip()
 
+    # Step 2: scope/AS pattern
     c, scope = d.inputbox(
-        "policy_scope pattern (glob, e.g. * for any scope):",
-        title="New Rule", width=68, height=10, init="*")
+        _rule_so_far(org=org, orig=orig) +
+        "Scope pattern — the pipeline stamps each flow with AS numbers (e.g. 'as:293') and community names (e.g. 'comm:lhcone').\n\n"
+        "Examples:\n"
+        "  as:293       — flows involving ESnet (AS 293)\n"
+        "  as:*         — flows involving any AS number\n"
+        "  comm:lhcone  — flows tagged with the LHCONE BGP community\n"
+        "  *            — match all flows regardless of scope",
+        title="New Rule (2/5)", width=72, height=18, init="*")
     if c != d.OK:
         return
+    scope = scope.strip()
 
-    c, prio = d.inputbox("Priority (higher wins for TLP override, default 0):",
-                         title="New Rule", width=60, height=10, init="0")
+    # Show match count preview
+    d.infobox("Estimating row count...", width=48, height=5, title="Preview")
+    count = _rule_match_count(conn.ch, orig, scope)
+    if count is not None:
+        _msgbox(d,
+            _rule_so_far(org=org, orig=orig, scope=scope) +
+            f"This rule would match approximately {count} rows in the current dataset.\n\n"
+            "Press OK to continue setting priority, TLP override, and description.",
+            title="Match preview", width=72, height=16)
+
+    # Step 3: priority
+    c, prio = d.inputbox(
+        _rule_so_far(org=org, orig=orig, scope=scope) +
+        "Priority — when multiple rules match a row, the highest priority wins.\n"
+        "Use 0 for general rules, higher numbers for more specific overrides.",
+        title="New Rule (3/5)", width=72, height=16, init="0")
     if c != d.OK:
         return
     try:
@@ -1245,18 +1488,25 @@ def _rule_create(d, conn: WizardConnections):
         _error(d, "Priority must be an integer.")
         return
 
-    # TLP override is optional
-    tlp_choices = [("none", "No TLP override (org-tag only)")] + \
-                  [(lvl, f"Override to {lvl}") for lvl in TLP_LEVELS]
-    code, tlp_tag = d.menu("TLP override effect (optional):",
-                            choices=tlp_choices, title="TLP Override",
-                            width=60, height=16, menu_height=8,
-                            ok_label="Select", cancel_label="Cancel")
+    # Step 4: TLP override
+    tlp_choices = [("none", "No override — use the TLP level stamped on each row")] + \
+                  [(lvl, f"Force all matched rows to {lvl}") for lvl in TLP_LEVELS]
+    code, tlp_tag = d.menu(
+        _rule_so_far(org=org, orig=orig, scope=scope, prio=prio_int) +
+        "TLP level override (optional) — normally each row carries its own TLP level.",
+        choices=tlp_choices, title="New Rule (4/5)",
+        width=72, height=22, menu_height=7,
+        ok_label="Select", cancel_label="Cancel")
     if code != d.OK:
         return
     assigned_tlp = "NULL" if tlp_tag == "none" else f"'{tlp_tag}'"
+    tlp_display = "none (use row's TLP)" if tlp_tag == "none" else tlp_tag
 
-    c, desc = d.inputbox("Description (optional):", title="New Rule", width=68, height=10)
+    # Step 5: description
+    c, desc = d.inputbox(
+        _rule_so_far(org=org, orig=orig, scope=scope, prio=prio_int, tlp=tlp_display) +
+        "Description (optional — shown in rule list):",
+        title="New Rule (5/5)", width=72, height=17)
     if c != d.OK:
         return
 
@@ -1265,10 +1515,10 @@ def _rule_create(d, conn: WizardConnections):
             f"INSERT INTO metranova_authz.rules "
             f"(organization_id, policy_originator_pattern, policy_scope_pattern, "
             f"assigned_tlp, priority, description) VALUES "
-            f"('{org['id']}', '{orig.strip()}', '{scope.strip()}', "
+            f"('{org['id']}', '{orig}', '{scope}', "
             f"{assigned_tlp}, {prio_int}, '{desc.strip()}');"
         )
-        _msgbox(d, f"Rule created.\n\nThe pipeline will pick it up at next ingest.",
+        _msgbox(d, "Rule created.\n\nThe pipeline will pick it up at next ingest.",
                 title="Created", width=60, height=10)
     except RuntimeError as e:
         _error(d, f"Failed to create rule:\n{e}")
@@ -1295,7 +1545,7 @@ def _rule_edit(d, conn: WizardConnections, rule: dict):
         _error(d, f"Update failed:\n{e}")
 
 
-# ── TUI: section 3 — grants ───────────────────────────────────────────────────
+# ── TUI: section 5 — grants ───────────────────────────────────────────────────
 
 def _group_name(org_slug: str, tlp_level: str, permission: str) -> str:
     return f"authz-tlp-{org_slug}-{tlp_level.split(':')[1]}-{permission}"
@@ -1321,12 +1571,13 @@ def _ensure_ch_role(ch: ClickHouseClient, group_name: str):
 def section_grants(d, conn: WizardConnections):
     while True:
         grants = _list_grants(conn.ch)
+        grant_index = {str(i): g for i, g in enumerate(grants)}
         choices = []
-        for g in grants:
+        for i, g in enumerate(grants):
             perm_icon = "R" if g["permission"] == "read" else "W"
-            choices.append((g["id"],
-                f"[{perm_icon}] {g['org_name']}  {g['max_tlp_level']}  "
-                f"→ {g['group_name']}"))
+            tlp_short = g["max_tlp_level"].replace("tlp:", "")
+            choices.append((str(i),
+                f"[{perm_icon}] {g['org_name']:<18} {tlp_short:<8} {g['group_name']}"))
         choices.append(("__new__", "+ Add grant"))
 
         code, tag = d.menu(
@@ -1334,7 +1585,7 @@ def section_grants(d, conn: WizardConnections):
             "[R]=read  [W]=write  (independent — write does NOT imply read)\n\n"
             "Creating a grant also creates the Keycloak group and CH role.",
             choices=choices, title="Access Grants",
-            width=78, height=22, menu_height=12,
+            width=84, height=22, menu_height=12,
             ok_label="View", cancel_label="Back",
             extra_button=True, extra_label="Revoke",
         )
@@ -1347,7 +1598,7 @@ def section_grants(d, conn: WizardConnections):
             continue
 
         if code == "extra":
-            grant = next(g for g in grants if g["id"] == tag)
+            grant = grant_index[tag]
             if _confirm(d,
                 f"Revoke grant for group '{grant['group_name']}'?\n\n"
                 f"The CH role and Keycloak group will be deleted.\n"
@@ -1356,7 +1607,7 @@ def section_grants(d, conn: WizardConnections):
                 _grant_revoke(d, conn, grant)
             continue
 
-        grant = next(g for g in grants if g["id"] == tag)
+        grant = grant_index[tag]
         _msgbox(d,
             f"Group:       {grant['group_name']}\n"
             f"Org:         {grant['org_name']} ({grant['slug']})\n"
@@ -1477,7 +1728,7 @@ def _grant_revoke(d, conn: WizardConnections, grant: dict):
                 title="Revoked", width=56, height=10)
 
 
-# ── TUI: section 4 — audit ────────────────────────────────────────────────────
+# ── TUI: section 6 — audit ────────────────────────────────────────────────────
 
 def section_audit(d, conn: WizardConnections):
     while True:
@@ -1535,6 +1786,187 @@ def section_audit(d, conn: WizardConnections):
                 _error(d, f"Query failed:\n{e}")
 
 
+# ── Prerequisites: cluster operators ──────────────────────────────────────────
+
+_PREREQUISITES = [
+    {
+        "key":        "argocd",
+        "label":      "ArgoCD",
+        "desc":       "GitOps controller (optional — needed for step A)",
+        "crd":        "applications.argoproj.io",
+        "namespace":  "argocd",
+        "helm_repo":  ("argo", "https://argoproj.github.io/argo-helm"),
+        "helm_chart": "argo/argo-cd",
+        "helm_release": "argocd",
+        "helm_ns":    "argocd",
+        "helm_flags": ["--create-namespace"],
+    },
+    {
+        "key":        "clickhouse-operator",
+        "label":      "Altinity ClickHouse Operator",
+        "desc":       "Required to run ClickHouse clusters",
+        "crd":        "clickhouseinstallations.clickhouse.altinity.com",
+        "namespace":  "kube-system",
+        "helm_repo":  ("altinity-clickhouse-operator",
+                       "https://docs.altinity.com/clickhouse-operator"),
+        "helm_chart": "altinity-clickhouse-operator/altinity-clickhouse-operator",
+        "helm_release": "clickhouse-operator",
+        "helm_ns":    "kube-system",
+        "helm_flags": [],
+    },
+    {
+        "key":        "strimzi",
+        "label":      "Strimzi Kafka Operator",
+        "desc":       "Required to run Kafka clusters",
+        "crd":        "kafkas.kafka.strimzi.io",
+        "namespace":  "kube-system",
+        "helm_repo":  ("strimzi", "https://strimzi.io/charts/"),
+        "helm_chart": "strimzi/strimzi-kafka-operator",
+        "helm_release": "strimzi-kafka-operator",
+        "helm_ns":    "kube-system",
+        # watchNamespaces must include the app namespace so the operator
+        # reconciles Kafka/KafkaNodePool/KafkaUser CRs deployed there.
+        "helm_flags": ["--set", "watchNamespaces={metranova}"],
+    },
+    {
+        "key":        "traefik",
+        "label":      "Traefik Ingress Controller",
+        "desc":       "Required for ingress routes",
+        "crd":        "ingressroutes.traefik.io",
+        "namespace":  "kube-system",
+        "helm_repo":  ("traefik", "https://helm.traefik.io/traefik"),
+        "helm_chart": "traefik/traefik",
+        "helm_release": "traefik",
+        "helm_ns":    "kube-system",
+        "helm_flags": [],
+    },
+]
+
+
+def _crd_exists(crd_name: str) -> bool:
+    r = subprocess.run(
+        ["kubectl", "get", "crd", crd_name, "--context", _kubectl_context()],
+        capture_output=True,
+    )
+    return r.returncode == 0
+
+
+def _helm_repo_add(name: str, url: str) -> tuple[bool, str]:
+    r = subprocess.run(
+        ["helm", "repo", "add", name, url, "--force-update"],
+        capture_output=True, text=True,
+    )
+    if r.returncode != 0:
+        return False, r.stderr.strip()
+    subprocess.run(["helm", "repo", "update", name], capture_output=True)
+    return True, ""
+
+
+def _helm_install(chart: str, release: str, namespace: str,
+                   extra_flags: list[str]) -> tuple[bool, str]:
+    r = subprocess.run(
+        ["helm", "upgrade", "--install", release, chart,
+         "--namespace", namespace,
+         "--kube-context", _kubectl_context()]
+        + extra_flags,
+        capture_output=True, text=True,
+    )
+    if r.returncode != 0:
+        return False, r.stderr.strip()
+    return True, r.stdout.strip()
+
+
+def _wait_for_crd(crd_name: str, timeout: int = 120) -> bool:
+    start = time.time()
+    while time.time() - start < timeout:
+        if _crd_exists(crd_name):
+            return True
+        time.sleep(3)
+    return False
+
+
+def section_prerequisites(d, namespace: str):
+    """Check and install cluster operators required by the MetrANOVA stack."""
+    ctx = ["--context", _kubectl_context()]
+
+    # Check which are installed
+    d.infobox("Checking cluster prerequisites...", width=52, height=6, title="Prerequisites")
+    status = {p["key"]: _crd_exists(p["crd"]) for p in _PREREQUISITES}
+
+    # Build checklist — pre-select missing ones
+    choices = []
+    for p in _PREREQUISITES:
+        installed = status[p["key"]]
+        tag = "✓ " if installed else "  "
+        label = f"{tag}{p['label']} — {p['desc']}"
+        choices.append((p["key"], label, not installed))
+
+    code, selected = d.checklist(
+        "Cluster prerequisites for the MetrANOVA stack.\n\n"
+        "Checked items will be installed. Already-installed\n"
+        "items are pre-unchecked but can be re-installed.",
+        title="Prerequisites",
+        width=78, height=20, list_height=6,
+        choices=choices,
+    )
+
+    if code in (d.CANCEL, d.ESC) or not selected:
+        return
+
+    errors = []
+    for p in _PREREQUISITES:
+        if p["key"] not in selected:
+            continue
+
+        name, url = p["helm_repo"]
+        d.infobox(
+            f"Adding Helm repo: {name}\n  {url}",
+            width=64, height=6, title=f"Installing {p['label']}",
+        )
+        ok, msg = _helm_repo_add(name, url)
+        if not ok:
+            errors.append(f"{p['label']}: repo add failed — {msg}")
+            continue
+
+        d.infobox(
+            f"Installing {p['helm_chart']}\n"
+            f"  release: {p['helm_release']}  namespace: {p['helm_ns']}",
+            width=64, height=6, title=f"Installing {p['label']}",
+        )
+        ok, msg = _helm_install(
+            p["helm_chart"], p["helm_release"], p["helm_ns"], p["helm_flags"]
+        )
+        if not ok:
+            errors.append(f"{p['label']}: helm install failed — {msg}")
+            continue
+
+        d.infobox(
+            f"Waiting for CRD: {p['crd']}\n(up to 120s)",
+            width=64, height=6, title=f"Installing {p['label']}",
+        )
+        if not _wait_for_crd(p["crd"]):
+            errors.append(f"{p['label']}: CRD {p['crd']} not found after 120s — operator may still be starting")
+
+    if errors:
+        import textwrap
+        wrapped = []
+        for e in errors:
+            lines = textwrap.wrap(e, width=78, subsequent_indent="  ")
+            wrapped.append("• " + "\n".join(lines))
+        d.scrollbox(
+            "Some prerequisites had issues:\n\n" +
+            "\n\n".join(wrapped) +
+            "\n\nYou can continue and retry later, or install\n"
+            "manually and re-run this step.",
+            title="Prerequisites: issues", width=84, height=24)
+    else:
+        _msgbox(d,
+            "All selected prerequisites installed successfully.\n\n"
+            "You can now proceed to step 0 (Secrets) and\n"
+            "step A (ArgoCD sync).",
+            title="Prerequisites ready", width=64, height=12)
+
+
 # ── Preflight: stack deployment check ─────────────────────────────────────────
 
 ARGOCD_APP_MANIFEST = (
@@ -1551,30 +1983,10 @@ def _argocd_app_exists(app_name: str) -> bool:
     return r.returncode == 0
 
 
-def _ch_reachable(namespace: str, ch_service: str) -> bool:
-    """Quick check: can we open a TCP connection to ClickHouse?"""
-    candidates = []
-    if ch_service:
-        candidates.append(ch_service)
-    candidates += [
-        f"svc/metranova-clickhouse",
-        "svc/clickhouse-ch-cluster",
-        "svc/clickhouse",
-    ]
-    for candidate in candidates:
-        pf = PortForward(namespace, candidate, remote_port=9440,
-                         local_port=PF_CH_LOCAL_PORT + 1)
-        reachable = pf.start(timeout=4)
-        pf.stop()
-        if reachable:
-            return True
-    return False
-
-
 def _apply_argocd_manifest(manifest_rel_path: str) -> tuple[bool, str]:
     """Apply an ArgoCD Application manifest from the repo root. Returns (ok, msg)."""
     repo_root = os.path.dirname(os.path.dirname(os.path.dirname(
-        os.path.abspath(__file__))))
+        os.path.dirname(os.path.abspath(__file__)))))
     full_path = os.path.join(repo_root, manifest_rel_path)
     if not os.path.exists(full_path):
         return False, f"Manifest not found: {full_path}"
@@ -1588,70 +2000,169 @@ def _apply_argocd_manifest(manifest_rel_path: str) -> tuple[bool, str]:
     return True, r.stdout.strip()
 
 
-def section_stack_preflight(d, namespace: str, ch_service: str) -> bool:
-    """Check if the metranova stack (ClickHouse etc.) is deployed.
-
-    Returns True to proceed, False if user aborted.
-    Offers Deploy or Ignore when the stack is missing.
-    """
-    d.infobox("Checking metranova stack deployment...", width=52, height=6,
-              title="Preflight")
-
-    app_exists = _argocd_app_exists("metranova")
-    ch_up = app_exists and _ch_reachable(namespace, ch_service)
-
-    if ch_up:
-        return True  # all good, proceed silently
-
-    # Build status message
-    if not app_exists:
-        status = (
-            "The 'metranova' ArgoCD application does not exist.\n\n"
-            "ClickHouse, Kafka, and the pipeline are not deployed.\n"
-            "The auth system cannot be fully configured without them."
-        )
-    else:
-        status = (
-            "The 'metranova' ArgoCD application exists but\n"
-            "ClickHouse does not appear to be reachable yet.\n\n"
-            "The cluster may still be starting up, or ClickHouse\n"
-            "may be in a different namespace."
-        )
-
-    code = d.yesno(
-        status,
-        title="Stack not deployed",
-        width=66, height=16,
-        yes_label="Deploy",
-        no_label="Ignore",
+def _rules_to_authz_json(ch: ClickHouseClient) -> str:
+    """Serialize current authz rules to JSON for CLICKHOUSE_FLOW_POLICY_AUTHZ_RULES."""
+    out = ch.query(
+        "SELECT policy_originator_pattern, policy_scope_pattern, slug "
+        "FROM metranova_authz.rules AS r FINAL "
+        "JOIN metranova_authz.organizations AS o ON r.organization_id = o.id "
+        "ORDER BY priority DESC, r.id FORMAT JSONEachRow"
     )
+    rules = []
+    for line in out.splitlines():
+        if not line.strip():
+            continue
+        row = json.loads(line)
+        rules.append({
+            "originator": row["policy_originator_pattern"],
+            "scope":      row["policy_scope_pattern"],
+            "org":        row["slug"],
+        })
+    return json.dumps(rules)
 
+
+def section_sync_pipeline(d, conn: WizardConnections, namespace: str):
+    """Sync authz rules to the flow pipeline deployment as env vars.
+
+    Serializes metranova_authz.rules to JSON and patches the
+    metranova-flowpipeline-data-flow deployment env vars. The deployment
+    rolls automatically — no manual restart needed.
+    """
+    try:
+        rules_json = _rules_to_authz_json(conn.ch)
+    except Exception as exc:
+        _error(d, f"Could not read rules from ClickHouse:\n\n{exc}")
+        return
+
+    rules = json.loads(rules_json)
+    if not rules:
+        code = d.yesno(
+            "No classification rules are defined.\n\n"
+            "Syncing now will set CLICKHOUSE_FLOW_POLICY_AUTHZ_ENABLED=false, "
+            "meaning all flow rows will default to policy_organizations=[] (invisible to non-exempt users).\n\n"
+            "Proceed?",
+            title="No rules defined", width=70, height=12,
+            yes_label="Proceed", no_label="Cancel",
+        )
+        if code != d.OK:
+            return
+
+    summary = "\n".join(
+        f"  {r['originator']} / {r['scope']}  →  {r['org']}" for r in rules[:10]
+    )
+    if len(rules) > 10:
+        summary += f"\n  ... and {len(rules) - 10} more"
+
+    enabled = "true" if rules else "false"
+    code = d.yesno(
+        f"Sync {len(rules)} rule(s) to pipeline deployment:\n\n"
+        f"{summary}\n\n"
+        f"CLICKHOUSE_FLOW_POLICY_AUTHZ_ENABLED={enabled}\n\n"
+        "The pipeline deployment will roll automatically.",
+        title="Sync pipeline config", width=76, height=20,
+        yes_label="Sync", no_label="Cancel",
+    )
     if code != d.OK:
-        return True  # user chose Ignore — proceed anyway
+        return
 
-    # Deploy
-    if not app_exists:
-        d.infobox("Creating metranova ArgoCD application...", width=56, height=6,
-                  title="Deploying")
+    deployment = "metranova-flowpipeline-data-flow"
+    patch = {
+        "spec": {"template": {"spec": {"containers": [{
+            "name": "data-flow",
+            "env": [
+                {"name": "CLICKHOUSE_FLOW_POLICY_AUTHZ_ENABLED", "value": enabled},
+                {"name": "CLICKHOUSE_FLOW_POLICY_AUTHZ_RULES",   "value": rules_json},
+            ],
+        }]}}}
+    }
+
+    d.infobox(f"Patching {deployment}...", width=56, height=6, title="Syncing")
+    result = subprocess.run(
+        ["kubectl", "patch", "deployment", deployment,
+         "-n", namespace, "--context", _kubectl_context(),
+         "--type", "strategic",
+         "-p", json.dumps(patch)],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        _error(d, f"Patch failed:\n\n{result.stderr.strip()}")
+        return
+
+    _msgbox(d,
+        f"Pipeline deployment patched.\n\n"
+        f"{len(rules)} rule(s) synced.\n"
+        "CLICKHOUSE_FLOW_POLICY_AUTHZ_ENABLED=" + enabled + "\n\n"
+        "The pod is rolling — new flows will be stamped with\n"
+        "policy_organizations once the new pod is ready.",
+        title="Synced", width=68, height=14)
+
+
+def section_argocd_sync(d, namespace: str, release: str, ch_service: str):
+    """Optional step: register ArgoCD apps if needed and sync both auth + umbrella."""
+    d.infobox("Checking ArgoCD applications...", width=48, height=6, title="ArgoCD")
+
+    auth_exists = _argocd_app_exists(release)
+    umbrella_exists = _argocd_app_exists("metranova")
+
+    lines = []
+    if not auth_exists:
+        lines.append(f"  • '{release}' app not found — will create from argocd/{release}-app.yaml")
+    else:
+        lines.append(f"  • '{release}' app exists")
+    if not umbrella_exists:
+        lines.append("  • 'metranova' app not found — will create from argocd/metranova-app.yaml")
+    else:
+        lines.append("  • 'metranova' app exists")
+
+    status_text = "\n".join(lines)
+    code = d.yesno(
+        f"ArgoCD application status:\n\n{status_text}\n\n"
+        "Proceed with sync? This will apply any missing\n"
+        "Application manifests and wait for pods to be ready.",
+        title="ArgoCD Sync",
+        width=70, height=18,
+        yes_label="Sync",
+        no_label="Cancel",
+    )
+    if code != d.OK:
+        return
+
+    if not auth_exists:
+        ok, msg = _apply_argocd_manifest(f"argocd/{release}-app.yaml")
+        if not ok:
+            _error(d, f"Failed to create '{release}' ArgoCD app:\n\n{msg}")
+            return
+
+    if not umbrella_exists:
         ok, msg = _apply_argocd_manifest(ARGOCD_APP_MANIFEST)
         if not ok:
-            _error(d, f"Failed to create ArgoCD application:\n\n{msg}\n\n"
-                   f"You can apply it manually:\n"
-                   f"  kubectl apply -f argocd/metranova-app.yaml")
-            return True  # non-fatal — let wizard continue
+            _error(d, f"Failed to create 'metranova' ArgoCD app:\n\n{msg}")
+            return
 
-    # Trigger sync and watch
-    ok = argocd_sync_and_wait(d, namespace, app_name="metranova", timeout=600)
-    if not ok:
+    ok_auth = argocd_sync_and_wait(d, namespace, app_name=release)
+    ok_umbrella = True
+    if _argocd_app_exists("metranova"):
+        ok_umbrella = argocd_sync_and_wait(d, namespace, app_name="metranova", timeout=600)
+
+    if ok_auth and ok_umbrella:
         _msgbox(d,
-            "Timed out waiting for the metranova stack.\n\n"
-            "ClickHouse may still be starting. You can\n"
-            "proceed and use Connect (step 1) once it\n"
-            "is ready, or check pod status with:\n"
-            "  kubectl get pods -n " + namespace,
-            title="Still starting", width=64, height=14)
-
-    return True
+            "All pods are ready.\n\n"
+            "Use step 1 (Connect) to open port-forwards,\n"
+            "then proceed to Organizations and Grants.",
+            title="Cluster ready", width=62, height=12)
+    else:
+        which = []
+        if not ok_auth:
+            which.append(release)
+        if not ok_umbrella:
+            which.append("metranova")
+        _msgbox(d,
+            f"Timed out waiting for: {', '.join(which)}\n\n"
+            "The cluster may still be starting. Check:\n"
+            f"  kubectl get pods -n {namespace}\n\n"
+            "Once all pods are 1/1 Running, use step 1\n"
+            "to connect.",
+            title="Timeout", width=64, height=14)
 
 
 # ── Main TUI loop ──────────────────────────────────────────────────────────────
@@ -1667,30 +2178,30 @@ def run_wizard(namespace: str, release: str, dry_run: bool, ch_service: str = ""
     signal.signal(signal.SIGINT,  _cleanup)
 
     try:
-        # Preflight: ensure the metranova stack (ClickHouse etc.) is deployed
-        if not section_stack_preflight(d, namespace, ch_service):
-            return
-
         while True:
             status = "connected" if conn.connected else "not connected"
             locked = not conn.connected
 
             choices = [
+                ("P", "Prerequisites    — install cluster operators (CH, Kafka, Traefik, ArgoCD)"),
                 ("0", "Secrets          — generate and write K8s secrets"),
                 ("1", f"Connect          — open port-forwards  [{status}]"),
-                ("2", f"Organizations    — manage orgs          {'[connect first]' if locked else ''}"),
-                ("3", f"Rules            — classification rules  {'[connect first]' if locked else ''}"),
-                ("4", f"Grants           — access grants         {'[connect first]' if locked else ''}"),
-                ("5", f"Audit            — view audit log        {'[connect first]' if locked else ''}"),
+                ("2", f"Init authz DB    — create metranova_authz schema  {'[connect first]' if locked else ''}"),
+                ("3", f"Organizations    — manage orgs          {'[connect first]' if locked else ''}"),
+                ("4", f"Rules            — classification rules  {'[connect first]' if locked else ''}"),
+                ("5", f"Grants           — access grants         {'[connect first]' if locked else ''}"),
+                ("6", f"Audit            — view audit log        {'[connect first]' if locked else ''}"),
+                ("S", f"Sync pipeline    — push rules to flow pipeline  {'[connect first]' if locked else ''}"),
+                ("A", "ArgoCD sync      — register apps and sync (optional)"),
             ]
 
             code, tag = d.menu(
                 "MetrANOVA Authorization Wizard\n\n"
-                "Start with step 0 (Secrets) then wait for the cluster to\n"
-                "come up before using steps 2–5.",
+                "Fresh cluster? Start with P (Prerequisites), then\n"
+                "0 (Secrets), deploy, 1 (Connect), 2 (Init authz DB).",
                 choices=choices,
                 title="Main Menu",
-                width=72, height=22, menu_height=10,
+                width=76, height=28, menu_height=16,
                 ok_label="Open",
                 cancel_label="Exit",
             )
@@ -1706,22 +2217,36 @@ def run_wizard(namespace: str, release: str, dry_run: bool, ch_service: str = ""
                 if locked:
                     _msgbox(d, "Connect first (step 1).", title="Not connected")
                 else:
-                    section_orgs(d, conn)
+                    section_init_authz(d, conn)
             elif tag == "3":
                 if locked:
                     _msgbox(d, "Connect first (step 1).", title="Not connected")
                 else:
-                    section_rules(d, conn)
+                    section_orgs(d, conn)
             elif tag == "4":
                 if locked:
                     _msgbox(d, "Connect first (step 1).", title="Not connected")
                 else:
-                    section_grants(d, conn)
+                    section_rules(d, conn)
             elif tag == "5":
                 if locked:
                     _msgbox(d, "Connect first (step 1).", title="Not connected")
                 else:
+                    section_grants(d, conn)
+            elif tag == "6":
+                if locked:
+                    _msgbox(d, "Connect first (step 1).", title="Not connected")
+                else:
                     section_audit(d, conn)
+            elif tag == "S":
+                if locked:
+                    _msgbox(d, "Connect first (step 1).", title="Not connected")
+                else:
+                    section_sync_pipeline(d, conn, namespace)
+            elif tag == "P":
+                section_prerequisites(d, namespace)
+            elif tag == "A":
+                section_argocd_sync(d, namespace, release, ch_service)
     finally:
         conn.stop()
 

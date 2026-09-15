@@ -1,0 +1,6 @@
+inputs:
+  snmp:
+    enabled: true
+
+service:
+  enabled: false

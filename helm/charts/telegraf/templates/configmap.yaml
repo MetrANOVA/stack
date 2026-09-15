@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-telegraf-config
+  labels:
+    app.kubernetes.io/name: telegraf
+    app.kubernetes.io/instance: {{ .Release.Name }}
+data:
+  telegraf.conf: |
+{{ .Files.Get "configs/agent.conf" | nindent 4 }}
+{{- if .Values.inputs.snmp.enabled }}
+{{ include "telegraf.kafkaOutput" (merge (dict "topic" "metranova_snmp" "metric" "snmp_if") .) | nindent 4 }}
+{{ .Files.Get "configs/input-snmp.conf" | nindent 4 }}
+{{- end }}
+{{- if .Values.inputs.netflow.enabled }}
+{{ include "telegraf.kafkaOutput" (merge (dict "topic" "metranova_netflow" "metric" "netflow") .) | nindent 4 }}
+{{ .Files.Get "configs/input-netflow.conf" | nindent 4 }}
+{{- end }}
+

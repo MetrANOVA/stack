@@ -1,0 +1,72 @@
+---
+# ClickHouse Keeper Cluster
+apiVersion: "clickhouse-keeper.altinity.com/v1"
+kind: "ClickHouseKeeperInstallation"
+metadata:
+  name: {{ .Values.config.chk.name }}
+spec:
+  configuration:
+    clusters:
+      - name: {{ .Values.config.chk.name }}
+        layout:
+          replicasCount:
+            {{ .Values.config.chk.resources.replicasCount | default 3 }}
+    settings:
+      logger/level: "information"
+      logger/console: "true"
+      listen_host: "0.0.0.0"
+      keeper_server/four_letter_word_white_list: "*"
+      keeper_server/coordination_settings/raft_logs_level: "information"
+      prometheus/endpoint: "/metrics"
+      prometheus/port: "7000"
+      prometheus/metrics: "true"
+      prometheus/events: "true"
+      prometheus/asynchronous_metrics: "true"
+      prometheus/status_info: "false"
+
+  defaults:
+    templates:
+      podTemplate: default
+      dataVolumeClaimTemplate: default
+
+  templates:
+    podTemplates:
+      - name: default
+        spec:
+          {{- with .Values.config.chk.affinity }}
+          affinity:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.config.chk.tolerations }}
+          tolerations:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.config.chk.topologySpreadConstraints }}
+          topologySpreadConstraints:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          containers:
+            - name: clickhouse-keeper
+              imagePullPolicy: IfNotPresent
+              image: "clickhouse/clickhouse-keeper:{{ .Values.config.clickhouse_version }}"
+              resources:
+                requests:
+                  memory: "{{ .Values.config.chk.resources.requests.memory }}"
+                  cpu: "{{ .Values.config.chk.resources.requests.cpu}}"
+                limits:
+                  memory: "{{ .Values.config.chk.resources.limits.memory }}"
+                  cpu: "{{ .Values.config.chk.resources.limits.cpu}}"
+          securityContext:
+            fsGroup: 101
+
+    {{- $chkStorageClassName := coalesce .Values.config.chk.resources.storageClassName .Values.global.storageClassName }}
+    volumeClaimTemplates:
+      - name: default
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          storageClassName: {{ required "Set config.chk.resources.storageClassName or global.storageClassName" $chkStorageClassName | quote }}
+          resources:
+            requests:
+              storage:
+                {{.Values.config.chk.resources.disk_volume_size | default "10Gi"}}

@@ -10,11 +10,41 @@ spec:
     server: https://kubernetes.default.svc
   source:
     repoURL: https://github.com/MetrANOVA/stack.git
-    targetRevision: main
+    targetRevision: add-auth-system
     path: helm/metranova
     helm:
       valueFiles:
         - values.yaml
+      parameters:
+        - name: global.storageClassName
+          value: standard-rwo
+        - name: clickhouse.config.chk.resources.storageClassName
+          value: standard-rwo
+        - name: clickhouse.config.ch.resources.storageClassName
+          value: standard-rwo
+        # Dev cluster overrides — production values are too large for 2CPU/6Gi nodes
+        - name: clickhouse.config.ch.resources.replicasCount
+          value: "1"
+        - name: clickhouse.config.ch.resources.shardCount
+          value: "1"
+        - name: clickhouse.config.ch.resources.requests.memory
+          value: 3Gi
+        - name: clickhouse.config.ch.resources.limits.memory
+          value: 4Gi
+        - name: clickhouse.config.ch.resources.requests.cpu
+          value: "500m"
+        - name: clickhouse.config.ch.resources.limits.cpu
+          value: "1500m"
+        - name: clickhouse.config.chk.resources.replicasCount
+          value: "1"
+        - name: clickhouse.config.chk.resources.requests.memory
+          value: 512Mi
+        - name: clickhouse.config.chk.resources.limits.memory
+          value: 1Gi
+        - name: clickhouse.config.chk.resources.requests.cpu
+          value: "250m"
+        - name: clickhouse.config.chk.resources.limits.cpu
+          value: "500m"
   syncPolicy:
     syncOptions:
       - CreateNamespace=true

@@ -1,0 +1,100 @@
+# Number of API replicas
+replicaCount: 1
+
+image:
+  repository: ghcr.io/metranova/api
+  pullPolicy: IfNotPresent
+  # Overrides the image tag; defaults to the chart appVersion
+  tag: "dev"
+
+imagePullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext: {}
+
+securityContext: {}
+
+service:
+  type: ClusterIP
+  port: 8000
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: metranova-api.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+ingressRoute:
+  enabled: false
+  entryPoint: websecure
+  host: ""
+  path: /api
+  annotations: {}
+  tls:
+    enabled: false
+    secretName: ""
+
+resources: {}
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+
+probes:
+  liveness:
+    path: /health
+    initialDelaySeconds: 10
+    periodSeconds: 30
+    timeoutSeconds: 5
+    failureThreshold: 3
+  readiness:
+    path: /health
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+# Extra environment variables injected verbatim into the container
+extraEnv: []
+
+# ── Application settings ───────────────────────────────────────────────────────
+adminApi:
+  host: "0.0.0.0"
+  port: 8000
+  logLevel: "info"
+  # Root path when serving behind a reverse-proxy sub-path (e.g. /api)
+  rootPath: ""
+  # CORS allowed-origin regex
+  corsRegex: '^(https://((?!-)[A-Za-z0-9-]{1,63}(?!<-)\.)+grnoc\.iu\.edu)$'
+
+# ── ClickHouse connection ──────────────────────────────────────────────────────
+clickhouse:
+  host: "clickhouse-ch-cluster"
+  port: 8123
+  database: "metranova"
+  secure: false
+  # Username can be provided directly (default) or via usernameKey from secretName.
+  username: "admin"
+  # Password is taken from the Secret named by secretName.
+  secretName: "clickhouse-users"
+  # Optional key for username in secretName. If empty, uses clickhouse.username.
+  usernameKey: ""
+  # Key for password in secretName.
+  passwordKey: "admin-password"

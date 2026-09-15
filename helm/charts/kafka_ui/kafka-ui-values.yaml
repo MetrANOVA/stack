@@ -1,0 +1,33 @@
+replicaCount: 1
+
+livenessProbe: {}
+readinessProbe: {}
+
+yamlApplicationConfig:
+  auth:
+    type: LOGIN_FORM
+
+existingSecret: kafka-ui-secret
+
+env:
+  - name: SERVER_SERVLET_CONTEXT_PATH
+    value: /kafka-ui
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: true
+  ingressClassName: traefik
+  host: metranova.test.grnoc.iu.edu
+  path: /kafka-ui
+  pathType: Prefix
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 256Mi

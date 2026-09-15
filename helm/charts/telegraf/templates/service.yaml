@@ -1,0 +1,20 @@
+{{- if .Values.service.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.service.name | default (printf "%s-telegraf" .Release.Name) }}
+  labels:
+    app.kubernetes.io/name: telegraf
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    app.kubernetes.io/name: telegraf
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: netflow
+      protocol: UDP
+      port: 2055
+      targetPort: 2055
+{{- end }}
+

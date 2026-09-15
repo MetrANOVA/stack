@@ -1,0 +1,14 @@
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: metranova-netflow
+  labels:
+    strimzi.io/cluster: {{ .Values.cluster.name }}
+spec:
+  topicName: metranova_flow
+  partitions: {{ .Values.topics.netflow.partitions | default 3 }}
+  replicas: {{ .Values.topics.netflow.replicas | default 2 }}
+  config:
+    retention.ms: {{ .Values.topics.netflow.retentionMs | default 604800000 }}
+    retention.bytes: {{ .Values.topics.netflow.retentionBytes | default 2147483648 }}
+    segment.bytes: {{ .Values.topics.netflow.segmentBytes | default 1073741824 }}

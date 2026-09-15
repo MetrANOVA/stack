@@ -716,18 +716,73 @@ class TestSecretFieldConfirmation:
 
 
 class TestApplySecrets:
-    def test_dry_run_does_not_call_kubectl(self):
-        fields = [
-            W.SecretField(key="sec/k", label="", description="", group="",
-                          generate=W.gen_password, value="val", confirmed=True)
-        ]
+    def _basic_fields(self, key="sec/k", value="val"):
+        return [W.SecretField(key=key, label="", description="", group="",
+                              generate=W.gen_password, value=value, confirmed=True)]
+
+    def test_default_dest_writes_files_not_kubectl(self):
+        """Default dest='files' writes to disk, never calls kubectl."""
+        fields = self._basic_fields()
         groups = W.group_fields(fields)
-        with patch("subprocess.run") as mock_run:
-            W.apply_secrets(groups, "ns", "release", dry_run=True, fields=fields)
+        with patch("subprocess.run") as mock_run, \
+             patch("builtins.open", MagicMock()), \
+             patch("os.makedirs"):
+            W.apply_secrets(groups, "ns", "release", dry_run=False, fields=fields, dest="files")
         mock_run.assert_not_called()
 
-    def test_applies_release_secrets_extra_fields(self):
-        """release-secrets secret gets token.yaml and hmac.yaml injected into manifest."""
+    def test_cluster_dest_calls_kubectl(self):
+        """dest='cluster' pipes manifest to kubectl apply."""
+        fields = self._basic_fields()
+        groups = W.group_fields(fields)
+        inputs_seen = []
+
+        def fake_run(cmd, **kwargs):
+            inputs_seen.append(kwargs.get("input", ""))
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        with patch("subprocess.run", side_effect=fake_run):
+            W.apply_secrets(groups, "ns", "release", dry_run=False, fields=fields, dest="cluster")
+
+        assert inputs_seen, "kubectl was never called"
+
+    def test_dry_run_cluster_does_not_call_kubectl(self):
+        fields = self._basic_fields()
+        groups = W.group_fields(fields)
+        with patch("subprocess.run") as mock_run:
+            W.apply_secrets(groups, "ns", "release", dry_run=True, fields=fields, dest="cluster")
+        mock_run.assert_not_called()
+
+    def test_release_secrets_extra_fields_written_to_file(self):
+        """release-secrets gets token.yaml and hmac.yaml; verify content in written file."""
+        fields = [
+            W.SecretField(key="rel-secrets/ENVOY_OIDC_CLIENT_SECRET", label="", description="",
+                          group="", generate=W.gen_token, value="my-oidc", confirmed=True),
+            W.SecretField(key="rel-secrets/ENVOY_HMAC_SECRET", label="", description="",
+                          group="", generate=W.gen_hex, value="my-hmac", confirmed=True),
+        ]
+        groups = W.group_fields(fields)
+        written = {}
+
+        import io
+        def fake_open(path, mode="r", **kw):
+            buf = io.StringIO()
+            written[path] = buf
+            buf.close = lambda: None
+            return buf
+
+        with patch("builtins.open", side_effect=fake_open), \
+             patch("os.makedirs"), \
+             patch.object(W, "_repo_root", return_value="/fake"):
+            W.apply_secrets(groups, "ns", "rel", dry_run=False, fields=fields, dest="files")
+
+        content = "".join(buf.getvalue() for buf in written.values())
+        assert "token.yaml" in content
+        assert "hmac.yaml" in content
+        assert "my-oidc" in content
+        assert "my-hmac" in content
+
+    def test_release_secrets_extra_fields_in_cluster_manifest(self):
+        """dest='cluster': token.yaml and hmac.yaml appear in kubectl stdin."""
         fields = [
             W.SecretField(key="rel-secrets/ENVOY_OIDC_CLIENT_SECRET", label="", description="",
                           group="", generate=W.gen_token, value="my-oidc", confirmed=True),
@@ -742,9 +797,8 @@ class TestApplySecrets:
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
         with patch("subprocess.run", side_effect=fake_run):
-            W.apply_secrets(groups, "ns", "rel", dry_run=False, fields=fields)
+            W.apply_secrets(groups, "ns", "rel", dry_run=False, fields=fields, dest="cluster")
 
-        assert inputs_seen, "subprocess.run was never called"
         manifest_text = "\n".join(inputs_seen)
         assert "token.yaml" in manifest_text
         assert "hmac.yaml" in manifest_text
@@ -906,3 +960,272 @@ class TestArgoCDSyncAndWait:
             W.argocd_sync_and_wait(d, "metranova", timeout=30)
 
         d.gauge_stop.assert_called_once()
+
+
+class TestCrdExists:
+    def test_returns_true_when_crd_found(self):
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = SimpleNamespace(returncode=0, stdout="", stderr="")
+            assert W._crd_exists("kafkas.kafka.strimzi.io") is True
+
+    def test_returns_false_when_crd_missing(self):
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = SimpleNamespace(returncode=1, stdout="", stderr="not found")
+            assert W._crd_exists("kafkas.kafka.strimzi.io") is False
+
+
+class TestHelmInstall:
+    def test_returns_true_on_success(self):
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = SimpleNamespace(returncode=0, stdout="deployed", stderr="")
+            ok, msg = W._helm_install("strimzi/strimzi-kafka-operator", "strimzi", "kube-system", [])
+        assert ok is True
+
+    def test_returns_false_and_stderr_on_failure(self):
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = SimpleNamespace(returncode=1, stdout="", stderr="chart not found")
+            ok, msg = W._helm_install("bad/chart", "rel", "ns", [])
+        assert ok is False
+        assert "chart not found" in msg
+
+    def test_passes_kube_context(self):
+        calls = []
+        with patch("subprocess.run", side_effect=lambda cmd, **kw: calls.append(cmd) or SimpleNamespace(returncode=0, stdout="", stderr="")), \
+             patch.object(W, "_kubectl_context", return_value="my-ctx"):
+            W._helm_install("chart/name", "rel", "ns", [])
+        assert any("my-ctx" in " ".join(c) for c in calls)
+
+
+class TestSectionPrerequisites:
+    def _make_dialog(self, checklist_selected):
+        d = MagicMock()
+        d.OK = 0
+        d.CANCEL = 1
+        d.ESC = 2
+        d.infobox = MagicMock()
+        d.checklist = MagicMock(return_value=(d.OK, checklist_selected))
+        d.msgbox = MagicMock()
+        return d
+
+    def test_cancel_does_nothing(self):
+        d = self._make_dialog([])
+        d.checklist.return_value = (d.CANCEL, [])
+        with patch.object(W, "_crd_exists", return_value=False), \
+             patch.object(W, "_helm_repo_add") as mock_repo, \
+             patch.object(W, "_helm_install") as mock_install:
+            W.section_prerequisites(d, "metranova")
+        mock_repo.assert_not_called()
+        mock_install.assert_not_called()
+
+    def test_installs_selected_prerequisites(self):
+        d = self._make_dialog(["strimzi"])
+        with patch.object(W, "_crd_exists", return_value=False), \
+             patch.object(W, "_helm_repo_add", return_value=(True, "")), \
+             patch.object(W, "_helm_install", return_value=(True, "")) as mock_install, \
+             patch.object(W, "_wait_for_crd", return_value=True), \
+             patch.object(W, "_msgbox"):
+            W.section_prerequisites(d, "metranova")
+        mock_install.assert_called_once()
+        assert "strimzi" in mock_install.call_args[0][0]
+
+    def test_skips_unselected_prerequisites(self):
+        d = self._make_dialog(["strimzi"])
+        install_calls = []
+        with patch.object(W, "_crd_exists", return_value=False), \
+             patch.object(W, "_helm_repo_add", return_value=(True, "")), \
+             patch.object(W, "_helm_install", side_effect=lambda *a, **kw: install_calls.append(a[0]) or (True, "")), \
+             patch.object(W, "_wait_for_crd", return_value=True), \
+             patch.object(W, "_msgbox"):
+            W.section_prerequisites(d, "metranova")
+        assert not any("traefik" in c for c in install_calls)
+        assert not any("argocd" in c for c in install_calls)
+
+    def test_reports_error_when_repo_add_fails(self):
+        d = self._make_dialog(["strimzi"])
+        scrollbox_texts = []
+        with patch.object(W, "_crd_exists", return_value=False), \
+             patch.object(W, "_helm_repo_add", return_value=(False, "connection refused")), \
+             patch.object(W, "_helm_install") as mock_install, \
+             patch.object(d, "scrollbox", side_effect=lambda msg, **kw: scrollbox_texts.append(msg)):
+            W.section_prerequisites(d, "metranova")
+        mock_install.assert_not_called()
+        assert any("repo add failed" in t for t in scrollbox_texts)
+
+    def test_all_four_prerequisites_defined(self):
+        keys = {p["key"] for p in W._PREREQUISITES}
+        assert "argocd" in keys
+        assert "clickhouse-operator" in keys
+        assert "strimzi" in keys
+        assert "traefik" in keys
+
+    def test_each_prerequisite_has_required_fields(self):
+        required = {"key", "label", "desc", "crd", "helm_repo", "helm_chart",
+                    "helm_release", "helm_ns", "helm_flags"}
+        for p in W._PREREQUISITES:
+            missing = required - p.keys()
+            assert not missing, f"{p['key']} missing fields: {missing}"
+
+
+class TestArgocdAppExists:
+    def test_returns_true_when_app_found(self):
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = SimpleNamespace(returncode=0, stdout="", stderr="")
+            assert W._argocd_app_exists("metranova") is True
+
+    def test_returns_false_when_app_missing(self):
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = SimpleNamespace(returncode=1, stdout="", stderr="not found")
+            assert W._argocd_app_exists("metranova") is False
+
+    def test_queries_argocd_namespace(self):
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = SimpleNamespace(returncode=0, stdout="", stderr="")
+            W._argocd_app_exists("metranova")
+        cmd = mock_run.call_args[0][0]
+        assert "argocd" in cmd
+        assert "metranova" in cmd
+
+
+class TestRunSecretsMenu:
+    """_run_secrets_menu handles write destinations independently and loops back."""
+
+    def _fields(self):
+        return [W.SecretField(key="sec/k", label="L", description="D", group="G",
+                              generate=W.gen_password, value="v", confirmed=True)]
+
+    def _make_dialog(self, checklist_selected):
+        d = MagicMock()
+        d.OK = 0
+        d.CANCEL = 1
+        d.ESC = 2
+        # First call: Write button → checklist; second call: Back → exit
+        d.menu = MagicMock(side_effect=[
+            ("help", None),   # press Write
+            (d.CANCEL, None), # press Back to exit
+        ])
+        d.checklist = MagicMock(return_value=(d.OK, checklist_selected))
+        return d
+
+    def test_files_dest_calls_apply_files(self):
+        d = self._make_dialog(["F"])
+        fields = self._fields()
+        with patch.object(W, "apply_secrets") as mock_apply, \
+             patch.object(W, "_msgbox"), \
+             patch.object(W, "_repo_root", return_value="/fake"):
+            W._run_secrets_menu(d, fields, namespace="ns", release="rel", dry_run=False)
+        mock_apply.assert_called_once()
+        assert mock_apply.call_args[1]["dest"] == "files"
+
+    def test_cluster_dest_calls_apply_cluster(self):
+        d = self._make_dialog(["C"])
+        fields = self._fields()
+        with patch.object(W, "apply_secrets") as mock_apply, \
+             patch.object(W, "_msgbox"):
+            W._run_secrets_menu(d, fields, namespace="ns", release="rel", dry_run=False)
+        mock_apply.assert_called_once()
+        assert mock_apply.call_args[1]["dest"] == "cluster"
+
+    def test_all_three_destinations(self):
+        """Selecting F+C+X calls apply twice (files + cluster) and exports CSV."""
+        d = self._make_dialog(["F", "C", "X"])
+        fields = self._fields()
+        apply_calls = []
+        with patch.object(W, "apply_secrets", side_effect=lambda *a, **kw: apply_calls.append(kw.get("dest"))), \
+             patch.object(W, "export_csv") as mock_csv, \
+             patch.object(W, "_msgbox"), \
+             patch.object(W, "_repo_root", return_value="/fake"):
+            W._run_secrets_menu(d, fields, namespace="ns", release="rel", dry_run=False)
+        assert "files" in apply_calls
+        assert "cluster" in apply_calls
+        mock_csv.assert_called_once()
+
+    def test_no_argocd_sync_triggered(self):
+        d = self._make_dialog(["F"])
+        fields = self._fields()
+        with patch.object(W, "apply_secrets"), \
+             patch.object(W, "_msgbox"), \
+             patch.object(W, "_repo_root", return_value="/fake"), \
+             patch.object(W, "argocd_sync_and_wait") as mock_sync:
+            W._run_secrets_menu(d, fields, namespace="ns", release="rel", dry_run=False)
+        mock_sync.assert_not_called()
+
+    def test_empty_checklist_does_not_write(self):
+        d = self._make_dialog([])
+        fields = self._fields()
+        with patch.object(W, "apply_secrets") as mock_apply:
+            W._run_secrets_menu(d, fields, namespace="ns", release="rel", dry_run=False)
+        mock_apply.assert_not_called()
+
+
+class TestSectionArgoCDSync:
+    def _make_dialog(self):
+        d = MagicMock()
+        d.OK = 0
+        d.CANCEL = 1
+        d.ESC = 2
+        d.infobox = MagicMock()
+        d.yesno = MagicMock(return_value=0)  # default: Sync
+        return d
+
+    def test_cancel_does_not_sync(self):
+        d = self._make_dialog()
+        d.yesno.return_value = d.CANCEL
+        with patch.object(W, "_argocd_app_exists", return_value=True), \
+             patch.object(W, "argocd_sync_and_wait") as mock_sync:
+            W.section_argocd_sync(d, "metranova", "metranova-auth", "")
+        mock_sync.assert_not_called()
+
+    def test_applies_auth_manifest_when_missing(self):
+        d = self._make_dialog()
+        apply_calls = []
+        with patch.object(W, "_argocd_app_exists", return_value=False), \
+             patch.object(W, "_apply_argocd_manifest", side_effect=lambda p: apply_calls.append(p) or (True, "ok")), \
+             patch.object(W, "argocd_sync_and_wait", return_value=True), \
+             patch.object(W, "_msgbox"):
+            W.section_argocd_sync(d, "metranova", "metranova-auth", "")
+        assert any("metranova-auth" in p for p in apply_calls)
+
+    def test_applies_umbrella_manifest_when_missing(self):
+        d = self._make_dialog()
+        apply_calls = []
+
+        def fake_exists(name):
+            return name != "metranova"  # auth exists, umbrella doesn't
+
+        with patch.object(W, "_argocd_app_exists", side_effect=fake_exists), \
+             patch.object(W, "_apply_argocd_manifest", side_effect=lambda p: apply_calls.append(p) or (True, "ok")), \
+             patch.object(W, "argocd_sync_and_wait", return_value=True), \
+             patch.object(W, "_msgbox"):
+            W.section_argocd_sync(d, "metranova", "metranova-auth", "")
+        assert any("metranova-app.yaml" in p for p in apply_calls)
+
+    def test_syncs_both_apps_when_both_exist(self):
+        d = self._make_dialog()
+        sync_calls = []
+
+        def fake_sync(d, namespace, app_name="metranova-auth", timeout=300):
+            sync_calls.append(app_name)
+            return True
+
+        with patch.object(W, "_argocd_app_exists", return_value=True), \
+             patch.object(W, "argocd_sync_and_wait", side_effect=fake_sync), \
+             patch.object(W, "_msgbox"):
+            W.section_argocd_sync(d, "metranova", "metranova-auth", "")
+
+        assert "metranova-auth" in sync_calls
+        assert "metranova" in sync_calls
+
+    def test_skips_umbrella_sync_when_app_missing_after_apply_error(self):
+        """If umbrella manifest apply fails, sync is aborted."""
+        d = self._make_dialog()
+
+        def fake_exists(name):
+            return name == "metranova-auth"
+
+        with patch.object(W, "_argocd_app_exists", side_effect=fake_exists), \
+             patch.object(W, "_apply_argocd_manifest", return_value=(False, "permission denied")), \
+             patch.object(W, "argocd_sync_and_wait") as mock_sync, \
+             patch.object(W, "_error"):
+            W.section_argocd_sync(d, "metranova", "metranova-auth", "")
+
+        mock_sync.assert_not_called()

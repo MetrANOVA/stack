@@ -1,0 +1,81 @@
+namespace: metranova
+
+config:
+  tls:
+    enabled: true
+    routes: false # We'll use standard Ingress instead
+    cert_name: clickhouse-tls
+  clickhouse_version: 25.9
+  domains:
+    - metranova.test.grnoc.iu.edu
+
+  chk:
+    name: "keeper-cluster"
+    resources:
+      disk_volume_size: 10Gi
+      replicasCount: 3 # 3 keeper nodes for HA quorum
+      requests:
+        memory: 256M
+        cpu: 1
+      limits:
+        memory: 4Gi
+        cpu: 2
+  ch:
+    profiles:
+      - name: readonly
+        readonly: 1
+        max_memory_usage: "10000000000"
+      - name: "default"
+        readonly: 0
+        max_memory_usage: "10000000000"
+    files:
+      - name: "config.d/distributed_ddl.xml"
+        data: |
+          <clickhouse>
+            <distributed_ddl>
+              <path>/clickhouse/task_queue/ddl</path>
+            </distributed_ddl>
+          </clickhouse>
+
+    users:
+      - name: admin
+        password_secret:
+          name: "clickhouse-users"
+          key: "admin-password"
+        access_management: 1
+      - name: readonly_user
+        password_secret:
+          name: "clickhouse-users"
+          key: "readonly-password"
+        profile: "readonly"
+      - name: backup_user
+        password_secret:
+          name: "clickhouse-users"
+          key: "backup-password"
+        databases:
+          - moo
+          - foo
+          - bar
+      - name: pipeline_user
+        password_secret:
+          name: "clickhouse-users"
+          key: "pipeline-password"
+        profile: "default"
+        grants:
+          - database: metranova
+            grants:
+              - ALL
+    resources:
+      disk_volume_size: 100Gi # Start smaller for test, can increase later
+      log_volume_size: 10Gi
+      max_concurrent_queries: 100
+      shardCount: 1 # Single shard for test environment
+      replicasCount: 2 # 2 replicas for high availability
+      requests:
+        memory: 8Gi
+        cpu: 4000m
+      limits:
+        memory: 16Gi
+        cpu: 8000m
+
+extraResources: []

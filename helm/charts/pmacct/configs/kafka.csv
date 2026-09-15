@@ -1,0 +1,10 @@
+global,metadata.broker.list,{{ include "pmacct.kafkaBootstrapHost" . }}:{{ .Values.kafka.port }}
+global,security.protocol,SSL
+global,ssl.ca.location,/etc/pmacct/cluster-ca/{{ .Values.kafka.clusterCaCert }}
+global,ssl.certificate.location,/etc/pmacct/certs/{{ .Values.kafka.userCert }}
+global,ssl.key.location,/etc/pmacct/certs/{{ .Values.kafka.userKey }}
+{{- if .Values.kafka.keyPassword }}
+global,ssl.key.password,{{ .Values.kafka.keyPassword }}
+{{- end }}
+topic,partitioner,random
+global,sticky.partitioning.linger.ms,0

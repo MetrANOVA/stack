@@ -1,0 +1,14 @@
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: metranova-snmp
+  labels:
+    strimzi.io/cluster: {{ .Values.cluster.name }}
+spec:
+  topicName: metranova_snmp
+  partitions: {{ .Values.topics.snmp.partitions | default 3 }}
+  replicas: {{ .Values.topics.snmp.replicas | default 2 }}
+  config:
+    retention.ms: {{ .Values.topics.snmp.retentionMs | default 604800000 }}
+    retention.bytes: {{ .Values.topics.snmp.retentionBytes | default 2147483648 }}
+    segment.bytes: {{ .Values.topics.snmp.segmentBytes | default 268435456 }}

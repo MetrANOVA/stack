@@ -1,0 +1,42 @@
+{{- if .Values.ingressRoute.enabled -}}
+{{- $host := "" -}}
+{{- if .Values.ingressRoute.host -}}
+{{- $host = .Values.ingressRoute.host -}}
+{{- else if .Values.global.ingressHost -}}
+{{- $host = .Values.global.ingressHost -}}
+{{- else if .Values.global.baseDomain -}}
+{{- $host = printf "%s.%s" (.Values.global.apiSubdomain | default "api") .Values.global.baseDomain -}}
+{{- end -}}
+{{- $path := .Values.ingressRoute.path | default (.Values.global.apiPath | default "/api") -}}
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: {{ include "metranova-api.fullname" . }}
+  labels:
+    {{- include "metranova-api.labels" . | nindent 4 }}
+  {{- with .Values.ingressRoute.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  entryPoints:
+    - {{ .Values.ingressRoute.entryPoint | default "websecure" }}
+  routes:
+    - kind: Rule
+      {{- if $host }}
+      match: Host(`{{ $host }}`) && PathPrefix(`{{ $path }}`)
+      {{- else }}
+      match: PathPrefix(`{{ $path }}`)
+      {{- end }}
+      services:
+        - name: {{ include "metranova-api.fullname" . }}
+          port: {{ .Values.service.port }}
+  {{- if .Values.ingressRoute.tls.enabled }}
+  tls:
+    {{- if .Values.ingressRoute.tls.secretName }}
+    secretName: {{ .Values.ingressRoute.tls.secretName }}
+    {{- else }}
+    {}
+    {{- end }}
+  {{- end }}
+{{- end }}

@@ -1,0 +1,43 @@
+{{- if .Values.config.tls.enabled }}
+{{- $domains := .Values.config.domains -}}
+{{- $clickSub := .Values.global.clickhouseSubdomain | default "clickhouse" -}}
+{{- if .Values.global.ingressHost }}
+{{- $domains = list .Values.global.ingressHost -}}
+{{- else if .Values.global.ingressDomain }}
+{{- $domains = list .Values.global.ingressDomain -}}
+{{- else if .Values.global.baseDomain }}
+{{- $domains = list (printf "%s.%s" $clickSub .Values.global.baseDomain) -}}
+{{- end }}
+{{- if $domains }}
+---
+# Ingress for ClickHouse HTTPS access
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: clickhouse-ingress
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+{{- range $domains }}
+        - {{ . }}
+{{- end }}
+      secretName: {{ .Values.config.tls.cert_name }}
+  rules:
+{{- range $domains }}
+    - host: {{ . }}
+      http:
+        paths:
+          - path: {{ $.Values.global.clickhousePath | default "/clickhouse" }}
+            pathType: Prefix
+            backend:
+              service:
+                name: clickhouse-ch-cluster
+                port:
+                  number: 8443
+{{- end }}
+{{- end }}
+{{- end }}

@@ -1,0 +1,19 @@
+{{- if .Values.cacheIpTrie.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "metranova-flow-pipeline.fullname" . }}-cache-ip-trie
+  labels:
+    {{- include "metranova-flow-pipeline.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cache-ip-trie
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "metranova-flow-pipeline.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: cache-ip-trie
+{{- end }}

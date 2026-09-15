@@ -1,0 +1,196 @@
+# Default values for metranova-snmp-pipeline
+
+# Global settings
+global:
+  imagePullSecrets: []
+  storageClassName: ""
+
+# Image settings
+image:
+  repository: ghcr.io/metranova/pipeline
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+# Data SNMP service configuration
+dataSnmp:
+  enabled: true
+  replicaCount: 1
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+  env:
+    pipelineYaml: /app/pipelines/data_snmp.yml
+    kafkaTopic: metranova_snmp
+    clickhouseIfTrafficTable: data_interface_traffic
+
+# Metadata CAIDA Org AS service configuration
+metadataCaidaOrgAs:
+  enabled: true
+  replicaCount: 1
+  resources:
+    limits:
+      cpu: 500m
+      memory: 1Gi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+  env:
+    pipelineYaml: /app/pipelines/metadata_caida_org_as.yml
+    clickhouseAsMetadataExtensions: peeringdb
+    clickhouseMetadataForceUpdate: "false"
+    caidaOrgAsConsumerAs2orgFile: /app/caches/caida_as_org2info.jsonl
+    caidaOrgAsConsumerPeeringdbFile: /app/caches/caida_peeringdb.json
+    caidaOrgAsConsumerCustomAsFile: /app/caches/custom_as_additions.yml
+    caidaOrgAsConsumerCustomOrgFile: /app/caches/custom_org_additions.yml
+    caidaOrgAsConsumerUpdateInterval: "86400"
+
+# Metadata File Export service configuration
+metadataFileExport:
+  enabled: true
+  replicaCount: 1
+  resources:
+    limits:
+      cpu: 500m
+      memory: 1Gi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+  env:
+    pipelineYaml: /app/pipelines/metadata_file_export.yml
+    clickhouseMetadataForceUpdate: "false"
+    fileConsumerPaths: /app/conf/meta_interface.yml,/app/conf/meta_device.yml,/app/conf/meta_circuit.yml
+    fileConsumerUpdateInterval: "600"
+  caches:
+    existingPvc: ""
+    storageSize: 1Gi
+    storageClassName: ""
+
+# Base configuration (shared across all services)
+config:
+  debug: "false"
+
+  kafka:
+    # If empty, resolves to: <clusterName>-kafka-bootstrap:<port>
+    bootstrapServers: ""
+    clusterName: metranova-kafka
+    port: 9093
+    consumerGroup: metranova_pipeline
+    ssl:
+      enabled: true
+      caLocation: /etc/ssl/certs/ca-certificates.crt
+      certificateLocation: /app/certificates/kafka_user.crt
+      keyLocation: /app/certificates/kafka_user.key
+      keyPassword: "CHANGEME"
+
+  clickhouse:
+    # If empty, uses serviceName.
+    host: ""
+    serviceName: clickhouse-ch-cluster
+    port: 8123
+    database: metranova
+    username: admin
+    password: ""
+    passwordSecret:
+      name: clickhouse-users
+      key: admin-password
+    batchSize: "10000"
+    batchTimeout: "5"
+    clusterName: "ch-cluster"
+    replication: "true"
+    replicaPath: "/clickhouse/tables/{shard}/{database}/{table}"
+    replicaName: "{replica}"
+
+    tables:
+      interface: meta_interface
+      device: meta_device
+      organization: meta_organization
+      circuit: meta_circuit
+      as: meta_as
+
+  redis:
+    # If empty, resolves to: <release>-<chart>-redis.
+    host: ""
+    serviceName: ""
+    port: 6379
+    db: 0
+
+# Certificates
+certificates:
+  existingSecret: "pipeline-user"
+  kafkaCASubPath: "ca.crt"
+  kafkaCertSubPath: "user.crt"
+  kafkaKeySubPath: "user.key"
+  kafka:
+    ca: ""
+    cert: ""
+    key: ""
+
+# Cache files configuration
+caches:
+  existingPvc: ""
+  storageSize: 1Gi
+  storageClassName: ""
+
+# Redis configuration
+redis:
+  enabled: true
+  image:
+    repository: redis
+    tag: "8.2.1"
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 6379
+  persistence:
+    enabled: true
+    existingPvc: ""
+    storageSize: 1Gi
+    storageClassName: ""
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+# Configuration files
+configFiles:
+  existingConfigMap: ""
+  metaInterface: ""
+  metaDevice: ""
+  metaCircuit: ""
+  telegrafMappings: ""
+  customASAdditions: ""
+  customOrgAdditions: ""
+
+# Service account
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+# Pod annotations
+podAnnotations: {}
+
+# Pod security context
+podSecurityContext: {}
+
+# Security context
+securityContext: {}
+
+# Node selector
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity
+affinity: {}
+
+# Topology spread constraints
+topologySpreadConstraints: []
