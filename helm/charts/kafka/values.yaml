@@ -148,7 +148,7 @@ external:
   #
   # For deterministic IDs, pin them on the KafkaNodePool with the
   # strimzi.io/next-node-ids annotation.
-  brokerIds: []
+  brokerIds: {}
 
   # Node pool the brokers live in. Part of the generated Service name.
   brokerPoolName: brokers

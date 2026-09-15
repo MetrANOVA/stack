@@ -16,8 +16,7 @@ spec:
   tls:
     passthrough: true
 {{- $tmpl := .Values.external.advertisedHostTemplate }}
-{{- $pool := .Values.external.brokerPoolName }}
-{{- range $id := .Values.external.brokerIds }}
+{{- range $id, $pool := .Values.external.brokers }}
 ---
 apiVersion: traefik.io/v1alpha1
 kind: IngressRouteTCP
@@ -26,9 +25,9 @@ metadata:
 spec:
   entryPoints: [{{ $ep }}]
   routes:
-    - match: HostSNI(`{{ $tmpl | replace "{nodeId}" (toString $id) }}`)
+    - match: HostSNI(`{{ $tmpl | replace "{nodeId}" $id }}`)
       services:
-        - name: {{ $clusterName }}-{{ $pool }}-external-{{ $id }}
+        - name: {{ $pool }}-external-{{ $id }}
           port: {{ $port }}
   tls:
     passthrough: true

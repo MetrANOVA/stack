@@ -151,10 +151,9 @@ spec:
 {{- fail "external.advertisedHostTemplate is required when external.enabled is true. Without it brokers advertise raw IPs, which will not match your broker certificate's SANs and clients will fail hostname verification after bootstrap." }}
 {{- end }}
 
-{{- if and .Values.external.traefik.enabled (not .Values.external.brokerIds) }}
-{{- fail "external.brokerIds is required when external.traefik.enabled is true. Strimzi assigns node IDs across all node pools and they are not guaranteed to be 0,1,2 - check `kubectl get kafkanodepool -o custom-columns=NAME:.metadata.name,IDS:.status.nodeIds` and list your broker IDs explicitly. A missing ID produces an IngressRouteTCP that matches nothing and clients will hang after bootstrap." }}
+{{- if and .Values.external.traefik.enabled (not .Values.external.brokers) }}
+{{- fail "external.brokers is required when external.traefik.enabled is true. Map each broker node ID to its node pool name - Strimzi assigns IDs across all pools and controller-only pools must be excluded. Check with: kubectl get kafkanodepool -o custom-columns=NAME:.metadata.name,ROLES:.spec.roles,IDS:.status.nodeIds" }}
 {{- end }}
-
 
       - name: external
         port: {{ .Values.external.port }}
