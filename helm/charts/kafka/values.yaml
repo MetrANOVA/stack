@@ -4,6 +4,23 @@ global:
 cluster:
   name: ""
 
+version: 4.3.0
+image:
+  # Optional custom image repository. Leave empty to use Strimzi defaults.
+  repository: ""
+  # Optional custom image tag. If empty and repository is set, repository is used as-is.
+  tag: ""
+replicas: 3
+replicationFactor: 3
+minIsr: 2
+resources: {}
+tolerations: []
+affinity: {}
+topologySpreadConstraints: []
+storage:
+  size: 20Gi
+  class: sc-rbd-multi-cluster
+
 # Override the default kraft-controllers + brokers node pools with custom pools.
 # Each key becomes the pool name suffix; values must include replicas, roles, and storage.
 # Example:
@@ -32,24 +49,6 @@ customNodePools: {}
 #     offsets.topic.replication.factor: 3
 #     min.insync.replicas: 2
 customKafkaConfig: {}
-
-kafka:
-  version: 4.3.0
-  image:
-    # Optional custom image repository. Leave empty to use Strimzi defaults.
-    repository: ""
-    # Optional custom image tag. If empty and repository is set, repository is used as-is.
-    tag: ""
-  replicas: 3
-  replicationFactor: 3
-  minIsr: 2
-  resources: {}
-  tolerations: []
-  affinity: {}
-  topologySpreadConstraints: []
-  storage:
-    size: 20Gi
-    class: sc-rbd-multi-cluster
 
 kraft:
   replicas: 3
@@ -102,3 +101,62 @@ topics:
     retentionMs: 604800000
     retentionBytes: 2147483648
     segmentBytes: 268435456
+
+# Expose Kafka outside the cluster so external collectors (nfacctd, sfacctd)
+# can produce directly into it.
+#
+# Kafka clients bootstrap once, then connect DIRECTLY to every broker, so this
+# needs bootstrap plus one reachable address per broker - not a single endpoint.
+# DNS records are required for all of them.
+external:
+  enabled: false
+
+  # Unique across listeners; cannot be 9404 (Prometheus) or 9999 (JMX).
+  port: 9095
+
+  # loadbalancer | nodeport | cluster-ip
+  type: loadbalancer
+
+  # DNS name clients use to bootstrap, e.g. kafka.example.net
+  bootstrapHost: ""
+
+  # What brokers advertise in metadata responses - the names clients are told
+  # to connect to. This is what your broker certificate must cover.
+  # {nodeId} and {nodePodName} are substituted by Strimzi.
+  #   e.g. broker-{nodeId}.kafka.example.net
+  advertisedHostTemplate: ""
+
+  # Hostname Strimzi puts on the resources it creates. Required for
+  # type: ingress or route; ignored for loadbalancer and nodeport.
+  hostTemplate: ""
+
+  # Restrict who can reach the listener. Strongly recommended.
+  sourceRanges: []
+
+  # Secret holding the broker cert. REQUIRED.
+  # Must cover bootstrapHost and every hostTemplate name - a wildcard is
+  # easiest. Without it, brokers present Strimzi's internal CA cert with
+  # only in-cluster SANs, and external clients cannot verify hostnames.
+  tls:
+    secretName: ""
+
+  # Authentication for the listener and its user.
+  #   scram-sha-512  password, never expires. Recommended for clients OUTSIDE
+  #                  the cluster: Strimzi rotates client certs automatically
+  #                  and an external box won't pick that up, so mTLS creds go
+  #                  stale silently.
+  #   tls            mutual TLS. Stronger, but you own distribution and
+  #                  rotation of the client cert.
+  authentication: scram-sha-512
+
+  user:
+    create: true
+    # Defaults to <clusterName>-external-user
+    name: ""
+    # Topics the user may produce to. Write + Describe only.
+    topics:
+      - metranova_flow
+      - metranova_sflow
+    quotas:
+      producerByteRate: 10485760
+      requestPercentage: 20

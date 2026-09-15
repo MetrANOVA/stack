@@ -142,6 +142,40 @@ spec:
         tls: false
         authentication:
           type: scram-sha-512
+{{- if .Values.external.enabled }}
+{{- if not .Values.external.tls.secretName }}
+{{- fail "external.tls.secretName is required when external.enabled is true. Brokers would otherwise present Strimzi's internal CA certificate, whose SANs only cover in-cluster names, and external clients could not verify hostnames." }}
+{{- end }}
+
+{{- if not .Values.external.advertisedHostTemplate }}
+{{- fail "external.advertisedHostTemplate is required when external.enabled is true. Without it brokers advertise raw IPs, which will not match your broker certificate's SANs and clients will fail hostname verification after bootstrap." }}
+{{- end }}
+      - name: external
+        port: {{ .Values.external.port }}
+        type: {{ .Values.external.type }}
+        tls: true
+        authentication:
+          type: {{ .Values.external.authentication }}
+        configuration:
+          brokerCertChainAndKey:
+            secretName: {{ .Values.external.tls.secretName }}
+            certificate: tls.crt
+            key: tls.key
+          {{- with .Values.external.advertisedHostTemplate}}
+          advertisedHostTemplate: {{ . | quote }}
+          {{- end }}
+          {{- with .Values.external.hostTemplate }}
+          hostTemplate: {{ . | quote }}
+          {{- end }}
+          {{- with .Values.external.bootstrapHost }}
+          bootstrap:
+            host: {{ . | quote }}
+          {{- end }}
+          {{- with .Values.external.sourceRanges }}
+          loadBalancerSourceRanges:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+{{- end }}
     config:
       {{- if .Values.customKafkaConfig }}
       {{- toYaml .Values.customKafkaConfig | nindent 6 }}

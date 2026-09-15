@@ -22,6 +22,15 @@ spec:
           - DescribeConfigs
       - resource:
           type: topic
+          name: metranova_sflow
+          patternType: literal
+        operations:
+          - Read
+          - Write
+          - Describe
+          - DescribeConfigs
+      - resource:
+          type: topic
           name: metranova_snmp
           patternType: literal
         operations:

@@ -1,0 +1,28 @@
+{{- if and .Values.external.enabled .Values.external.user.create }}
+{{- $clusterName := include "kafka.clusterName" . }}
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaUser
+metadata:
+  name: {{ include "kafka.externalUserName" . }}
+  labels:
+    strimzi.io/cluster: {{ $clusterName }}
+spec:
+  authentication:
+    type: {{ .Values.external.authentication }}
+  authorization:
+    type: simple
+    acls:
+{{- range .Values.external.user.topics }}
+      - resource:
+          type: topic
+          name: {{ . | quote }}
+          patternType: literal
+        operations:
+          - Write
+          - Describe
+{{- end }}
+  {{- with .Values.external.user.quotas }}
+  quotas:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}
