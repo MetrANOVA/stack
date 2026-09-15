@@ -3,3 +3,4 @@ pytest-timeout>=2.3
 pyyaml>=6.0
 cryptography>=44.0
 jinja2>=3.1
+pythondialog>=3.5

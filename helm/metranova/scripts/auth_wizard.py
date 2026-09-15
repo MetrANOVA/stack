@@ -209,7 +209,7 @@ def _clickhouse_client_available() -> bool:
     return False
 
 REQUIRED_PYTHON_PACKAGES = [
-    ("dialog", "pip install python-dialog"),
+    ("dialog", "pip install pythondialog"),
     ("yaml",   "pip install pyyaml"),
 ]
 
@@ -1912,6 +1912,14 @@ def section_prerequisites(d, namespace: str):
 
     if code in (d.CANCEL, d.ESC) or not selected:
         return
+
+    # Ensure the app namespace exists before installing operators that create
+    # RoleBindings in it (e.g. Strimzi with watchNamespaces).
+    subprocess.run(
+        ["kubectl", "create", "namespace", namespace,
+         "--context", _kubectl_context()],
+        capture_output=True,  # ignore "already exists" error
+    )
 
     errors = []
     for p in _PREREQUISITES:
