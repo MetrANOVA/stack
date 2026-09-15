@@ -1,0 +1,36 @@
+{{- if and .Values.external.enabled .Values.external.traefik.enabled }}
+{{- $clusterName := include "kafka.clusterName" . }}
+{{- $port := .Values.external.port }}
+{{- $ep := .Values.external.traefik.entryPoint }}
+apiVersion: traefik.io/v1alpha1
+kind: IngressRouteTCP
+metadata:
+  name: {{ $clusterName }}-kafka-external-bootstrap
+spec:
+  entryPoints: [{{ $ep }}]
+  routes:
+    - match: HostSNI(`{{ .Values.external.bootstrapHost }}`)
+      services:
+        - name: {{ $clusterName }}-kafka-external-bootstrap
+          port: {{ $port }}
+  tls:
+    passthrough: true
+{{- $tmpl := .Values.external.advertisedHostTemplate }}
+{{- $pool := .Values.external.brokerPoolName }}
+{{- range $id := .Values.external.brokerIds }}
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRouteTCP
+metadata:
+  name: {{ $clusterName }}-kafka-external-broker-{{ $id }}
+spec:
+  entryPoints: [{{ $ep }}]
+  routes:
+    - match: HostSNI(`{{ $tmpl | replace "{nodeId}" (toString $id) }}`)
+      services:
+        - name: {{ $clusterName }}-{{ $pool }}-external-{{ $id }}
+          port: {{ $port }}
+  tls:
+    passthrough: true
+{{- end }}
+{{- end }}

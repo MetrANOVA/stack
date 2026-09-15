@@ -133,6 +133,26 @@ external:
   # Restrict who can reach the listener. Strongly recommended.
   sourceRanges: []
 
+  # Create Traefik IngressRouteTCP resources for the external listener.
+  # Requires type: cluster-ip and the traefik.io CRDs installed.
+  traefik:
+    enabled: false
+    entryPoint: kafka
+
+  # Node IDs of the brokers. REQUIRED when traefik.enabled is true.
+  #
+  # Strimzi assigns node IDs across all node pools, so these are NOT
+  # guaranteed to be 0,1,2 - a controller pool created first will consume
+  # the low IDs. Check your actual IDs with:
+  #   kubectl get kafkanodepool -o custom-columns=NAME:.metadata.name,IDS:.status.nodeIds
+  #
+  # For deterministic IDs, pin them on the KafkaNodePool with the
+  # strimzi.io/next-node-ids annotation.
+  brokerIds: []
+
+  # Node pool the brokers live in. Part of the generated Service name.
+  brokerPoolName: brokers
+
   # Secret holding the broker cert. REQUIRED.
   # Must cover bootstrapHost and every hostTemplate name - a wildcard is
   # easiest. Without it, brokers present Strimzi's internal CA cert with
