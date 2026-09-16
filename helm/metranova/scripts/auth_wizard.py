@@ -2073,6 +2073,18 @@ def section_sync_pipeline(d, conn: WizardConnections, namespace: str):
     if code != d.OK:
         return
 
+    # Ensure policy_organizations column exists before the pipeline tries to write it.
+    # This is a no-op if the column was already added by step 2.
+    try:
+        conn.ch.query(
+            "ALTER TABLE metranova.data_flow"
+            " ADD COLUMN IF NOT EXISTS policy_organizations Array(LowCardinality(String)) DEFAULT []"
+        )
+    except Exception as exc:
+        _error(d, f"Could not add policy_organizations column to metranova.data_flow:\n\n{exc}\n\n"
+                  "Make sure the data_flow table exists (ArgoCD sync may still be in progress).")
+        return
+
     deployment = "metranova-flowpipeline-data-flow"
     patch = {
         "spec": {"template": {"spec": {"containers": [{
