@@ -27,7 +27,7 @@ spec:
   routes:
     - match: HostSNI(`{{ $tmpl | replace "{nodeId}" $id }}`)
       services:
-        - name: {{ $pool }}-external-{{ $id }}
+        - name: {{ $clusterName }}-{{ $pool }}-external-{{ $id }}
           port: {{ $port }}
   tls:
     passthrough: true
