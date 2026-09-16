@@ -1244,11 +1244,10 @@ class TestBuildAuthzPolicySql:
         assert "authz_group_read_orgs" in sql
         assert "authz_group_write_orgs" in sql
 
-    def test_contains_three_policies(self):
+    def test_contains_two_active_policies(self):
         sql = W._build_authz_policy_sql("secret")
         assert "authz_read_policy" in sql
         assert "authz_grafana_read_policy" in sql
-        assert "authz_write_policy" in sql
 
     def test_password_embedded(self):
         sql = W._build_authz_policy_sql("mypassword")
@@ -1279,22 +1278,19 @@ class TestBuildAuthzPolicySql:
         read_policy = sql.split("CREATE ROW POLICY authz_read_policy ON")[1].split(";")[0]
         assert "grafana" in read_policy
 
-    def test_pipeline_and_default_exempt_from_read(self):
+    def test_service_accounts_exempt_from_read(self):
         sql = W._build_authz_policy_sql("pw")
         read_policy = sql.split("CREATE ROW POLICY authz_read_policy ON")[1].split(";")[0]
         assert "pipeline" in read_policy
         assert "default" in read_policy
+        assert "admin" in read_policy
 
-    def test_pipeline_and_default_exempt_from_write(self):
+    def test_write_policy_dropped_not_created(self):
+        # FOR INSERT row policies unsupported in ClickHouse 25.x;
+        # write enforcement is via GRANT privileges instead.
         sql = W._build_authz_policy_sql("pw")
-        write_policy = sql.split("CREATE ROW POLICY authz_write_policy ON")[1].split(";")[0]
-        assert "pipeline" in write_policy
-        assert "default" in write_policy
-
-    def test_grafana_not_exempt_from_write(self):
-        sql = W._build_authz_policy_sql("pw")
-        write_policy = sql.split("CREATE ROW POLICY authz_write_policy ON")[1].split(";")[0]
-        assert "grafana" not in write_policy
+        assert "DROP ROW POLICY IF EXISTS authz_write_policy" in sql
+        assert "CREATE ROW POLICY authz_write_policy" not in sql
 
     def test_dict_source_uses_single_quote_escaping(self):
         sql = W._build_authz_policy_sql("pw")
@@ -1341,7 +1337,7 @@ class TestAuthzPoliciesExist:
         W._authz_policies_exist(ch)
         call_sql = ch.query.call_args[0][0]
         assert "authz_read_policy" in call_sql
-        assert "authz_write_policy" in call_sql
+        assert "authz_grafana_read_policy" in call_sql
 
 
 class TestSectionInitAuthzPolicies:

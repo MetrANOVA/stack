@@ -1171,6 +1171,14 @@ GRANT SELECT, INSERT, ALTER, CREATE, DROP ON metranova_authz.* TO `authz-admin`;
 
 CREATE ROLE IF NOT EXISTS `authz-reader`;
 GRANT SELECT ON metranova_authz.* TO `authz-reader`;
+
+-- Roles referenced by row policies. clickhouse-admin is mapped from the LDAP
+-- group by the auth stack; pipeline and grafana are service account roles.
+-- Creating them here ensures the row policies can reference them regardless of
+-- whether the LDAP sync or user XML configuration has run yet.
+CREATE ROLE IF NOT EXISTS `clickhouse-admin`;
+CREATE ROLE IF NOT EXISTS pipeline;
+CREATE ROLE IF NOT EXISTS grafana;
 """
 
 # ── Authz policy SQL (dictionaries + row policies) ─────────────────────────────
@@ -1281,28 +1289,19 @@ USING hasAny(
         currentRoles()
     ))
 )
-TO ALL EXCEPT `clickhouse-admin`, pipeline, default, grafana;
+TO ALL EXCEPT `clickhouse-admin`, admin, pipeline, default, grafana;
 
 CREATE ROW POLICY authz_grafana_read_policy ON metranova.data_flow
 FOR SELECT
 USING (policy_level = 'tlp:clear')
 TO grafana;
 
-CREATE ROW POLICY authz_write_policy ON metranova.data_flow
-FOR INSERT
-USING hasAny(
-    policy_organizations,
-    arrayFlatten(arrayMap(
-        r -> dictGetOrDefault(
-                'metranova_authz.authz_group_write_orgs',
-                'org_slugs',
-                (r, tlp_to_numeric(policy_level)),
-                cast([], 'Array(String)')
-             ),
-        currentRoles()
-    ))
-)
-TO ALL EXCEPT `clickhouse-admin`, pipeline, default;
+-- NOTE: ClickHouse FOR INSERT row policies are not yet supported in upstream
+-- ClickHouse (as of 25.x). Write enforcement is handled via GRANT privileges:
+-- only users/roles with explicit INSERT grants on metranova.data_flow can write.
+-- The authz_group_write_orgs dictionary is created above for future use when
+-- ClickHouse adds FOR INSERT policy support.
+DROP ROW POLICY IF EXISTS authz_write_policy ON metranova.data_flow;
 """
 
 
@@ -1310,7 +1309,7 @@ def _authz_policies_exist(ch: ClickHouseClient) -> bool:
     try:
         out = ch.query(
             "SELECT count() FROM system.row_policies"
-            " WHERE short_name IN ('authz_read_policy', 'authz_write_policy')"
+            " WHERE short_name IN ('authz_read_policy', 'authz_grafana_read_policy')"
         )
         return int(out.strip()) >= 2
     except Exception:
@@ -1750,8 +1749,18 @@ def _list_grants(ch: ClickHouseClient) -> list[dict]:
 
 
 def _ensure_ch_role(ch: ClickHouseClient, group_name: str):
-    """CREATE ROLE IF NOT EXISTS for the group so LDAP mapping has a target."""
-    ch.multiquery(f"CREATE ROLE IF NOT EXISTS `{group_name}`;")
+    """CREATE ROLE IF NOT EXISTS, grant SELECT on data_flow, and dictGet on authz dicts.
+
+    The dictGet privilege is required because row policy USING expressions run in
+    the user's security context — without it the dictGetOrDefault calls fail and the
+    policy silently denies all rows.
+    """
+    ch.multiquery(
+        f"CREATE ROLE IF NOT EXISTS `{group_name}`;\n"
+        f"GRANT SELECT ON metranova.data_flow TO `{group_name}`;\n"
+        f"GRANT dictGet ON metranova_authz.authz_group_read_orgs TO `{group_name}`;\n"
+        f"GRANT dictGet ON metranova_authz.authz_group_write_orgs TO `{group_name}`;"
+    )
 
 
 def section_grants(d, conn: WizardConnections):
