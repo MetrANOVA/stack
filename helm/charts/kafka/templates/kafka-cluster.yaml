@@ -172,7 +172,7 @@ spec:
           {{- with .Values.external.hostTemplate }}
           hostTemplate: {{ . | quote }}
           {{- end }}
-          {{- with .Values.external.bootstrapHost }}
+          {{- if and .Values.external.bootstrapHost (has .Values.external.type (list "ingress" "route")) }}
           bootstrap:
             host: {{ . | quote }}
           {{- end }}
