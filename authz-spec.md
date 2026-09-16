@@ -69,7 +69,20 @@ A rule can have one effect, the other, or both. Every row has exactly one TLP le
 | description | String | Human-readable explanation |
 | created_at | DateTime |  |
 
-Note: `policy_scope` carries BGP community labels (e.g. lhcone, lsst) — it is distinct from `policy_organizations`. Rules match on `policy_scope`/`policy_originator` and write to `policy_organizations`.
+#### Understanding `policy_scope`
+
+`policy_scope` is an array of strings stamped onto each flow row by the pipeline at ingest. It is built automatically from the flow record itself — no manual configuration is needed to populate it. Its elements have two forms:
+
+- **AS-number scopes** — `as:<number>`, one per AS number present in the flow (src and dst). Example: a flow between AS 293 and AS 6447 carries `["as:293", "as:6447"]`. AS 293 is ESnet's AS number; AS 6447 is Internet2's.
+- **Community scopes** — `comm:<name>`, derived from BGP community IDs or MPLS VPN route-distinguishers via the `CLICKHOUSE_FLOW_POLICY_COMMUNITY_SCOPE_MAP` env var. Example: BGP community `64805` maps to `comm:lhcone`.
+
+When writing a rule's scope pattern, match against these values:
+- `as:293` — exact match: only flows involving ESnet's AS
+- `as:*` — glob: any flow involving any AS (equivalent to `*`)
+- `comm:lhcone` — exact match: flows tagged with the LHCONE community
+- `*` — match any row regardless of scope
+
+`policy_scope` is distinct from `policy_organizations`. The pipeline reads `policy_scope` (and `policy_originator`) to evaluate rules, then writes the resulting org slugs into `policy_organizations`. The row policy checks `policy_organizations`, not `policy_scope`, at query time.
 
 ### 1.4 Grants (principal-based, not user-based)
 

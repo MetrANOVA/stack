@@ -32,7 +32,7 @@ spec:
         - name: clickhouse.config.ch.resources.limits.memory
           value: 4Gi
         - name: clickhouse.config.ch.resources.requests.cpu
-          value: "500m"
+          value: "100m"
         - name: clickhouse.config.ch.resources.limits.cpu
           value: "1500m"
         - name: clickhouse.config.chk.resources.replicasCount
@@ -45,6 +45,23 @@ spec:
           value: "250m"
         - name: clickhouse.config.chk.resources.limits.cpu
           value: "500m"
+        # Dev cluster: reduce pipeline CPU requests so pending pods can schedule
+        - name: snmpPipeline.dataSnmp.resources.requests.cpu
+          value: "50m"
+        - name: snmpPipeline.dataSnmp.resources.limits.cpu
+          value: "500m"
+        - name: snmpPipeline.metadataCaidaOrgAs.resources.requests.cpu
+          value: "50m"
+        - name: snmpPipeline.metadataCaidaOrgAs.resources.limits.cpu
+          value: "250m"
+        - name: flowPipeline.cacheIpTrie.resources.requests.cpu
+          value: "50m"
+        - name: flowPipeline.cacheIpTrie.resources.limits.cpu
+          value: "500m"
+        - name: flowPipeline.dataFlow.resources.requests.cpu
+          value: "50m"
+        - name: flowPipeline.dataFlow.resources.limits.cpu
+          value: "1000m"
   syncPolicy:
     syncOptions:
       - CreateNamespace=true

@@ -10,7 +10,7 @@ spec:
     server: https://kubernetes.default.svc
   source:
     repoURL: https://github.com/MetrANOVA/stack.git
-    targetRevision: main
+    targetRevision: add-auth-system
     path: helm/charts/auth
     helm:
       valueFiles:

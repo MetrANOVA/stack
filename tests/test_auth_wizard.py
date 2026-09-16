@@ -1229,3 +1229,189 @@ class TestSectionArgoCDSync:
             W.section_argocd_sync(d, "metranova", "metranova-auth", "")
 
         mock_sync.assert_not_called()
+
+
+# ── Tests: _build_authz_policy_sql and section_init_authz_policies ─────────────
+
+class TestBuildAuthzPolicySql:
+    def test_contains_tlp_function(self):
+        sql = W._build_authz_policy_sql("secret")
+        assert "tlp_to_numeric" in sql
+        assert "CREATE FUNCTION" in sql
+
+    def test_contains_both_dicts(self):
+        sql = W._build_authz_policy_sql("secret")
+        assert "authz_group_read_orgs" in sql
+        assert "authz_group_write_orgs" in sql
+
+    def test_contains_three_policies(self):
+        sql = W._build_authz_policy_sql("secret")
+        assert "authz_read_policy" in sql
+        assert "authz_grafana_read_policy" in sql
+        assert "authz_write_policy" in sql
+
+    def test_password_embedded(self):
+        sql = W._build_authz_policy_sql("mypassword")
+        assert "mypassword" in sql
+
+    def test_password_single_quotes_escaped(self):
+        sql = W._build_authz_policy_sql("it's")
+        assert "it''s" in sql
+        assert "it's" not in sql
+
+    def test_internal_host_and_port_embedded(self):
+        sql = W._build_authz_policy_sql("pw", ch_internal_host="mych", ch_internal_port=19000)
+        assert "mych" in sql
+        assert "19000" in sql
+
+    def test_internal_user_embedded(self):
+        sql = W._build_authz_policy_sql("pw", ch_user="pipeline")
+        assert "pipeline" in sql
+
+    def test_grafana_policy_tlp_clear_only(self):
+        sql = W._build_authz_policy_sql("pw")
+        grafana_section = sql.split("CREATE ROW POLICY authz_grafana_read_policy")[1].split(";")[0]
+        assert "tlp:clear" in grafana_section
+        assert "dictGet" not in grafana_section
+
+    def test_grafana_exempt_from_main_read_policy(self):
+        sql = W._build_authz_policy_sql("pw")
+        read_policy = sql.split("CREATE ROW POLICY authz_read_policy ON")[1].split(";")[0]
+        assert "grafana" in read_policy
+
+    def test_pipeline_and_default_exempt_from_read(self):
+        sql = W._build_authz_policy_sql("pw")
+        read_policy = sql.split("CREATE ROW POLICY authz_read_policy ON")[1].split(";")[0]
+        assert "pipeline" in read_policy
+        assert "default" in read_policy
+
+    def test_pipeline_and_default_exempt_from_write(self):
+        sql = W._build_authz_policy_sql("pw")
+        write_policy = sql.split("CREATE ROW POLICY authz_write_policy ON")[1].split(";")[0]
+        assert "pipeline" in write_policy
+        assert "default" in write_policy
+
+    def test_grafana_not_exempt_from_write(self):
+        sql = W._build_authz_policy_sql("pw")
+        write_policy = sql.split("CREATE ROW POLICY authz_write_policy ON")[1].split(";")[0]
+        assert "grafana" not in write_policy
+
+    def test_dict_source_uses_single_quote_escaping(self):
+        sql = W._build_authz_policy_sql("pw")
+        assert "''read''" in sql
+        assert "''write''" in sql
+
+    def test_drop_before_create_for_dicts(self):
+        sql = W._build_authz_policy_sql("pw")
+        drop_read   = sql.index("DROP DICTIONARY IF EXISTS metranova_authz.authz_group_read_orgs")
+        create_read = sql.index("CREATE DICTIONARY metranova_authz.authz_group_read_orgs")
+        assert drop_read < create_read
+
+    def test_drop_before_create_for_policies(self):
+        sql = W._build_authz_policy_sql("pw")
+        drop_pos   = sql.index("DROP ROW POLICY IF EXISTS authz_read_policy")
+        create_pos = sql.index("CREATE ROW POLICY authz_read_policy")
+        assert drop_pos < create_pos
+
+
+class TestAuthzPoliciesExist:
+    def test_returns_true_when_two_policies_found(self):
+        ch = MagicMock()
+        ch.query.return_value = "2"
+        assert W._authz_policies_exist(ch) is True
+
+    def test_returns_false_when_one_policy_found(self):
+        ch = MagicMock()
+        ch.query.return_value = "1"
+        assert W._authz_policies_exist(ch) is False
+
+    def test_returns_false_when_zero_policies(self):
+        ch = MagicMock()
+        ch.query.return_value = "0"
+        assert W._authz_policies_exist(ch) is False
+
+    def test_returns_false_on_exception(self):
+        ch = MagicMock()
+        ch.query.side_effect = RuntimeError("no table")
+        assert W._authz_policies_exist(ch) is False
+
+    def test_queries_correct_policy_names(self):
+        ch = MagicMock()
+        ch.query.return_value = "2"
+        W._authz_policies_exist(ch)
+        call_sql = ch.query.call_args[0][0]
+        assert "authz_read_policy" in call_sql
+        assert "authz_write_policy" in call_sql
+
+
+class TestSectionInitAuthzPolicies:
+    def _make_dialog(self):
+        d = MagicMock()
+        d.OK = 0
+        d.CANCEL = 1
+        d.ESC = -1
+        return d
+
+    def _make_conn(self, password="testpw", user="admin"):
+        conn = MagicMock()
+        conn.ch.password = password
+        conn.ch.user = user
+        return conn
+
+    def test_runs_policy_sql_when_no_existing_policies(self):
+        d = self._make_dialog()
+        conn = self._make_conn()
+        with patch.object(W, "_authz_policies_exist", return_value=False), \
+             patch.object(W, "_msgbox"):
+            result = W.section_init_authz_policies(d, conn)
+        assert result is True
+        conn.ch.multiquery.assert_called_once()
+        sql = conn.ch.multiquery.call_args[0][0]
+        assert "authz_read_policy" in sql
+
+    def test_skips_when_user_declines_replace(self):
+        d = self._make_dialog()
+        d.yesno.return_value = d.CANCEL
+        conn = self._make_conn()
+        with patch.object(W, "_authz_policies_exist", return_value=True):
+            result = W.section_init_authz_policies(d, conn)
+        assert result is True  # skip is not a failure
+        conn.ch.multiquery.assert_not_called()
+
+    def test_replaces_when_user_confirms(self):
+        d = self._make_dialog()
+        d.yesno.return_value = d.OK
+        conn = self._make_conn()
+        with patch.object(W, "_authz_policies_exist", return_value=True), \
+             patch.object(W, "_msgbox"):
+            result = W.section_init_authz_policies(d, conn)
+        assert result is True
+        conn.ch.multiquery.assert_called_once()
+
+    def test_returns_false_on_ch_error(self):
+        d = self._make_dialog()
+        conn = self._make_conn()
+        conn.ch.multiquery.side_effect = RuntimeError("query failed")
+        with patch.object(W, "_authz_policies_exist", return_value=False), \
+             patch.object(W, "_error"):
+            result = W.section_init_authz_policies(d, conn)
+        assert result is False
+
+    def test_password_passed_to_sql_builder(self):
+        d = self._make_dialog()
+        conn = self._make_conn(password="supersecret")
+        with patch.object(W, "_authz_policies_exist", return_value=False), \
+             patch.object(W, "_msgbox"):
+            W.section_init_authz_policies(d, conn)
+        sql = conn.ch.multiquery.call_args[0][0]
+        assert "supersecret" in sql
+
+    def test_custom_internal_host_forwarded(self):
+        d = self._make_dialog()
+        conn = self._make_conn()
+        with patch.object(W, "_authz_policies_exist", return_value=False), \
+             patch.object(W, "_msgbox"):
+            W.section_init_authz_policies(d, conn, ch_internal_host="myhost", ch_internal_port=19000)
+        sql = conn.ch.multiquery.call_args[0][0]
+        assert "myhost" in sql
+        assert "19000" in sql

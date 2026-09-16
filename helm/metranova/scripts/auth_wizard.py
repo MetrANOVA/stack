@@ -1173,6 +1173,190 @@ CREATE ROLE IF NOT EXISTS `authz-reader`;
 GRANT SELECT ON metranova_authz.* TO `authz-reader`;
 """
 
+# ── Authz policy SQL (dictionaries + row policies) ─────────────────────────────
+#
+# The dictionary SOURCE uses the ClickHouse cluster-internal service on plain TCP
+# (9000) so the ClickHouse server queries itself without TLS cert negotiation.
+#
+# Dictionaries are COMPLEX_KEY_HASHED keyed on (group_name, tlp_numeric).
+# The source query is cumulative: tlp_numeric=2 (amber) includes all orgs where
+# max_tlp >= 2 (amber or red), so a single dictGetOrDefault at the row's TLP level
+# returns everything the user can see at that level.
+#
+# Exempt identities are kept minimal. `clickhouse-admin` is a ClickHouse role
+# (LDAP-mapped), not a hardcoded username. Any user holding it can drop row
+# policies anyway — TLP enforcement on them provides false security.
+
+_DICT_SOURCE_READ_SQL = (
+    "SELECT g.group_name, CAST(n.tlp_numeric AS Int8) AS tlp_numeric,"
+    " groupArray(o.slug) AS org_slugs"
+    " FROM (SELECT 0 AS tlp_numeric UNION ALL SELECT 1"
+    "       UNION ALL SELECT 2 UNION ALL SELECT 3) AS n"
+    " CROSS JOIN metranova_authz.grants AS g"
+    " JOIN metranova_authz.organizations AS o ON g.organization_id = o.id"
+    " WHERE g.permission = ''read'' AND isNull(g.revoked_at)"
+    "   AND tlp_to_numeric(g.max_tlp_level) >= n.tlp_numeric"
+    " GROUP BY g.group_name, n.tlp_numeric"
+)
+
+_DICT_SOURCE_WRITE_SQL = (
+    "SELECT g.group_name, CAST(n.tlp_numeric AS Int8) AS tlp_numeric,"
+    " groupArray(o.slug) AS org_slugs"
+    " FROM (SELECT 0 AS tlp_numeric UNION ALL SELECT 1"
+    "       UNION ALL SELECT 2 UNION ALL SELECT 3) AS n"
+    " CROSS JOIN metranova_authz.grants AS g"
+    " JOIN metranova_authz.organizations AS o ON g.organization_id = o.id"
+    " WHERE g.permission = ''write'' AND isNull(g.revoked_at)"
+    "   AND tlp_to_numeric(g.max_tlp_level) >= n.tlp_numeric"
+    " GROUP BY g.group_name, n.tlp_numeric"
+)
+
+
+def _build_authz_policy_sql(ch_password: str,
+                             ch_internal_host: str = "clickhouse-ch-cluster",
+                             ch_internal_port: int = 9000,
+                             ch_user: str = "admin") -> str:
+    """Return the full policy DDL with dict SOURCE credentials embedded."""
+    pw = ch_password.replace("'", "''")
+    return f"""\
+CREATE FUNCTION IF NOT EXISTS tlp_to_numeric AS (level) ->
+    toInt8(transform(
+        level,
+        ['tlp:clear', 'tlp:green', 'tlp:amber', 'tlp:red'],
+        [0, 1, 2, 3],
+        -1
+    ));
+
+DROP DICTIONARY IF EXISTS metranova_authz.authz_group_read_orgs;
+CREATE DICTIONARY metranova_authz.authz_group_read_orgs
+(
+    group_name  String,
+    tlp_numeric Int8,
+    org_slugs   Array(String)
+)
+PRIMARY KEY group_name, tlp_numeric
+SOURCE(CLICKHOUSE(
+    HOST '{ch_internal_host}'
+    PORT {ch_internal_port}
+    USER '{ch_user}'
+    PASSWORD '{pw}'
+    QUERY '{_DICT_SOURCE_READ_SQL}'
+))
+LIFETIME(MIN 30 MAX 60)
+LAYOUT(COMPLEX_KEY_HASHED());
+
+DROP DICTIONARY IF EXISTS metranova_authz.authz_group_write_orgs;
+CREATE DICTIONARY metranova_authz.authz_group_write_orgs
+(
+    group_name  String,
+    tlp_numeric Int8,
+    org_slugs   Array(String)
+)
+PRIMARY KEY group_name, tlp_numeric
+SOURCE(CLICKHOUSE(
+    HOST '{ch_internal_host}'
+    PORT {ch_internal_port}
+    USER '{ch_user}'
+    PASSWORD '{pw}'
+    QUERY '{_DICT_SOURCE_WRITE_SQL}'
+))
+LIFETIME(MIN 30 MAX 60)
+LAYOUT(COMPLEX_KEY_HASHED());
+
+DROP ROW POLICY IF EXISTS authz_read_policy ON metranova.data_flow;
+DROP ROW POLICY IF EXISTS authz_grafana_read_policy ON metranova.data_flow;
+DROP ROW POLICY IF EXISTS authz_write_policy ON metranova.data_flow;
+
+CREATE ROW POLICY authz_read_policy ON metranova.data_flow
+FOR SELECT
+USING hasAny(
+    policy_organizations,
+    arrayFlatten(arrayMap(
+        r -> dictGetOrDefault(
+                'metranova_authz.authz_group_read_orgs',
+                'org_slugs',
+                (r, tlp_to_numeric(policy_level)),
+                cast([], 'Array(String)')
+             ),
+        currentRoles()
+    ))
+)
+TO ALL EXCEPT `clickhouse-admin`, pipeline, default, grafana;
+
+CREATE ROW POLICY authz_grafana_read_policy ON metranova.data_flow
+FOR SELECT
+USING (policy_level = 'tlp:clear')
+TO grafana;
+
+CREATE ROW POLICY authz_write_policy ON metranova.data_flow
+FOR INSERT
+USING hasAny(
+    policy_organizations,
+    arrayFlatten(arrayMap(
+        r -> dictGetOrDefault(
+                'metranova_authz.authz_group_write_orgs',
+                'org_slugs',
+                (r, tlp_to_numeric(policy_level)),
+                cast([], 'Array(String)')
+             ),
+        currentRoles()
+    ))
+)
+TO ALL EXCEPT `clickhouse-admin`, pipeline, default;
+"""
+
+
+def _authz_policies_exist(ch: ClickHouseClient) -> bool:
+    try:
+        out = ch.query(
+            "SELECT count() FROM system.row_policies"
+            " WHERE short_name IN ('authz_read_policy', 'authz_write_policy')"
+        )
+        return int(out.strip()) >= 2
+    except Exception:
+        return False
+
+
+def section_init_authz_policies(d, conn: WizardConnections,
+                                 ch_internal_host: str = "clickhouse-ch-cluster",
+                                 ch_internal_port: int = 9000) -> bool:
+    """Create/replace dictionaries and row policies. Returns True on success."""
+    if _authz_policies_exist(conn.ch):
+        code = d.yesno(
+            "Row policies already exist.\n\n"
+            "Replace dictionaries and row policies?\n"
+            "(DROP + CREATE — existing grants are preserved in the tables.)",
+            title="Policies exist", width=66, height=10,
+            yes_label="Replace", no_label="Skip",
+        )
+        if code != d.OK:
+            return True  # skipped, not a failure
+
+    d.infobox("Creating dictionaries and row policies...", width=58, height=6,
+              title="Init policies")
+    sql = _build_authz_policy_sql(
+        ch_password=conn.ch.password,
+        ch_internal_host=ch_internal_host,
+        ch_internal_port=ch_internal_port,
+        ch_user=conn.ch.user,
+    )
+    try:
+        conn.ch.multiquery(sql)
+    except Exception as exc:
+        _error(d, f"Policy initialization failed:\n\n{exc}")
+        return False
+
+    _msgbox(d,
+            "Dictionaries and row policies created.\n\n"
+            "  authz_group_read_orgs       — SELECT dict\n"
+            "  authz_group_write_orgs      — INSERT dict\n"
+            "  authz_read_policy           — all non-exempt users\n"
+            "  authz_grafana_read_policy   — grafana: tlp:clear only\n"
+            "  authz_write_policy          — INSERT enforcement\n\n"
+            "Dictionaries refresh every 30–60 s.",
+            title="Policies ready", width=66, height=16)
+    return True
+
 
 def _authz_schema_exists(ch: ClickHouseClient) -> bool:
     try:
@@ -1217,8 +1401,10 @@ def section_init_authz(d, conn: WizardConnections):
     _msgbox(d,
             "metranova_authz schema initialized.\n\n"
             "Database, tables, and roles created (IF NOT EXISTS).\n"
-            "You can now manage Organizations, Rules, and Grants.",
+            "Proceeding to row policy setup...",
             title="Schema ready", width=64, height=12)
+
+    section_init_authz_policies(d, conn)
 
 
 # ── TUI: section 3 — organizations ────────────────────────────────────────────
@@ -2207,10 +2393,11 @@ def run_wizard(namespace: str, release: str, dry_run: bool, ch_service: str = ""
                 ("0", "Secrets          — generate and write K8s secrets"),
                 ("1", f"Connect          — open port-forwards  [{status}]"),
                 ("2", f"Init authz DB    — create metranova_authz schema  {'[connect first]' if locked else ''}"),
-                ("3", f"Organizations    — manage orgs          {'[connect first]' if locked else ''}"),
-                ("4", f"Rules            — classification rules  {'[connect first]' if locked else ''}"),
-                ("5", f"Grants           — access grants         {'[connect first]' if locked else ''}"),
-                ("6", f"Audit            — view audit log        {'[connect first]' if locked else ''}"),
+                ("3", f"Init policies    — deploy dicts + row policies  {'[connect first]' if locked else ''}"),
+                ("4", f"Organizations    — manage orgs          {'[connect first]' if locked else ''}"),
+                ("5", f"Rules            — classification rules  {'[connect first]' if locked else ''}"),
+                ("6", f"Grants           — access grants         {'[connect first]' if locked else ''}"),
+                ("7", f"Audit            — view audit log        {'[connect first]' if locked else ''}"),
                 ("S", f"Sync pipeline    — push rules to flow pipeline  {'[connect first]' if locked else ''}"),
                 ("A", "ArgoCD sync      — register apps and sync (optional)"),
             ]
@@ -2218,10 +2405,10 @@ def run_wizard(namespace: str, release: str, dry_run: bool, ch_service: str = ""
             code, tag = d.menu(
                 "MetrANOVA Authorization Wizard\n\n"
                 "Fresh cluster? Start with P (Prerequisites), then\n"
-                "0 (Secrets), deploy, 1 (Connect), 2 (Init authz DB).",
+                "0 (Secrets), deploy, 1 (Connect), 2 (Init authz DB), 3 (Init policies).",
                 choices=choices,
                 title="Main Menu",
-                width=76, height=28, menu_height=16,
+                width=76, height=30, menu_height=17,
                 ok_label="Open",
                 cancel_label="Exit",
             )
@@ -2242,18 +2429,23 @@ def run_wizard(namespace: str, release: str, dry_run: bool, ch_service: str = ""
                 if locked:
                     _msgbox(d, "Connect first (step 1).", title="Not connected")
                 else:
-                    section_orgs(d, conn)
+                    section_init_authz_policies(d, conn)
             elif tag == "4":
                 if locked:
                     _msgbox(d, "Connect first (step 1).", title="Not connected")
                 else:
-                    section_rules(d, conn)
+                    section_orgs(d, conn)
             elif tag == "5":
                 if locked:
                     _msgbox(d, "Connect first (step 1).", title="Not connected")
                 else:
-                    section_grants(d, conn)
+                    section_rules(d, conn)
             elif tag == "6":
+                if locked:
+                    _msgbox(d, "Connect first (step 1).", title="Not connected")
+                else:
+                    section_grants(d, conn)
+            elif tag == "7":
                 if locked:
                     _msgbox(d, "Connect first (step 1).", title="Not connected")
                 else:
@@ -2285,6 +2477,62 @@ def run_headless(namespace: str, release: str, dry_run: bool, export_csv_path: s
     print("\nDone.")
 
 
+def run_init_policies(namespace: str, ch_service: str = "",
+                      ch_internal_host: str = "clickhouse-ch-cluster",
+                      ch_internal_port: int = 9000):
+    """Non-interactively deploy dictionaries and row policies.
+
+    Opens a port-forward, runs the policy DDL, then tears down the forward.
+    Exits non-zero on failure.
+    """
+    candidates = []
+    if ch_service:
+        candidates.append(ch_service)
+    candidates += ["svc/clickhouse-ch-cluster", "svc/clickhouse"]
+
+    ch_pf = None
+    for candidate in candidates:
+        if "/" in candidate and not candidate.startswith("svc/"):
+            ch_ns, ch_svc_name = candidate.split("/", 1)
+            pf = PortForward(ch_ns, f"svc/{ch_svc_name}", remote_port=9440,
+                             local_port=PF_CH_LOCAL_PORT)
+        else:
+            pf = PortForward(namespace, candidate, remote_port=9440,
+                             local_port=PF_CH_LOCAL_PORT)
+        if pf.start(timeout=10):
+            ch_pf = pf
+            break
+        pf.stop()
+
+    if ch_pf is None:
+        print(f"ERROR: could not reach ClickHouse (tried {candidates})", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        ch_pass = load_ch_admin_password(namespace)
+        if not ch_pass:
+            print("ERROR: could not read ClickHouse admin password from cluster secret",
+                  file=sys.stderr)
+            sys.exit(1)
+
+        ch = ClickHouseClient(port=PF_CH_LOCAL_PORT, user="admin", password=ch_pass)
+        if not ch.ping():
+            print("ERROR: ClickHouse port-forward up but authentication failed", file=sys.stderr)
+            sys.exit(1)
+
+        sql = _build_authz_policy_sql(
+            ch_password=ch_pass,
+            ch_internal_host=ch_internal_host,
+            ch_internal_port=ch_internal_port,
+            ch_user="admin",
+        )
+        print("Deploying dictionaries and row policies...")
+        ch.multiquery(sql)
+        print("Done.")
+    finally:
+        ch_pf.stop()
+
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def main():
@@ -2294,18 +2542,28 @@ def main():
     parser.add_argument("--export-csv", metavar="PATH")
     parser.add_argument("--dry-run",    action="store_true")
     parser.add_argument("--no-tui",     action="store_true", help="Generate secrets non-interactively")
+    parser.add_argument("--init-policies", action="store_true",
+                        help="Non-interactively deploy authz dictionaries and row policies, then exit")
     parser.add_argument("--clickhouse-service", default="", metavar="SVC",
                         help="ClickHouse K8s service name or namespace/name (default: auto-detect)")
+    parser.add_argument("--ch-internal-host", default="clickhouse-ch-cluster", metavar="HOST",
+                        help="ClickHouse cluster-internal hostname for dictionary SOURCE (default: clickhouse-ch-cluster)")
+    parser.add_argument("--ch-internal-port", type=int, default=9000, metavar="PORT",
+                        help="ClickHouse plain TCP port for dictionary SOURCE (default: 9000)")
     args = parser.parse_args()
 
-    problems = preflight_check(skip_tui=args.no_tui)
+    problems = preflight_check(skip_tui=args.no_tui or args.init_policies)
     if problems:
         print("Cannot start — missing dependencies:\n", file=sys.stderr)
         for p in problems:
             print(f"  • {p}", file=sys.stderr)
         sys.exit(1)
 
-    if args.no_tui:
+    if args.init_policies:
+        run_init_policies(args.namespace, ch_service=args.clickhouse_service,
+                          ch_internal_host=args.ch_internal_host,
+                          ch_internal_port=args.ch_internal_port)
+    elif args.no_tui:
         run_headless(args.namespace, args.release, args.dry_run, args.export_csv)
     else:
         run_wizard(args.namespace, args.release, args.dry_run,
