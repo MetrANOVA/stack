@@ -1411,3 +1411,150 @@ class TestSectionInitAuthzPolicies:
         sql = conn.ch.multiquery.call_args[0][0]
         assert "myhost" in sql
         assert "19000" in sql
+
+
+# ── Tests: enforcement report ──────────────────────────────────────────────────
+
+class TestFormatEnforcementReport:
+    def _data(self, total=1000, no_grants=0, grants=None, errors=None):
+        return {
+            "total": total,
+            "no_grants": no_grants,
+            "grants": grants or [],
+            "errors": errors or [],
+        }
+
+    def test_shows_total(self):
+        out = W._format_enforcement_report(self._data(total=5432))
+        assert "5,432" in out
+
+    def test_admin_always_shows_100_percent(self):
+        out = W._format_enforcement_report(self._data(total=100))
+        assert "100%" in out
+
+    def test_no_grants_shows_zero(self):
+        out = W._format_enforcement_report(self._data(total=100, no_grants=0))
+        assert "[no grants]" in out
+
+    def test_grant_row_appears(self):
+        grants = [{"group_name": "authz-tlp-esnet-amber-read",
+                   "max_tlp_level": "tlp:amber", "permission": "read",
+                   "slug": "esnet", "visible": 500}]
+        out = W._format_enforcement_report(self._data(total=1000, grants=grants))
+        assert "authz-tlp-esnet-amber-read" in out
+        assert "500" in out
+
+    def test_percentage_calculated(self):
+        grants = [{"group_name": "authz-tlp-esnet-amber-read",
+                   "max_tlp_level": "tlp:amber", "permission": "read",
+                   "slug": "esnet", "visible": 250}]
+        out = W._format_enforcement_report(self._data(total=1000, grants=grants))
+        assert "25%" in out
+
+    def test_zero_total_no_division_error(self):
+        out = W._format_enforcement_report(self._data(total=0, no_grants=0))
+        assert "0" in out
+
+    def test_multiple_grants_all_shown(self):
+        grants = [
+            {"group_name": "authz-tlp-esnet-amber-read",  "max_tlp_level": "tlp:amber",
+             "permission": "read", "slug": "esnet",     "visible": 800},
+            {"group_name": "authz-tlp-internet2-clear-read", "max_tlp_level": "tlp:clear",
+             "permission": "read", "slug": "internet2", "visible": 200},
+        ]
+        out = W._format_enforcement_report(self._data(total=1000, grants=grants))
+        assert "authz-tlp-esnet-amber-read" in out
+        assert "authz-tlp-internet2-clear-read" in out
+
+    def test_none_visible_shows_err(self):
+        grants = [{"group_name": "authz-tlp-esnet-amber-read",
+                   "max_tlp_level": "tlp:amber", "permission": "read",
+                   "slug": "esnet", "visible": None}]
+        out = W._format_enforcement_report(self._data(total=1000, grants=grants))
+        assert "err" in out
+
+    def test_errors_section_shown(self):
+        out = W._format_enforcement_report(
+            self._data(errors=["authz-tlp-esnet-amber-read: connection refused"]))
+        assert "Errors:" in out
+        assert "connection refused" in out
+
+    def test_no_errors_section_when_clean(self):
+        out = W._format_enforcement_report(self._data())
+        assert "Errors:" not in out
+
+    def test_no_grants_row_empty_message(self):
+        out = W._format_enforcement_report(self._data(grants=[]))
+        assert "(no active grants)" in out
+
+
+class TestEnforcementReport:
+    def _make_ch(self, total=100, grant_json=""):
+        """ch.query dispatches by SQL content; DROP USER calls return ''."""
+        ch = MagicMock()
+        def _q(sql):
+            if "count()" in sql:
+                return str(total)
+            if "metranova_authz.grants" in sql:
+                return grant_json
+            return ""  # DROP USER IF EXISTS and other housekeeping
+        ch.query.side_effect = _q
+        ch.multiquery.return_value = ""
+        return ch
+
+    def test_total_comes_from_admin_count(self):
+        ch = self._make_ch(total=500)
+        with patch.object(W, "_row_count_as", return_value=0):
+            data = W._enforcement_report(ch)
+        assert data["total"] == 500
+
+    def test_no_grants_count_from_temp_user(self):
+        ch = self._make_ch(total=100)
+        with patch.object(W, "_row_count_as", return_value=0) as mock_rc:
+            data = W._enforcement_report(ch)
+        assert data["no_grants"] == 0
+        mock_rc.assert_called()
+
+    def test_temp_user_dropped_on_success(self):
+        ch = self._make_ch(total=100)
+        with patch.object(W, "_row_count_as", return_value=0):
+            W._enforcement_report(ch)
+        drop_calls = [str(c) for c in ch.query.call_args_list if "DROP USER" in str(c)]
+        assert len(drop_calls) >= 1
+
+    def test_temp_user_dropped_on_row_count_error(self):
+        ch = self._make_ch(total=100)
+        with patch.object(W, "_row_count_as", side_effect=RuntimeError("boom")):
+            data = W._enforcement_report(ch)
+        assert data["no_grants"] is None
+        assert any("boom" in e for e in data["errors"])
+        drop_calls = [str(c) for c in ch.query.call_args_list if "DROP USER" in str(c)]
+        assert len(drop_calls) >= 1
+
+    def test_one_grant_produces_one_row(self):
+        import json as _json
+        grant_line = _json.dumps({
+            "group_name": "authz-tlp-esnet-amber-read",
+            "max_tlp_level": "tlp:amber",
+            "permission": "read",
+            "slug": "esnet",
+        })
+        ch = self._make_ch(total=100, grant_json=grant_line)
+        with patch.object(W, "_row_count_as", side_effect=[0, 75]):
+            data = W._enforcement_report(ch)
+        assert len(data["grants"]) == 1
+        assert data["grants"][0]["visible"] == 75
+
+    def test_grant_error_recorded_not_raised(self):
+        import json as _json
+        grant_line = _json.dumps({
+            "group_name": "authz-tlp-esnet-amber-read",
+            "max_tlp_level": "tlp:amber",
+            "permission": "read",
+            "slug": "esnet",
+        })
+        ch = self._make_ch(total=100, grant_json=grant_line)
+        with patch.object(W, "_row_count_as", side_effect=[0, RuntimeError("timeout")]):
+            data = W._enforcement_report(ch)
+        assert data["grants"][0]["visible"] is None
+        assert any("timeout" in e for e in data["errors"])

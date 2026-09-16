@@ -1923,6 +1923,153 @@ def _grant_revoke(d, conn: WizardConnections, grant: dict):
                 title="Revoked", width=56, height=10)
 
 
+# ── TUI: section T — enforcement report ───────────────────────────────────────
+
+_REPORT_TEMP_USER = "_authz_test_probe"
+
+
+def _row_count_as(ch: ClickHouseClient, username: str) -> int:
+    """Return data_flow row count as seen by the given CH username (no password)."""
+    import shutil
+    binary = ["clickhouse-client"] if shutil.which("clickhouse-client") else ["clickhouse", "client"]
+    result = subprocess.run(
+        binary + [
+            "--host", ch.host, "--secure", "--port", str(ch.port),
+            "--user", username,
+            "--accept-invalid-certificate",
+            "--query", "SELECT count() FROM metranova.data_flow",
+        ],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip())
+    return int(result.stdout.strip())
+
+
+def _enforcement_report(ch: ClickHouseClient) -> dict:
+    """Build enforcement report data without any TUI interaction.
+
+    Returns:
+        {
+          "total": int,               # admin-visible count
+          "no_grants": int,           # count with no roles at all
+          "grants": [                 # one entry per active grant
+            {"group_name": str, "max_tlp_level": str, "permission": str,
+             "org_slug": str, "visible": int}
+          ],
+          "errors": [str]             # any per-grant errors
+        }
+    """
+    errors = []
+
+    # Total visible to admin
+    total = int(ch.query("SELECT count() FROM metranova.data_flow").strip())
+
+    # No-grant baseline: create a temp user with no roles
+    try:
+        ch.multiquery(
+            f"DROP USER IF EXISTS `{_REPORT_TEMP_USER}`;\n"
+            f"CREATE USER `{_REPORT_TEMP_USER}` IDENTIFIED WITH no_password;\n"
+            f"GRANT SELECT ON metranova.data_flow TO `{_REPORT_TEMP_USER}`;\n"
+            f"GRANT dictGet ON metranova_authz.authz_group_read_orgs TO `{_REPORT_TEMP_USER}`;\n"
+            f"GRANT dictGet ON metranova_authz.authz_group_write_orgs TO `{_REPORT_TEMP_USER}`;"
+        )
+        no_grants = _row_count_as(ch, _REPORT_TEMP_USER)
+    except Exception as exc:
+        no_grants = None
+        errors.append(f"no-grants baseline: {exc}")
+    finally:
+        try:
+            ch.query(f"DROP USER IF EXISTS `{_REPORT_TEMP_USER}`")
+        except Exception:
+            pass
+
+    # Per-grant counts
+    raw = ch.query(
+        "SELECT g.group_name, g.max_tlp_level, g.permission, o.slug "
+        "FROM metranova_authz.grants AS g FINAL "
+        "JOIN metranova_authz.organizations AS o ON g.organization_id = o.id "
+        "WHERE isNull(g.revoked_at) "
+        "ORDER BY o.slug, g.max_tlp_level, g.permission "
+        "FORMAT JSONEachRow"
+    )
+    grants_meta = [json.loads(line) for line in raw.splitlines() if line.strip()]
+
+    grant_rows = []
+    for g in grants_meta:
+        group = g["group_name"]
+        try:
+            ch.multiquery(
+                f"DROP USER IF EXISTS `{_REPORT_TEMP_USER}`;\n"
+                f"CREATE USER `{_REPORT_TEMP_USER}` IDENTIFIED WITH no_password;\n"
+                f"GRANT `{group}` TO `{_REPORT_TEMP_USER}`;\n"
+                f"GRANT SELECT ON metranova.data_flow TO `{_REPORT_TEMP_USER}`;\n"
+                f"GRANT dictGet ON metranova_authz.authz_group_read_orgs TO `{_REPORT_TEMP_USER}`;\n"
+                f"GRANT dictGet ON metranova_authz.authz_group_write_orgs TO `{_REPORT_TEMP_USER}`;"
+            )
+            visible = _row_count_as(ch, _REPORT_TEMP_USER)
+        except Exception as exc:
+            visible = None
+            errors.append(f"{group}: {exc}")
+        finally:
+            try:
+                ch.query(f"DROP USER IF EXISTS `{_REPORT_TEMP_USER}`")
+            except Exception:
+                pass
+        grant_rows.append({**g, "visible": visible})
+
+    return {"total": total, "no_grants": no_grants, "grants": grant_rows, "errors": errors}
+
+
+def _format_enforcement_report(data: dict) -> str:
+    total = data["total"]
+    pct = lambda n: f"{100*n//total}%" if total > 0 and n is not None else ("0%" if total == 0 else "?")
+    vis = lambda n: str(n) if n is not None else "err"
+
+    w_role = max(36, *(len(g["group_name"]) + 2 for g in data["grants"]) if data["grants"] else [36])
+    sep = "─" * (w_role + 22)
+
+    lines = [
+        f"Total rows in data_flow: {total:,}",
+        "",
+        f"{'Role / context':<{w_role}}  {'Visible':>8}  {'% of total':>10}",
+        sep,
+        f"{'admin  (exempt)':<{w_role}}  {total:>8,}  {'100%':>10}",
+        sep,
+    ]
+
+    if data["grants"]:
+        for g in data["grants"]:
+            label = g["group_name"]
+            n = g["visible"]
+            lines.append(f"{label:<{w_role}}  {vis(n):>8}  {pct(n):>10}")
+    else:
+        lines.append(f"{'(no active grants)':}")
+
+    lines += [
+        sep,
+        f"{'[no grants]':<{w_role}}  {vis(data['no_grants']):>8}  {pct(data['no_grants'] or 0):>10}",
+    ]
+
+    if data["errors"]:
+        lines += ["", "Errors:"] + [f"  {e}" for e in data["errors"]]
+
+    return "\n".join(lines)
+
+
+def section_enforcement_report(d, conn: WizardConnections):
+    d.infobox("Running enforcement report...\n\nQuerying as each grant role — may take a few seconds.",
+              width=62, height=7, title="Enforcement Report")
+    try:
+        data = _enforcement_report(conn.ch)
+    except Exception as exc:
+        _error(d, f"Report failed:\n\n{exc}")
+        return
+
+    report = _format_enforcement_report(data)
+    _msgbox(d, report, title="Enforcement Report", width=72, height=min(30, len(report.splitlines()) + 6))
+
+
 # ── TUI: section 6 — audit ────────────────────────────────────────────────────
 
 def section_audit(d, conn: WizardConnections):
@@ -2407,6 +2554,7 @@ def run_wizard(namespace: str, release: str, dry_run: bool, ch_service: str = ""
                 ("5", f"Rules            — classification rules  {'[connect first]' if locked else ''}"),
                 ("6", f"Grants           — access grants         {'[connect first]' if locked else ''}"),
                 ("7", f"Audit            — view audit log        {'[connect first]' if locked else ''}"),
+                ("T", f"Test enforcement — row count per grant role     {'[connect first]' if locked else ''}"),
                 ("S", f"Sync pipeline    — push rules to flow pipeline  {'[connect first]' if locked else ''}"),
                 ("A", "ArgoCD sync      — register apps and sync (optional)"),
             ]
@@ -2459,6 +2607,11 @@ def run_wizard(namespace: str, release: str, dry_run: bool, ch_service: str = ""
                     _msgbox(d, "Connect first (step 1).", title="Not connected")
                 else:
                     section_audit(d, conn)
+            elif tag == "T":
+                if locked:
+                    _msgbox(d, "Connect first (step 1).", title="Not connected")
+                else:
+                    section_enforcement_report(d, conn)
             elif tag == "S":
                 if locked:
                     _msgbox(d, "Connect first (step 1).", title="Not connected")
