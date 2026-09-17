@@ -2058,6 +2058,23 @@ def _format_enforcement_report(data: dict) -> str:
 
 
 def section_enforcement_report(d, conn: WizardConnections):
+    # Pre-check: data_flow must exist before we can run counts
+    try:
+        exists = conn.ch.query(
+            "SELECT count() FROM system.tables"
+            " WHERE database='metranova' AND name='data_flow'"
+        ).strip()
+    except Exception as exc:
+        _error(d, f"Could not reach ClickHouse:\n\n{exc}")
+        return
+    if exists == "0":
+        _msgbox(d,
+                "metranova.data_flow does not exist yet.\n\n"
+                "ArgoCD may still be syncing the ClickHouse schema.\n"
+                "Wait for the flow pipeline pod to start, then retry.",
+                title="Table not ready", width=64, height=12)
+        return
+
     d.infobox("Running enforcement report...\n\nQuerying as each grant role — may take a few seconds.",
               width=62, height=7, title="Enforcement Report")
     try:
