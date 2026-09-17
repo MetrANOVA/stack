@@ -2051,6 +2051,22 @@ def _format_enforcement_report(data: dict) -> str:
         f"{'[no grants]':<{w_role}}  {vis(data['no_grants']):>8}  {pct(data['no_grants'] or 0):>10}",
     ]
 
+    if total == 0:
+        lines += [
+            "",
+            "No rows in data_flow yet. To produce test flows:",
+            "",
+            "  python3 scripts/gen_flows.py --mode kafka \\",
+            "    --kafka-bootstrap <host>:9094 \\",
+            "    --kafka-sasl-username pipeline \\",
+            "    --kafka-sasl-password <password> \\",
+            "    --kafka-sasl-mechanism SCRAM-SHA-512 \\",
+            "    --as-src 293 --interval 0",
+            "",
+            "Or use step S (Sync pipeline) to confirm the pipeline",
+            "has authz rules, then send real sFlow/NetFlow traffic.",
+        ]
+
     if data["errors"]:
         lines += ["", "Errors:"] + [f"  {e}" for e in data["errors"]]
 

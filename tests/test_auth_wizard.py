@@ -1487,6 +1487,15 @@ class TestFormatEnforcementReport:
         out = W._format_enforcement_report(self._data(grants=[]))
         assert "(no active grants)" in out
 
+    def test_zero_rows_shows_kafka_hint(self):
+        out = W._format_enforcement_report(self._data(total=0, no_grants=0))
+        assert "gen_flows.py" in out
+        assert "--mode kafka" in out
+
+    def test_nonzero_rows_no_kafka_hint(self):
+        out = W._format_enforcement_report(self._data(total=100, no_grants=0))
+        assert "gen_flows.py" not in out
+
 
 class TestEnforcementReport:
     def _make_ch(self, total=100, grant_json=""):
