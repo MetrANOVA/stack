@@ -7,6 +7,8 @@ cluster:
 kafka:
   version: "4.3.0"
   replicas: 3
+  externalListener:
+    enabled: false
   replicationFactor: 3
   minIsr: 2
   resources: {}

@@ -62,6 +62,9 @@ spec:
           value: "50m"
         - name: flowPipeline.dataFlow.resources.limits.cpu
           value: "1000m"
+        # Dev cluster: expose Kafka externally for local testing via gen_flows.py
+        - name: kafka.kafka.externalListener.enabled
+          value: "true"
   syncPolicy:
     syncOptions:
       - CreateNamespace=true

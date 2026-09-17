@@ -109,6 +109,14 @@ spec:
         tls: false
         authentication:
           type: scram-sha-512
+      {{- if .Values.kafka.externalListener.enabled }}
+      - name: external
+        port: 9095
+        type: loadbalancer
+        tls: false
+        authentication:
+          type: scram-sha-512
+      {{- end }}
     config:
       offsets.topic.replication.factor: 3
       transaction.state.log.replication.factor: 3
