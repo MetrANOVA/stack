@@ -2075,6 +2075,30 @@ def section_enforcement_report(d, conn: WizardConnections):
                 title="Table not ready", width=64, height=12)
         return
 
+    # Pre-check: policy_organizations column must exist (added by step 2)
+    try:
+        col_exists = conn.ch.query(
+            "SELECT count() FROM system.columns"
+            " WHERE database='metranova' AND table='data_flow'"
+            " AND name='policy_organizations'"
+        ).strip()
+    except Exception:
+        col_exists = "0"
+    if col_exists == "0":
+        _msgbox(d,
+                "Column policy_organizations is missing from metranova.data_flow.\n\n"
+                "Run step 2 (Init authz DB) first.",
+                title="Step 2 required", width=64, height=10)
+        return
+
+    # Pre-check: row policies must exist (added by step 3)
+    if not _authz_policies_exist(conn.ch):
+        _msgbox(d,
+                "Row policies are not deployed yet.\n\n"
+                "Run step 3 (Init policies) first.",
+                title="Step 3 required", width=64, height=10)
+        return
+
     d.infobox("Running enforcement report...\n\nQuerying as each grant role — may take a few seconds.",
               width=62, height=7, title="Enforcement Report")
     try:
