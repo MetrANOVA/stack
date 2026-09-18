@@ -151,6 +151,10 @@ spec:
           containers:
             - name: clickhouse
               image: {{ printf "%s:%s" $chImageRepository $chImageTag | quote }}
+              {{ with .Values.config.ch.command }}
+              command:
+                {{ toYaml . | nindent 16 }}
+              {{ end }}
               resources:
                 requests:
                   memory: "{{ .Values.config.ch.resources.requests.memory }}"

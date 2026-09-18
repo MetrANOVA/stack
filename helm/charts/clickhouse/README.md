@@ -217,6 +217,7 @@ config:
     image:
       repository: clickhouse/clickhouse-server
       tag: "" # Optional override; defaults to config.clickhouse_version
+    command: [] # Optional override; defaults to the image entrypoint
     resources:
       disk_volume_size: 100Gi
       log_volume_size: 10Gi

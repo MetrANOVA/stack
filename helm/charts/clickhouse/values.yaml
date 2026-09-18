@@ -51,6 +51,8 @@ config:
       repository: clickhouse/clickhouse-server
       # Optional override; when empty, config.clickhouse_version is used.
       tag: ""
+    # Optional command override; when empty, the image entrypoint is used.
+    command: []
     affinity: {}
     tolerations: []
     topologySpreadConstraints: []

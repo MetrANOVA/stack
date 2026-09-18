@@ -58,6 +58,8 @@ clickhouse:
           cpu: 2
 
     ch:
+      # Optional command override; needed by images without a default entrypoint.
+      command: []
       affinity: {}
       tolerations: []
       topologySpreadConstraints: []
