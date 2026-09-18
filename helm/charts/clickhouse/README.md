@@ -198,7 +198,7 @@ config:
   tls:
     enabled: true
     cert_name: clickhouse-tls
-  clickhouse_version: 25.9
+  clickhouse_version: 26.8
   domains:
     - metranova.test.grnoc.iu.edu
 

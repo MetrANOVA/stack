@@ -70,7 +70,7 @@ spec:
       logger/level: information
       logger/console: "true"
       # Allow backups
-      allow_experimental_database_replicated: "1"
+      allow_experimental_database_replicated: "0"
 {{- if .Values.config.tls.enabled }}
       # TLS/SSL Settings
       openSSL/server/certificateFile: /etc/clickhouse-server/certs/tls.crt

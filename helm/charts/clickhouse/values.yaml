@@ -14,7 +14,7 @@ config:
     commonName: ""
     altNames: []
     validDays: 365
-  clickhouse_version: 25.9
+  clickhouse_version: 26.8
   domains:
     - metranova.test.example.org
 
