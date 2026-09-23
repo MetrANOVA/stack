@@ -449,6 +449,69 @@ class TestKeycloakClient:
             kc.delete_group("uuid-999")
         mock_req.assert_called_once_with("DELETE", "/groups/uuid-999")
 
+    def test_get_client_by_client_id_found(self):
+        kc = self._client()
+        kc._token = "tok"
+        fake = [{"id": "abc", "clientId": "envoy-proxy"}]
+        with patch.object(kc, "_request", return_value=fake):
+            result = kc.get_client_by_client_id("envoy-proxy")
+        assert result == fake[0]
+
+    def test_get_client_by_client_id_not_found(self):
+        kc = self._client()
+        kc._token = "tok"
+        with patch.object(kc, "_request", return_value=[]):
+            result = kc.get_client_by_client_id("no-such-client")
+        assert result is None
+
+    def test_list_protocol_mappers(self):
+        kc = self._client()
+        kc._token = "tok"
+        fake = [{"id": "m1", "name": "some-mapper"}]
+        with patch.object(kc, "_request", return_value=fake):
+            result = kc.list_protocol_mappers("client-uuid")
+        assert result == fake
+
+    def test_create_protocol_mapper(self):
+        kc = self._client()
+        kc._token = "tok"
+        mapper = {"name": "groups", "protocol": "openid-connect"}
+        with patch.object(kc, "_request") as mock_req:
+            kc.create_protocol_mapper("client-uuid", mapper)
+        mock_req.assert_called_once_with(
+            "POST", "/clients/client-uuid/protocol-mappers/models", mapper
+        )
+
+
+class TestEnsureEnvoyProxyGroupMapper:
+    def _make_kc(self):
+        return MagicMock(spec=W.KeycloakClient)
+
+    def test_creates_mapper_when_absent(self):
+        kc = self._make_kc()
+        kc.get_client_by_client_id.return_value = {"id": "client-uuid"}
+        kc.list_protocol_mappers.return_value = []
+        W._ensure_envoy_proxy_group_mapper(kc)
+        kc.create_protocol_mapper.assert_called_once()
+        call_args = kc.create_protocol_mapper.call_args[0]
+        assert call_args[0] == "client-uuid"
+        assert call_args[1]["name"] == "authz-group-membership"
+        assert call_args[1]["config"]["claim.name"] == "groups"
+
+    def test_idempotent_when_mapper_exists(self):
+        kc = self._make_kc()
+        kc.get_client_by_client_id.return_value = {"id": "client-uuid"}
+        kc.list_protocol_mappers.return_value = [{"name": "authz-group-membership"}]
+        W._ensure_envoy_proxy_group_mapper(kc)
+        kc.create_protocol_mapper.assert_not_called()
+
+    def test_raises_when_client_not_found(self):
+        kc = self._make_kc()
+        kc.get_client_by_client_id.return_value = None
+        import pytest
+        with pytest.raises(RuntimeError, match="envoy-proxy client not found"):
+            W._ensure_envoy_proxy_group_mapper(kc)
+
 
 class TestPortForward:
     def test_stop_terminates_process(self):
@@ -814,6 +877,15 @@ class TestEnsureChRole:
         sql = ch.multiquery.call_args[0][0]
         assert "CREATE ROLE IF NOT EXISTS" in sql
         assert "authz-tlp-esnet-amber-read" in sql
+
+    def test_grants_scope_dict_not_tables(self):
+        ch = MagicMock(spec=W.ClickHouseClient)
+        ch.multiquery.return_value = ""
+        W._ensure_ch_role(ch, "authz-tlp-esnet-red-read")
+        sql = ch.multiquery.call_args[0][0]
+        assert "authz_scope_to_orgs" in sql
+        assert "GRANT SELECT ON metranova_authz.rules" not in sql
+        assert "GRANT SELECT ON metranova_authz.organizations" not in sql
 
 
 class TestKubectlContext:
@@ -1309,6 +1381,30 @@ class TestBuildAuthzPolicySql:
         create_pos = sql.index("CREATE ROW POLICY authz_read_policy")
         assert drop_pos < create_pos
 
+    def test_read_policy_uses_policy_scope_not_policy_organizations(self):
+        sql = W._build_authz_policy_sql("pw")
+        read_policy = sql.split("CREATE ROW POLICY authz_read_policy ON")[1].split(";")[0]
+        assert "policy_scope" in read_policy
+        assert "policy_organizations" not in read_policy
+
+    def test_contains_scope_dict(self):
+        sql = W._build_authz_policy_sql("pw")
+        assert "authz_scope_to_orgs" in sql
+
+    def test_read_policy_uses_scope_dict(self):
+        sql = W._build_authz_policy_sql("pw")
+        read_policy = sql.split("CREATE ROW POLICY authz_read_policy ON")[1].split(";")[0]
+        assert "authz_scope_to_orgs" in read_policy
+        assert "authz_group_read_orgs" in read_policy
+
+    def test_read_policy_no_correlated_subquery(self):
+        # ClickHouse 25.x does not support correlated subqueries in row policies
+        sql = W._build_authz_policy_sql("pw")
+        read_policy = sql.split("CREATE ROW POLICY authz_read_policy ON")[1].split(
+            "CREATE ROW POLICY authz_grafana"
+        )[0]
+        assert "EXISTS (" not in read_policy
+
 
 class TestAuthzPoliciesExist:
     def test_returns_true_when_two_policies_found(self):
@@ -1567,3 +1663,127 @@ class TestEnforcementReport:
             data = W._enforcement_report(ch)
         assert data["grants"][0]["visible"] is None
         assert any("timeout" in e for e in data["errors"])
+
+
+class TestEnforcementPreflight:
+    """Tests for _enforcement_preflight() checklist logic."""
+
+    def _make_conn(self, ch):
+        conn = MagicMock()
+        conn.ch = ch
+        return conn
+
+    def _make_ch(self, table_exists=True, policies=True,
+                 grant_count=1, rule_count=1, scope_count=10):
+        ch = MagicMock()
+        def _q(sql):
+            if "system.tables" in sql and "data_flow" in sql:
+                return "1" if table_exists else "0"
+            if "system.row_policies" in sql:
+                return "2" if policies else "0"
+            if "metranova_authz.grants" in sql and "count()" in sql:
+                return str(grant_count)
+            if "metranova_authz.rules" in sql and "count()" in sql:
+                return str(rule_count)
+            if "dictionary(metranova_authz.authz_scope_to_orgs)" in sql:
+                return str(scope_count)
+            return ""
+        ch.query.side_effect = _q
+        return ch
+
+    def _make_dialog(self, yes=True):
+        d = MagicMock()
+        d.OK = "ok"
+        d.CANCEL = "cancel"
+        d.ESC = "esc"
+        d.yesno.return_value = "ok" if yes else "cancel"
+        return d
+
+    def test_all_ok_returns_true_on_confirm(self):
+        ch = self._make_ch()
+        conn = self._make_conn(ch)
+        d = self._make_dialog(yes=True)
+        result = W._enforcement_preflight(d, conn, "metranova")
+        assert result is True
+        body = d.yesno.call_args[0][0]
+        assert "[ OK ]" in body
+
+    def test_cancel_returns_false(self):
+        ch = self._make_ch()
+        conn = self._make_conn(ch)
+        d = self._make_dialog(yes=False)
+        result = W._enforcement_preflight(d, conn, "metranova")
+        assert result is False
+
+    def test_missing_table_shows_fail(self):
+        ch = self._make_ch(table_exists=False)
+        conn = self._make_conn(ch)
+        d = self._make_dialog(yes=True)
+        W._enforcement_preflight(d, conn, "metranova")
+        body = d.yesno.call_args[0][0]
+        assert "[FAIL]" in body
+        assert "data_flow" in body
+
+    def test_no_policies_shows_step3_hint(self):
+        ch = self._make_ch(policies=False)
+        conn = self._make_conn(ch)
+        d = self._make_dialog(yes=True)
+        W._enforcement_preflight(d, conn, "metranova")
+        body = d.yesno.call_args[0][0]
+        assert "[FAIL]" in body
+        assert "step 3" in body
+
+    def test_no_grants_shows_step6_hint(self):
+        ch = self._make_ch(grant_count=0)
+        conn = self._make_conn(ch)
+        d = self._make_dialog(yes=True)
+        W._enforcement_preflight(d, conn, "metranova")
+        body = d.yesno.call_args[0][0]
+        assert "[FAIL]" in body
+        assert "step 6" in body
+
+    def test_no_rules_shows_step5_hint(self):
+        ch = self._make_ch(rule_count=0)
+        conn = self._make_conn(ch)
+        d = self._make_dialog(yes=True)
+        W._enforcement_preflight(d, conn, "metranova")
+        body = d.yesno.call_args[0][0]
+        assert "[FAIL]" in body
+        assert "step 5" in body
+
+    def test_empty_scope_dict_shows_step3_hint(self):
+        ch = self._make_ch(scope_count=0)
+        conn = self._make_conn(ch)
+        d = self._make_dialog(yes=True)
+        W._enforcement_preflight(d, conn, "metranova")
+        body = d.yesno.call_args[0][0]
+        assert "[FAIL]" in body
+        assert "step 3" in body
+
+    def test_all_ok_message_shown(self):
+        ch = self._make_ch()
+        conn = self._make_conn(ch)
+        d = self._make_dialog(yes=True)
+        W._enforcement_preflight(d, conn, "metranova")
+        body = d.yesno.call_args[0][0]
+        assert "All checks passed" in body
+
+    def test_partial_fail_warning_shown(self):
+        ch = self._make_ch(rule_count=0, grant_count=0)
+        conn = self._make_conn(ch)
+        d = self._make_dialog(yes=True)
+        W._enforcement_preflight(d, conn, "metranova")
+        body = d.yesno.call_args[0][0]
+        assert "incomplete or misleading" in body
+
+    def test_no_pipeline_checks_in_preflight(self):
+        # Pipeline sync is a separate step (P); preflight no longer checks pod env vars
+        ch = self._make_ch()
+        conn = self._make_conn(ch)
+        d = self._make_dialog(yes=True)
+        W._enforcement_preflight(d, conn, "metranova")
+        body = d.yesno.call_args[0][0]
+        assert "Pipeline authz" not in body
+        assert "stamped" not in body
+
+

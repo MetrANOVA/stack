@@ -116,6 +116,8 @@ grafana:
   adminPassword: "CHANGEME"
   # OIDC client secret for the grafana Keycloak client
   oidcClientSecret: "CHANGEME"
+  # ClickHouse user provisioned for Grafana service account
+  clickhouseUser: "grafana"
   # Password for the grafana ClickHouse user (provisioned by clickhouse-init)
   clickhousePassword: "CHANGEME"
   persistence:

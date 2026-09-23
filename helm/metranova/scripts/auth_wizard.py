@@ -402,6 +402,39 @@ class KeycloakClient:
     def list_realm_roles(self) -> list[dict]:
         return self._request("GET", "/roles") or []
 
+    def get_client_by_client_id(self, client_id: str) -> dict | None:
+        clients = self._request("GET", f"/clients?clientId={client_id}") or []
+        return clients[0] if clients else None
+
+    def list_protocol_mappers(self, client_uuid: str) -> list[dict]:
+        return self._request("GET", f"/clients/{client_uuid}/protocol-mappers/models") or []
+
+    def create_protocol_mapper(self, client_uuid: str, mapper: dict):
+        self._request("POST", f"/clients/{client_uuid}/protocol-mappers/models", mapper)
+
+
+def _ensure_envoy_proxy_group_mapper(kc: "KeycloakClient"):
+    """Idempotently ensure the envoy-proxy client emits group memberships in tokens."""
+    client = kc.get_client_by_client_id("envoy-proxy")
+    if not client:
+        raise RuntimeError("envoy-proxy client not found in Keycloak")
+    client_uuid = client["id"]
+    mappers = kc.list_protocol_mappers(client_uuid)
+    if any(m.get("name") == "authz-group-membership" for m in mappers):
+        return
+    kc.create_protocol_mapper(client_uuid, {
+        "name": "authz-group-membership",
+        "protocol": "openid-connect",
+        "protocolMapper": "oidc-group-membership-mapper",
+        "config": {
+            "full.path": "false",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "claim.name": "groups",
+            "userinfo.token.claim": "true",
+        },
+    })
+
 
 # ── K8s / cluster helpers ──────────────────────────────────────────────────────
 
@@ -898,11 +931,13 @@ def argocd_sync_and_wait(d, namespace: str, app_name: str = "metranova-auth",
             elif frac < 1.0:  phase = _PHASE_MSGS[5]
             else:             phase = f"All {app_name} pods ready!"
 
+            all_summary.sort(key=lambda line: 0 if "!" in line[:4] else (1 if "…" in line[:4] else 2))
             body = (
                 f"{phase}  ({app_ready}/{app_total} for {app_name})  [{int(elapsed)}s]\n\n"
                 + "\n".join(all_summary)
                 + "\n\n"
                 + "\n".join(log[-3:])
+                + "\n\nCtrl+C → return to menu"
             )
             update(pct, body)
 
@@ -1219,6 +1254,29 @@ _DICT_SOURCE_WRITE_SQL = (
     " GROUP BY g.group_name, n.tlp_numeric"
 )
 
+# Source query for authz_scope_to_orgs dictionary.
+# Cross-joins scope elements observed in metranova.data_flow against classification
+# rules, expanding glob patterns (exact, prefix ''as:*'', global ''*'') at dictionary
+# load time via LIKE replace(..., ''*'', ''%''). Refreshes every 30-60 s so rule
+# changes propagate without pipeline restart or re-stamping historical rows.
+_DICT_SOURCE_SCOPE_SQL = (
+    "SELECT scope_el, groupArray(DISTINCT slug) AS org_slugs"
+    " FROM ("
+    "   SELECT DISTINCT arrayJoin(policy_scope) AS scope_el"
+    "   FROM metranova.data_flow"
+    " ) AS data_scopes"
+    " CROSS JOIN ("
+    "   SELECT policy_scope_pattern, slug"
+    "   FROM metranova_authz.rules FINAL"
+    "   JOIN metranova_authz.organizations"
+    "     ON organization_id = metranova_authz.organizations.id"
+    " ) AS rule_orgs"
+    " WHERE policy_scope_pattern = ''*''"
+    "    OR scope_el LIKE replace(policy_scope_pattern, ''*'', ''%'')"
+    " GROUP BY scope_el"
+)
+
+
 
 def _build_authz_policy_sql(ch_password: str,
                              ch_internal_host: str = "clickhouse-ch-cluster",
@@ -1271,21 +1329,41 @@ SOURCE(CLICKHOUSE(
 LIFETIME(MIN 30 MAX 60)
 LAYOUT(COMPLEX_KEY_HASHED());
 
+DROP DICTIONARY IF EXISTS metranova_authz.authz_scope_to_orgs;
+CREATE DICTIONARY metranova_authz.authz_scope_to_orgs
+(
+    scope_el  String,
+    org_slugs Array(String)
+)
+PRIMARY KEY scope_el
+SOURCE(CLICKHOUSE(
+    HOST '{ch_internal_host}'
+    PORT {ch_internal_port}
+    USER '{ch_user}'
+    PASSWORD '{pw}'
+    QUERY '{_DICT_SOURCE_SCOPE_SQL}'
+))
+LIFETIME(MIN 30 MAX 60)
+LAYOUT(COMPLEX_KEY_HASHED());
+
 DROP ROW POLICY IF EXISTS authz_read_policy ON metranova.data_flow;
 DROP ROW POLICY IF EXISTS authz_grafana_read_policy ON metranova.data_flow;
 DROP ROW POLICY IF EXISTS authz_write_policy ON metranova.data_flow;
 
 CREATE ROW POLICY authz_read_policy ON metranova.data_flow
 FOR SELECT
-USING hasAny(
-    policy_organizations,
+USING arrayExists(
+    org -> arrayExists(
+        s -> has(
+            dictGetOrDefault('metranova_authz.authz_scope_to_orgs', 'org_slugs',
+                             tuple(s), cast([], 'Array(String)')),
+            org
+        ),
+        policy_scope
+    ),
     arrayFlatten(arrayMap(
-        r -> dictGetOrDefault(
-                'metranova_authz.authz_group_read_orgs',
-                'org_slugs',
-                (r, tlp_to_numeric(policy_level)),
-                cast([], 'Array(String)')
-             ),
+        r -> dictGetOrDefault('metranova_authz.authz_group_read_orgs', 'org_slugs',
+                              (r, tlp_to_numeric(policy_level)), cast([], 'Array(String)')),
         currentRoles()
     ))
 )
@@ -1331,8 +1409,8 @@ def section_init_authz_policies(d, conn: WizardConnections,
         if code != d.OK:
             return True  # skipped, not a failure
 
-    d.infobox("Creating dictionaries and row policies...", width=58, height=6,
-              title="Init policies")
+    d.infobox("Creating dictionaries and row policies...",
+              width=62, height=6, title="Init policies")
     sql = _build_authz_policy_sql(
         ch_password=conn.ch.password,
         ch_internal_host=ch_internal_host,
@@ -1347,13 +1425,14 @@ def section_init_authz_policies(d, conn: WizardConnections,
 
     _msgbox(d,
             "Dictionaries and row policies created.\n\n"
-            "  authz_group_read_orgs       — SELECT dict\n"
-            "  authz_group_write_orgs      — INSERT dict\n"
+            "  authz_group_read_orgs       — grant→org lookup (SELECT)\n"
+            "  authz_group_write_orgs      — grant→org lookup (INSERT)\n"
+            "  authz_scope_to_orgs         — scope element→org mapping\n"
             "  authz_read_policy           — all non-exempt users\n"
-            "  authz_grafana_read_policy   — grafana: tlp:clear only\n"
-            "  authz_write_policy          — INSERT enforcement\n\n"
-            "Dictionaries refresh every 30–60 s.",
-            title="Policies ready", width=66, height=16)
+            "  authz_grafana_read_policy   — grafana: tlp:clear only\n\n"
+            "Dictionaries refresh every 30–60 s.\n"
+            "Rule changes take effect automatically on the next refresh.",
+            title="Policies ready", width=66, height=18)
     return True
 
 
@@ -1387,23 +1466,11 @@ def section_init_authz(d, conn: WizardConnections):
         _error(d, f"Schema initialization failed:\n\n{exc}")
         return
 
-    # Best-effort: add policy_organizations to data_flow if that table exists.
-    # Fails silently if metranova.data_flow hasn't been created yet.
-    try:
-        conn.ch.query(
-            "ALTER TABLE metranova.data_flow"
-            " ADD COLUMN IF NOT EXISTS policy_organizations Array(String) DEFAULT []"
-        )
-    except Exception:
-        pass
-
     _msgbox(d,
             "metranova_authz schema initialized.\n\n"
             "Database, tables, and roles created (IF NOT EXISTS).\n"
-            "Proceeding to row policy setup...",
+            "Run step 3 (Init policies) next.",
             title="Schema ready", width=64, height=12)
-
-    section_init_authz_policies(d, conn)
 
 
 # ── TUI: section 3 — organizations ────────────────────────────────────────────
@@ -1703,7 +1770,7 @@ def _rule_create(d, conn: WizardConnections):
             f"('{org['id']}', '{orig}', '{scope}', "
             f"{assigned_tlp}, {prio_int}, '{desc.strip()}');"
         )
-        _msgbox(d, "Rule created.\n\nThe pipeline will pick it up at next ingest.",
+        _msgbox(d, "Rule created.\n\nRun step P (Pipeline Sync) to push this rule to the pipeline.",
                 title="Created", width=60, height=10)
     except RuntimeError as e:
         _error(d, f"Failed to create rule:\n{e}")
@@ -1759,7 +1826,8 @@ def _ensure_ch_role(ch: ClickHouseClient, group_name: str):
         f"CREATE ROLE IF NOT EXISTS `{group_name}`;\n"
         f"GRANT SELECT ON metranova.data_flow TO `{group_name}`;\n"
         f"GRANT dictGet ON metranova_authz.authz_group_read_orgs TO `{group_name}`;\n"
-        f"GRANT dictGet ON metranova_authz.authz_group_write_orgs TO `{group_name}`;"
+        f"GRANT dictGet ON metranova_authz.authz_group_write_orgs TO `{group_name}`;\n"
+        f"GRANT dictGet ON metranova_authz.authz_scope_to_orgs TO `{group_name}`;"
     )
 
 
@@ -1856,11 +1924,15 @@ def _grant_create(d, conn: WizardConnections):
 
     errors = []
 
-    # 1. Keycloak group
+    # 1. Keycloak group + ensure protocol mapper
     try:
         conn.kc.create_group(group)
     except Exception as e:
         errors.append(f"Keycloak group: {e}")
+    try:
+        _ensure_envoy_proxy_group_mapper(conn.kc)
+    except Exception as e:
+        errors.append(f"Keycloak protocol mapper: {e}")
 
     # 2. ClickHouse role (LDAP mapping target)
     try:
@@ -2078,46 +2150,101 @@ def _format_enforcement_report(data: dict) -> str:
     return "\n".join(lines)
 
 
-def section_enforcement_report(d, conn: WizardConnections):
-    # Pre-check: data_flow must exist before we can run counts
+def _enforcement_preflight(d, conn: WizardConnections, namespace: str) -> bool:
+    """Run a checklist of enforcement prerequisites and require user confirmation.
+
+    Returns True if the user confirms all checks passed (or acknowledges failures
+    and chooses to proceed anyway). Returns False if the user cancels.
+    """
+    d.infobox("Checking enforcement prerequisites...", width=52, height=6, title="Preflight")
+
+    checks = []  # list of (label, ok: bool, detail: str)
+
+    # 1. data_flow table exists
     try:
         exists = conn.ch.query(
             "SELECT count() FROM system.tables"
             " WHERE database='metranova' AND name='data_flow'"
         ).strip()
+        ok = exists != "0"
+        checks.append(("metranova.data_flow table exists", ok,
+                        "" if ok else "ArgoCD sync may still be in progress"))
     except Exception as exc:
-        _error(d, f"Could not reach ClickHouse:\n\n{exc}")
-        return
-    if exists == "0":
-        _msgbox(d,
-                "metranova.data_flow does not exist yet.\n\n"
-                "ArgoCD may still be syncing the ClickHouse schema.\n"
-                "Wait for the flow pipeline pod to start, then retry.",
-                title="Table not ready", width=64, height=12)
-        return
+        checks.append(("ClickHouse reachable", False, str(exc)[:80]))
 
-    # Pre-check: policy_organizations column must exist (added by step 2)
+    # 2. Row policies deployed (step 3)
+    policies_ok = _authz_policies_exist(conn.ch)
+    checks.append(("Row policies deployed", policies_ok,
+                   "" if policies_ok else "Run step 3 (Init policies)"))
+
+    # 3. At least one grant defined (step 6)
     try:
-        col_exists = conn.ch.query(
-            "SELECT count() FROM system.columns"
-            " WHERE database='metranova' AND table='data_flow'"
-            " AND name='policy_organizations'"
+        grant_count = conn.ch.query(
+            "SELECT count() FROM metranova_authz.grants"
         ).strip()
+        ok = int(grant_count) > 0
+        checks.append((f"Grants defined ({grant_count} total)", ok,
+                        "" if ok else "Run step 6 (Grants)"))
     except Exception:
-        col_exists = "0"
-    if col_exists == "0":
-        _msgbox(d,
-                "Column policy_organizations is missing from metranova.data_flow.\n\n"
-                "Run step 2 (Init authz DB) first.",
-                title="Step 2 required", width=64, height=10)
-        return
+        checks.append(("Grants defined", False, "metranova_authz not initialized (step 2)"))
 
-    # Pre-check: row policies must exist (added by step 3)
-    if not _authz_policies_exist(conn.ch):
-        _msgbox(d,
-                "Row policies are not deployed yet.\n\n"
-                "Run step 3 (Init policies) first.",
-                title="Step 3 required", width=64, height=10)
+    # 4. At least one classification rule defined
+    try:
+        rule_count = conn.ch.query(
+            "SELECT count() FROM metranova_authz.rules FINAL"
+        ).strip()
+        ok = int(rule_count) > 0
+        checks.append((
+            f"Rules defined ({rule_count} total)",
+            ok,
+            "" if ok else "Add rules via step 5 (Rules)",
+        ))
+    except Exception as exc:
+        checks.append(("Rules defined", False, str(exc)[:80]))
+
+    # 5. authz_scope_to_orgs dictionary loaded with scope→org mappings
+    try:
+        scope_count = conn.ch.query(
+            "SELECT count() FROM dictionary(metranova_authz.authz_scope_to_orgs)"
+        ).strip()
+        ok = int(scope_count) > 0
+        checks.append((
+            f"Scope→org dictionary loaded ({scope_count} scope elements)",
+            ok,
+            "" if ok else "Run step 3 (Init policies) to create the dictionary",
+        ))
+    except Exception as exc:
+        checks.append(("Scope→org dictionary loaded", False, str(exc)[:80]))
+
+    # Build checklist display
+    all_ok = all(ok for _, ok, _ in checks)
+    lines = []
+    for label, ok, detail in checks:
+        mark = "[ OK ]" if ok else "[FAIL]"
+        lines.append(f"{mark}  {label}")
+        if detail:
+            lines.append(f"         ↳ {detail}")
+
+    status_line = (
+        "All checks passed. Ready to run enforcement report."
+        if all_ok else
+        "One or more checks failed. The report may be incomplete or misleading."
+    )
+    body = "\n".join(lines) + f"\n\n{status_line}"
+
+    code = d.yesno(
+        body,
+        title="Enforcement Preflight",
+        width=76,
+        height=min(30, len(lines) + 10),
+        yes_label="Run Report",
+        no_label="Cancel",
+    )
+    return code == d.OK
+
+
+def section_enforcement_report(d, conn: WizardConnections, namespace: str = "metranova"):
+    if not _enforcement_preflight(d, conn, namespace):
         return
 
     d.infobox("Running enforcement report...\n\nQuerying as each grant role — may take a few seconds.",
@@ -2433,6 +2560,38 @@ def _rules_to_authz_json(ch: ClickHouseClient) -> str:
     return json.dumps(rules)
 
 
+def _pipeline_in_sync(ch: ClickHouseClient, namespace: str) -> bool:
+    """Return True if pipeline deployment env vars match metranova_authz.rules."""
+    try:
+        expected = _rules_to_authz_json(ch)
+    except Exception:
+        return False
+    try:
+        pod_out = subprocess.run(
+            ["kubectl", "get", "pods", "-n", namespace,
+             "--context", _kubectl_context(),
+             "-l", "app.kubernetes.io/component=data-flow",
+             "-o", "jsonpath={.items[0].metadata.name}"],
+            capture_output=True, text=True,
+        )
+        pod_name = pod_out.stdout.strip()
+        if not pod_name:
+            return False
+        env_out = subprocess.run(
+            ["kubectl", "exec", "-n", namespace, "--context", _kubectl_context(),
+             pod_name, "--", "env"],
+            capture_output=True, text=True,
+        )
+        env_vars = dict(
+            line.split("=", 1) for line in env_out.stdout.splitlines() if "=" in line
+        )
+        pod_rules = env_vars.get("CLICKHOUSE_FLOW_POLICY_AUTHZ_RULES", "[]")
+        # Normalize both through json parse→dump to ignore whitespace differences
+        return json.loads(pod_rules) == json.loads(expected)
+    except Exception:
+        return False
+
+
 def section_sync_pipeline(d, conn: WizardConnections, namespace: str):
     """Sync authz rules to the flow pipeline deployment as env vars.
 
@@ -2451,7 +2610,7 @@ def section_sync_pipeline(d, conn: WizardConnections, namespace: str):
         code = d.yesno(
             "No classification rules are defined.\n\n"
             "Syncing now will set CLICKHOUSE_FLOW_POLICY_AUTHZ_ENABLED=false, "
-            "meaning all flow rows will default to policy_organizations=[] (invisible to non-exempt users).\n\n"
+            "meaning all flow rows will have no org: entries in policy_scope (invisible to non-exempt users).\n\n"
             "Proceed?",
             title="No rules defined", width=70, height=12,
             yes_label="Proceed", no_label="Cancel",
@@ -2475,18 +2634,6 @@ def section_sync_pipeline(d, conn: WizardConnections, namespace: str):
         yes_label="Sync", no_label="Cancel",
     )
     if code != d.OK:
-        return
-
-    # Ensure policy_organizations column exists before the pipeline tries to write it.
-    # This is a no-op if the column was already added by step 2.
-    try:
-        conn.ch.query(
-            "ALTER TABLE metranova.data_flow"
-            " ADD COLUMN IF NOT EXISTS policy_organizations Array(LowCardinality(String)) DEFAULT []"
-        )
-    except Exception as exc:
-        _error(d, f"Could not add policy_organizations column to metranova.data_flow:\n\n{exc}\n\n"
-                  "Make sure the data_flow table exists (ArgoCD sync may still be in progress).")
         return
 
     deployment = "metranova-flowpipeline-data-flow"
@@ -2516,8 +2663,8 @@ def section_sync_pipeline(d, conn: WizardConnections, namespace: str):
         f"Pipeline deployment patched.\n\n"
         f"{len(rules)} rule(s) synced.\n"
         "CLICKHOUSE_FLOW_POLICY_AUTHZ_ENABLED=" + enabled + "\n\n"
-        "The pod is rolling — new flows will be stamped with\n"
-        "policy_organizations once the new pod is ready.",
+        "The pod is rolling — new flows will have org: entries\n"
+        "in policy_scope once the new pod is ready.",
         title="Synced", width=68, height=14)
 
 
@@ -2601,33 +2748,49 @@ def run_wizard(namespace: str, release: str, dry_run: bool, ch_service: str = ""
     signal.signal(signal.SIGTERM, _cleanup)
     signal.signal(signal.SIGINT,  _cleanup)
 
+    # Right-justify a status badge within the menu item text column (64 chars)
+    def _item(label: str, badge: str = "") -> str:
+        if not badge:
+            return label
+        pad = 64 - len(label) - len(badge)
+        return label + " " * max(1, pad) + badge
+
     try:
         while True:
-            status = "connected" if conn.connected else "not connected"
             locked = not conn.connected
+            x_badge = "[X]" if locked else ""
+
+            if locked:
+                p_badge = "[X]"
+            elif _pipeline_in_sync(conn.ch, namespace):
+                p_badge = ""
+            else:
+                p_badge = "[OOS]"
 
             choices = [
-                ("P", "Prerequisites    — install cluster operators (CH, Kafka, Traefik, ArgoCD)"),
-                ("0", "Secrets          — generate and write K8s secrets"),
-                ("1", f"Connect          — open port-forwards  [{status}]"),
-                ("2", f"Init authz DB    — create metranova_authz schema  {'[connect first]' if locked else ''}"),
-                ("3", f"Init policies    — deploy dicts + row policies  {'[connect first]' if locked else ''}"),
-                ("4", f"Organizations    — manage orgs          {'[connect first]' if locked else ''}"),
-                ("5", f"Rules            — classification rules  {'[connect first]' if locked else ''}"),
-                ("6", f"Grants           — access grants         {'[connect first]' if locked else ''}"),
-                ("7", f"Audit            — view audit log        {'[connect first]' if locked else ''}"),
-                ("T", f"Test enforcement — row count per grant role     {'[connect first]' if locked else ''}"),
-                ("S", f"Sync pipeline    — push rules to flow pipeline  {'[connect first]' if locked else ''}"),
-                ("A", "ArgoCD sync      — register apps and sync (optional)"),
+                ("", "  ── Cluster"),
+                ("C", "Cluster Setup    — install operators (CH, Kafka, Traefik, ArgoCD)"),
+                ("S", "Secrets          — generate and write K8s secrets"),
+                ("A", "ArgoCD Sync      — register apps and sync"),
+                ("", "  ── Connection & Schema"),
+                ("1", _item("Connect          — open port-forwards", "[X]" if locked else "[OK]")),
+                ("2", _item("Init authz DB    — create metranova_authz schema", x_badge)),
+                ("3", _item("Init policies    — deploy dicts + row policies", x_badge)),
+                ("", "  ── Authorization"),
+                ("4", _item("Organizations    — manage orgs", x_badge)),
+                ("5", _item("Rules            — classification rules", x_badge)),
+                ("6", _item("Grants           — access grants", x_badge)),
+                ("", "  ── Operations"),
+                ("P", _item("Pipeline Sync    — push authz rules to flow pipeline", p_badge)),
+                ("T", _item("Test Enforcement — row count per grant role", x_badge)),
+                ("L", _item("Audit Log        — view audit log", x_badge)),
             ]
 
             code, tag = d.menu(
-                "MetrANOVA Authorization Wizard\n\n"
-                "Fresh cluster? Start with P (Prerequisites), then\n"
-                "0 (Secrets), deploy, 1 (Connect), 2 (Init authz DB), 3 (Init policies).",
+                "MetrANOVA Authorization Wizard",
                 choices=choices,
                 title="Main Menu",
-                width=76, height=30, menu_height=17,
+                width=76, height=32, menu_height=19,
                 ok_label="Open",
                 cancel_label="Exit",
             )
@@ -2635,8 +2798,19 @@ def run_wizard(namespace: str, release: str, dry_run: bool, ch_service: str = ""
             if code in (d.CANCEL, d.ESC):
                 break
 
-            if tag == "0":
+            if tag == "":
+                pass  # separator row
+            elif tag == "C":
+                section_prerequisites(d, namespace)
+            elif tag == "S":
                 section_secrets(d, namespace, release, dry_run)
+            elif tag == "A":
+                section_argocd_sync(d, namespace, release, ch_service)
+            elif tag == "P":
+                if locked:
+                    _msgbox(d, "Connect first (step 1).", title="Not connected")
+                else:
+                    section_sync_pipeline(d, conn, namespace)
             elif tag == "1":
                 section_connect(d, conn, namespace, release, ch_service=ch_service)
             elif tag == "2":
@@ -2664,25 +2838,16 @@ def run_wizard(namespace: str, release: str, dry_run: bool, ch_service: str = ""
                     _msgbox(d, "Connect first (step 1).", title="Not connected")
                 else:
                     section_grants(d, conn)
-            elif tag == "7":
-                if locked:
-                    _msgbox(d, "Connect first (step 1).", title="Not connected")
-                else:
-                    section_audit(d, conn)
             elif tag == "T":
                 if locked:
                     _msgbox(d, "Connect first (step 1).", title="Not connected")
                 else:
-                    section_enforcement_report(d, conn)
-            elif tag == "S":
+                    section_enforcement_report(d, conn, namespace)
+            elif tag == "L":
                 if locked:
                     _msgbox(d, "Connect first (step 1).", title="Not connected")
                 else:
-                    section_sync_pipeline(d, conn, namespace)
-            elif tag == "P":
-                section_prerequisites(d, namespace)
-            elif tag == "A":
-                section_argocd_sync(d, namespace, release, ch_service)
+                    section_audit(d, conn)
     finally:
         conn.stop()
 

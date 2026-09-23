@@ -33,6 +33,19 @@ spec:
           image: "{{ .Values.clickhouseAuthProxy.image.repository }}:{{ .Values.clickhouseAuthProxy.image.tag }}"
           imagePullPolicy: {{ .Values.clickhouseAuthProxy.image.pullPolicy }}
           env:
+            - name: PROXY_MODE
+              value: "local"
+            - name: PROXY_USER_HEADER
+              value: "x-user-id"
+            - name: CLICKHOUSE_URL
+              value: "http://{{ .Values.clickhouse.host }}:{{ .Values.clickhouse.port }}"
+            - name: CH_GRAFANA_USER
+              value: {{ .Values.grafana.clickhouseUser | default "grafana" | quote }}
+            - name: CH_GRAFANA_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "metranova-auth.fullname" . }}-secrets
+                  key: GRAFANA_CLICKHOUSE_PASSWORD
             - name: LDAP_HOST
               value: {{ include "metranova-auth.fullname" . }}-openldap
             - name: LDAP_PORT
@@ -46,13 +59,6 @@ spec:
                 secretKeyRef:
                   name: {{ include "metranova-auth.fullname" . }}-secrets
                   key: LDAP_ADMIN_PASSWORD
-            - name: TOKEN_STORE_ENCRYPTION_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "metranova-auth.fullname" . }}-secrets
-                  key: TOKEN_STORE_ENCRYPTION_KEY
-            - name: OIDC_CLIENT_ID
-              value: {{ .Values.clickhouseAuthProxy.oidcClientId | quote }}
           ports:
             - name: http
               containerPort: 8001

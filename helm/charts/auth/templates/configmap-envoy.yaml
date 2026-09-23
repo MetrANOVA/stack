@@ -136,14 +136,7 @@ data:
                   - match:
                       prefix: /clickhouse
                     route:
-                      cluster: clickhouse
-                    request_headers_to_add:
-                    - header:
-                        key: X-ClickHouse-User
-                        value: "%REQ(x-user-id)%"
-                      keep_empty_value: false
-                    request_headers_to_remove:
-                    - X-ClickHouse-User
+                      cluster: clickhouse_local_proxy
                   - match:
                       prefix: /token-store/api
                     route:
@@ -223,6 +216,20 @@ data:
                   socket_address:
                     address: {{ .Values.clickhouse.host }}
                     port_value: {{ .Values.clickhouse.port }}
+
+      - name: clickhouse_local_proxy
+        connect_timeout: 5s
+        type: LOGICAL_DNS
+        lb_policy: ROUND_ROBIN
+        load_assignment:
+          cluster_name: clickhouse_local_proxy
+          endpoints:
+          - lb_endpoints:
+            - endpoint:
+                address:
+                  socket_address:
+                    address: {{ include "metranova-auth.fullname" . }}-clickhouse-auth-proxy
+                    port_value: 8001
 
       - name: token_store
         connect_timeout: 5s
