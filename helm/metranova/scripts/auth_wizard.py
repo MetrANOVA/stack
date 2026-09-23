@@ -1770,7 +1770,7 @@ def _rule_create(d, conn: WizardConnections):
             f"('{org['id']}', '{orig}', '{scope}', "
             f"{assigned_tlp}, {prio_int}, '{desc.strip()}');"
         )
-        _msgbox(d, "Rule created.\n\nRun step P (Pipeline Sync) to push this rule to the pipeline.",
+        _msgbox(d, "Rule created.\n\nThe dictionary refreshes automatically every 30–60 s.",
                 title="Created", width=60, height=10)
     except RuntimeError as e:
         _error(d, f"Failed to create rule:\n{e}")
@@ -2140,8 +2140,7 @@ def _format_enforcement_report(data: dict) -> str:
             "  # Get pass: kubectl get secret pipeline-user-scram -n metranova \\",
             "  #             -o jsonpath='{.data.password}' | base64 -d",
             "",
-            "Or use step S (Sync pipeline) to confirm the pipeline",
-            "has authz rules, then send real sFlow/NetFlow traffic.",
+            "Or send real sFlow/NetFlow traffic once the pipeline is running.",
         ]
 
     if data["errors"]:
@@ -2202,16 +2201,17 @@ def _enforcement_preflight(d, conn: WizardConnections, namespace: str) -> bool:
     except Exception as exc:
         checks.append(("Rules defined", False, str(exc)[:80]))
 
-    # 5. authz_scope_to_orgs dictionary loaded with scope→org mappings
+    # 5. authz_scope_to_orgs dictionary loaded (entry count is informational — 0 is
+    #    expected until flows with policy_scope stamps arrive in data_flow)
     try:
         scope_count = conn.ch.query(
             "SELECT count() FROM dictionary(metranova_authz.authz_scope_to_orgs)"
         ).strip()
-        ok = int(scope_count) > 0
+        hint = "" if int(scope_count) > 0 else "Ingest flows first — dict populates once policy_scope is stamped"
         checks.append((
             f"Scope→org dictionary loaded ({scope_count} scope elements)",
-            ok,
-            "" if ok else "Run step 3 (Init policies) to create the dictionary",
+            True,
+            hint,
         ))
     except Exception as exc:
         checks.append(("Scope→org dictionary loaded", False, str(exc)[:80]))
@@ -2539,135 +2539,6 @@ def _apply_argocd_manifest(manifest_rel_path: str) -> tuple[bool, str]:
     return True, r.stdout.strip()
 
 
-def _rules_to_authz_json(ch: ClickHouseClient) -> str:
-    """Serialize current authz rules to JSON for CLICKHOUSE_FLOW_POLICY_AUTHZ_RULES."""
-    out = ch.query(
-        "SELECT policy_originator_pattern, policy_scope_pattern, slug "
-        "FROM metranova_authz.rules AS r FINAL "
-        "JOIN metranova_authz.organizations AS o ON r.organization_id = o.id "
-        "ORDER BY priority DESC, r.id FORMAT JSONEachRow"
-    )
-    rules = []
-    for line in out.splitlines():
-        if not line.strip():
-            continue
-        row = json.loads(line)
-        rules.append({
-            "originator": row["policy_originator_pattern"],
-            "scope":      row["policy_scope_pattern"],
-            "org":        row["slug"],
-        })
-    return json.dumps(rules)
-
-
-def _pipeline_in_sync(ch: ClickHouseClient, namespace: str) -> bool:
-    """Return True if pipeline deployment env vars match metranova_authz.rules."""
-    try:
-        expected = _rules_to_authz_json(ch)
-    except Exception:
-        return False
-    try:
-        pod_out = subprocess.run(
-            ["kubectl", "get", "pods", "-n", namespace,
-             "--context", _kubectl_context(),
-             "-l", "app.kubernetes.io/component=data-flow",
-             "-o", "jsonpath={.items[0].metadata.name}"],
-            capture_output=True, text=True,
-        )
-        pod_name = pod_out.stdout.strip()
-        if not pod_name:
-            return False
-        env_out = subprocess.run(
-            ["kubectl", "exec", "-n", namespace, "--context", _kubectl_context(),
-             pod_name, "--", "env"],
-            capture_output=True, text=True,
-        )
-        env_vars = dict(
-            line.split("=", 1) for line in env_out.stdout.splitlines() if "=" in line
-        )
-        pod_rules = env_vars.get("CLICKHOUSE_FLOW_POLICY_AUTHZ_RULES", "[]")
-        # Normalize both through json parse→dump to ignore whitespace differences
-        return json.loads(pod_rules) == json.loads(expected)
-    except Exception:
-        return False
-
-
-def section_sync_pipeline(d, conn: WizardConnections, namespace: str):
-    """Sync authz rules to the flow pipeline deployment as env vars.
-
-    Serializes metranova_authz.rules to JSON and patches the
-    metranova-flowpipeline-data-flow deployment env vars. The deployment
-    rolls automatically — no manual restart needed.
-    """
-    try:
-        rules_json = _rules_to_authz_json(conn.ch)
-    except Exception as exc:
-        _error(d, f"Could not read rules from ClickHouse:\n\n{exc}")
-        return
-
-    rules = json.loads(rules_json)
-    if not rules:
-        code = d.yesno(
-            "No classification rules are defined.\n\n"
-            "Syncing now will set CLICKHOUSE_FLOW_POLICY_AUTHZ_ENABLED=false, "
-            "meaning all flow rows will have no org: entries in policy_scope (invisible to non-exempt users).\n\n"
-            "Proceed?",
-            title="No rules defined", width=70, height=12,
-            yes_label="Proceed", no_label="Cancel",
-        )
-        if code != d.OK:
-            return
-
-    summary = "\n".join(
-        f"  {r['originator']} / {r['scope']}  →  {r['org']}" for r in rules[:10]
-    )
-    if len(rules) > 10:
-        summary += f"\n  ... and {len(rules) - 10} more"
-
-    enabled = "true" if rules else "false"
-    code = d.yesno(
-        f"Sync {len(rules)} rule(s) to pipeline deployment:\n\n"
-        f"{summary}\n\n"
-        f"CLICKHOUSE_FLOW_POLICY_AUTHZ_ENABLED={enabled}\n\n"
-        "The pipeline deployment will roll automatically.",
-        title="Sync pipeline config", width=76, height=20,
-        yes_label="Sync", no_label="Cancel",
-    )
-    if code != d.OK:
-        return
-
-    deployment = "metranova-flowpipeline-data-flow"
-    patch = {
-        "spec": {"template": {"spec": {"containers": [{
-            "name": "data-flow",
-            "env": [
-                {"name": "CLICKHOUSE_FLOW_POLICY_AUTHZ_ENABLED", "value": enabled},
-                {"name": "CLICKHOUSE_FLOW_POLICY_AUTHZ_RULES",   "value": rules_json},
-            ],
-        }]}}}
-    }
-
-    d.infobox(f"Patching {deployment}...", width=56, height=6, title="Syncing")
-    result = subprocess.run(
-        ["kubectl", "patch", "deployment", deployment,
-         "-n", namespace, "--context", _kubectl_context(),
-         "--type", "strategic",
-         "-p", json.dumps(patch)],
-        capture_output=True, text=True,
-    )
-    if result.returncode != 0:
-        _error(d, f"Patch failed:\n\n{result.stderr.strip()}")
-        return
-
-    _msgbox(d,
-        f"Pipeline deployment patched.\n\n"
-        f"{len(rules)} rule(s) synced.\n"
-        "CLICKHOUSE_FLOW_POLICY_AUTHZ_ENABLED=" + enabled + "\n\n"
-        "The pod is rolling — new flows will have org: entries\n"
-        "in policy_scope once the new pod is ready.",
-        title="Synced", width=68, height=14)
-
-
 def section_argocd_sync(d, namespace: str, release: str, ch_service: str):
     """Optional step: register ArgoCD apps if needed and sync both auth + umbrella."""
     d.infobox("Checking ArgoCD applications...", width=48, height=6, title="ArgoCD")
@@ -2760,13 +2631,6 @@ def run_wizard(namespace: str, release: str, dry_run: bool, ch_service: str = ""
             locked = not conn.connected
             x_badge = "[X]" if locked else ""
 
-            if locked:
-                p_badge = "[X]"
-            elif _pipeline_in_sync(conn.ch, namespace):
-                p_badge = ""
-            else:
-                p_badge = "[OOS]"
-
             choices = [
                 ("", "  ── Cluster"),
                 ("C", "Cluster Setup    — install operators (CH, Kafka, Traefik, ArgoCD)"),
@@ -2781,7 +2645,6 @@ def run_wizard(namespace: str, release: str, dry_run: bool, ch_service: str = ""
                 ("5", _item("Rules            — classification rules", x_badge)),
                 ("6", _item("Grants           — access grants", x_badge)),
                 ("", "  ── Operations"),
-                ("P", _item("Pipeline Sync    — push authz rules to flow pipeline", p_badge)),
                 ("T", _item("Test Enforcement — row count per grant role", x_badge)),
                 ("L", _item("Audit Log        — view audit log", x_badge)),
             ]
@@ -2806,11 +2669,6 @@ def run_wizard(namespace: str, release: str, dry_run: bool, ch_service: str = ""
                 section_secrets(d, namespace, release, dry_run)
             elif tag == "A":
                 section_argocd_sync(d, namespace, release, ch_service)
-            elif tag == "P":
-                if locked:
-                    _msgbox(d, "Connect first (step 1).", title="Not connected")
-                else:
-                    section_sync_pipeline(d, conn, namespace)
             elif tag == "1":
                 section_connect(d, conn, namespace, release, ch_service=ch_service)
             elif tag == "2":

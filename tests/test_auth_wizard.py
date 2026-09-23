@@ -1751,14 +1751,15 @@ class TestEnforcementPreflight:
         assert "[FAIL]" in body
         assert "step 5" in body
 
-    def test_empty_scope_dict_shows_step3_hint(self):
+    def test_empty_scope_dict_is_ok_with_ingest_hint(self):
+        # 0 entries = no flows yet, not a config error — check passes with hint
         ch = self._make_ch(scope_count=0)
         conn = self._make_conn(ch)
         d = self._make_dialog(yes=True)
         W._enforcement_preflight(d, conn, "metranova")
         body = d.yesno.call_args[0][0]
-        assert "[FAIL]" in body
-        assert "step 3" in body
+        assert "[FAIL]" not in body or "scope element" not in body
+        assert "Ingest flows" in body
 
     def test_all_ok_message_shown(self):
         ch = self._make_ch()
@@ -1777,7 +1778,7 @@ class TestEnforcementPreflight:
         assert "incomplete or misleading" in body
 
     def test_no_pipeline_checks_in_preflight(self):
-        # Pipeline sync is a separate step (P); preflight no longer checks pod env vars
+        # Pipeline sync is not the wizard's concern; preflight must not check pod env vars
         ch = self._make_ch()
         conn = self._make_conn(ch)
         d = self._make_dialog(yes=True)

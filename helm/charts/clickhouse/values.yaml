@@ -62,16 +62,6 @@ config:
       - name: "default"
         readonly: 0
         max_memory_usage: "10000000000"
-    files:
-      - name: "config.d/distributed_ddl.xml"
-        data: |
-          <clickhouse>
-            <distributed_ddl>
-              <path>/clickhouse/task_queue/ddl</path>
-              <task_timeout>600</task_timeout>
-            </distributed_ddl>
-          </clickhouse>
-
     users:
       - name: admin
         password_secret:
