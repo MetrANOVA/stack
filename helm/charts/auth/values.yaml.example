@@ -25,6 +25,10 @@ keycloak:
     pullPolicy: IfNotPresent
   adminUsername: admin
   adminPassword: "CHANGEME"
+  persistence:
+    enabled: true
+    storageClass: ""
+    size: 1Gi
   resources:
     limits:
       cpu: 1000m
