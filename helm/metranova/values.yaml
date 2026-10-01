@@ -823,6 +823,7 @@ auth:
 
   domain: ""
   realm: metranova
+  idpHint: ""  # Set to IdP alias (e.g. "globus") to bypass Keycloak login form
 
   ldap:
     domain: metranova.io
@@ -830,6 +831,10 @@ auth:
   keycloak:
     adminUsername: admin
     adminPassword: ""
+    persistence:
+      enabled: true
+      size: 1Gi
+      storageClassName: ""
 
   openldap:
     adminPassword: ""

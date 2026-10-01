@@ -1,0 +1,20 @@
+{{- if .Values.keycloak.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "metranova-auth.fullname" . }}-keycloak-data
+  labels:
+    {{- include "metranova-auth.labels" . | nindent 4 }}
+    app.kubernetes.io/component: keycloak
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.keycloak.persistence.size }}
+  {{- if .Values.keycloak.persistence.storageClassName }}
+  storageClassName: {{ .Values.keycloak.persistence.storageClassName }}
+  {{- end }}
+{{- end }}

@@ -16,6 +16,8 @@ from __future__ import annotations
 import argparse
 import base64
 import csv
+import hashlib
+import http.server
 import json
 import os
 import secrets
@@ -24,10 +26,12 @@ import socket
 import string
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import webbrowser
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -360,23 +364,27 @@ class KeycloakClient:
             return json.loads(resp.read())["access_token"]
 
     def _request(self, method: str, path: str, body=None) -> dict | list | None:
+        import requests as _requests
         if not self._token:
             self._token = self._get_token()
         url = f"{self.base_url}/admin/realms/{self.realm}{path}"
-        data = json.dumps(body).encode() if body is not None else None
-        req = urllib.request.Request(url, data=data, method=method, headers={
-            "Authorization": f"Bearer {self._token}",
-            "Content-Type": "application/json",
-        })
-        try:
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                text = resp.read()
-                return json.loads(text) if text else None
-        except urllib.error.HTTPError as e:
-            if e.code == 401:
-                self._token = None
-                return self._request(method, path, body)
-            raise
+        resp = _requests.request(
+            method, url,
+            json=body,
+            headers={
+                "Authorization": f"Bearer {self._token}",
+                "Content-Type": "application/json",
+            },
+            timeout=10,
+        )
+        if resp.status_code == 401:
+            self._token = None
+            return self._request(method, path, body)
+        if not resp.ok:
+            raise RuntimeError(
+                f"Keycloak {method} {path} → HTTP {resp.status_code}: {resp.text}"
+            )
+        return resp.json() if resp.content else None
 
     def ping(self) -> bool:
         try:
@@ -411,6 +419,309 @@ class KeycloakClient:
 
     def create_protocol_mapper(self, client_uuid: str, mapper: dict):
         self._request("POST", f"/clients/{client_uuid}/protocol-mappers/models", mapper)
+
+    def list_idps(self) -> list[dict]:
+        """Return all configured identity providers."""
+        try:
+            return self._request("GET", "/identity-provider/instances") or []
+        except Exception:
+            return []
+
+    def get_idp(self, alias: str) -> dict | None:
+        """Return IdP config dict or None if not found."""
+        try:
+            return self._request("GET", f"/identity-provider/instances/{alias}")
+        except Exception:
+            return None
+
+    @staticmethod
+    def fetch_oidc_discovery(well_known_url: str) -> dict:
+        """Fetch an OIDC discovery document and return its contents."""
+        import requests as _requests
+        resp = _requests.get(well_known_url, timeout=10)
+        if not resp.ok:
+            raise RuntimeError(f"Failed to fetch discovery doc {well_known_url}: HTTP {resp.status_code}")
+        return resp.json()
+
+    def create_idp(self, alias: str, display_name: str,
+                   well_known_url: str, client_id: str, client_secret: str,
+                   default_scope: str = "openid email profile") -> None:
+        # Fetch discovery doc and populate endpoints explicitly — Keycloak does NOT
+        # eagerly load them on create, so authorizationUrl is null at first login.
+        doc = self.fetch_oidc_discovery(well_known_url)
+        self._request("POST", "/identity-provider/instances", {
+            "alias": alias,
+            "displayName": display_name,
+            "providerId": "oidc",
+            "enabled": True,
+            "config": {
+                "clientId": client_id,
+                "clientSecret": client_secret,
+                "useDiscoveryEndpoint": "false",
+                "authorizationUrl": doc["authorization_endpoint"],
+                "tokenUrl": doc["token_endpoint"],
+                "userInfoUrl": doc.get("userinfo_endpoint", ""),
+                "jwksUrl": doc.get("jwks_uri", ""),
+                "issuer": doc.get("issuer", ""),
+                "useJwksUrl": "true",
+                "validateSignature": "true",
+                "defaultScope": default_scope,
+                "syncMode": "FORCE",
+            },
+            "storeToken": True,
+        })
+
+    def update_idp(self, alias: str, patch: dict) -> None:
+        existing = self.get_idp(alias) or {}
+        existing.update(patch)
+        self._request("PUT", f"/identity-provider/instances/{alias}", existing)
+
+    def grant_broker_read_token(self, user_id: str) -> None:
+        """Assign broker/read-token role to user so they can call /broker/{alias}/token.
+
+        KC 26 requires this role for users to retrieve their stored external IdP tokens.
+        Idempotent: no-ops if the role is already assigned.
+        """
+        broker_clients = self._request("GET", "/clients?clientId=broker") or []
+        if not broker_clients:
+            return
+        broker_uuid = broker_clients[0]["id"]
+        roles = self._request("GET", f"/clients/{broker_uuid}/roles") or []
+        read_token = next((r for r in roles if r["name"] == "read-token"), None)
+        if not read_token:
+            return
+        existing = self._request("GET", f"/users/{user_id}/role-mappings/clients/{broker_uuid}") or []
+        if any(r["name"] == "read-token" for r in existing):
+            return
+        self._request("POST", f"/users/{user_id}/role-mappings/clients/{broker_uuid}", [read_token])
+
+    def list_idp_mappers(self, alias: str) -> list[dict]:
+        return self._request("GET", f"/identity-provider/instances/{alias}/mappers") or []
+
+    def upsert_idp_mapper(self, alias: str, mapper: dict) -> None:
+        """Create or update an IdP mapper by name."""
+        existing = {m["name"]: m for m in self.list_idp_mappers(alias)}
+        if mapper["name"] in existing:
+            m = {**existing[mapper["name"]], **mapper}
+            self._request("PUT", f"/identity-provider/instances/{alias}/mappers/{m['id']}", m)
+        else:
+            self._request("POST", f"/identity-provider/instances/{alias}/mappers", mapper)
+
+    def upsert_protocol_mapper(self, client_uuid: str, mapper: dict) -> None:
+        """Create or update a protocol mapper on a client by name."""
+        existing = {m["name"]: m for m in self.list_protocol_mappers(client_uuid)}
+        if mapper["name"] in existing:
+            m = {**existing[mapper["name"]], **mapper}
+            self._request("PUT", f"/clients/{client_uuid}/protocol-mappers/models/{m['id']}", m)
+        else:
+            self._request("POST", f"/clients/{client_uuid}/protocol-mappers/models", mapper)
+
+    def add_redirect_uri(self, client_uuid: str, uri: str) -> None:
+        """Append a redirect URI to a client if not already present."""
+        client = self._request("GET", f"/clients/{client_uuid}") or {}
+        uris = client.get("redirectUris", [])
+        if uri not in uris:
+            client["redirectUris"] = uris + [uri]
+            self._request("PUT", f"/clients/{client_uuid}", client)
+
+    def remove_redirect_uri(self, client_uuid: str, uri: str) -> None:
+        """Remove a redirect URI from a client."""
+        client = self._request("GET", f"/clients/{client_uuid}") or {}
+        uris = [u for u in client.get("redirectUris", []) if u != uri]
+        client["redirectUris"] = uris
+        self._request("PUT", f"/clients/{client_uuid}", client)
+
+
+def _pkce_introspect(
+    kc_base: str,
+    realm: str,
+    client_id: str,
+    client_secret: str,
+    idp_alias: str,
+    port: int = 8888,
+    token_base: str | None = None,
+    ext_userinfo_url: str = "",
+    kc_admin: "KeycloakClient | None" = None,
+) -> dict:
+    """
+    Run a PKCE auth-code flow through Keycloak (forced through idp_alias) and
+    return the merged id_token claims + userinfo payload.
+
+    Starts a local HTTP server on `port` to capture the auth code callback.
+    The caller must open the printed URL in a browser on the same machine
+    (or via SSH port-forward from localhost:<port>).
+
+    kc_base is used for the browser auth URL (must match KC's public hostname).
+    token_base overrides the base URL for the token exchange and userinfo calls —
+    use an internal/port-forwarded URL to avoid TLS/network issues from the
+    machine running the wizard.
+
+    ext_userinfo_url: if provided, after the KC token exchange the wizard also
+    fetches the external IdP's cached access token from KC's broker endpoint
+    and calls this URL to get the raw federation claims. The external claims are
+    merged in with an "ext_" prefix so the mapper picker can see them.
+
+    Raises RuntimeError on timeout or error response.
+    """
+    _token_base = (token_base or kc_base).rstrip("/")
+    redirect_uri = f"http://localhost:{port}/callback"
+
+    # PKCE S256
+    code_verifier = secrets.token_urlsafe(64)
+    code_challenge = base64.urlsafe_b64encode(
+        hashlib.sha256(code_verifier.encode()).digest()
+    ).rstrip(b"=").decode()
+
+    state = secrets.token_hex(16)
+
+    params = {
+        "response_type": "code",
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "scope": "openid email profile",
+        "state": state,
+        "code_challenge": code_challenge,
+        "code_challenge_method": "S256",
+        "kc_idp_hint": idp_alias,
+        # Force re-auth via the IdP so KC always processes the Globus callback and
+        # updates the stored broker token (storeToken=true). Without this KC may use
+        # an existing KC session and skip the IdP callback entirely.
+        "prompt": "login",
+    }
+    auth_url = (
+        f"{kc_base}/realms/{realm}/protocol/openid-connect/auth"
+        f"?{urllib.parse.urlencode(params)}"
+    )
+
+    # Shared state between server thread and main thread
+    result: dict = {}
+    server_ready = threading.Event()
+    code_received = threading.Event()
+
+    class _Handler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, fmt, *args):  # suppress access log
+            pass
+
+        def do_GET(self):
+            parsed = urllib.parse.urlparse(self.path)
+            qs = urllib.parse.parse_qs(parsed.query)
+            if "code" in qs and qs.get("state", [None])[0] == state:
+                result["code"] = qs["code"][0]
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b"<h1>Auth complete. Return to the wizard.</h1>")
+            elif "error" in qs:
+                result["error"] = qs.get("error_description", qs["error"])[0]
+                self.send_response(400)
+                self.end_headers()
+                self.wfile.write(b"<h1>Auth error. See wizard output.</h1>")
+            else:
+                self.send_response(400)
+                self.end_headers()
+            code_received.set()
+
+    httpd = http.server.HTTPServer(("localhost", port), _Handler)
+    server_thread = threading.Thread(target=httpd.handle_request, daemon=True)
+    server_thread.start()
+
+    print(f"\nOpen this URL in your browser:\n\n  {auth_url}\n")
+    try:
+        webbrowser.open(auth_url)
+    except Exception:
+        pass
+
+    if not code_received.wait(timeout=300):
+        httpd.server_close()
+        raise RuntimeError("Timed out waiting for browser callback (300 s).")
+
+    httpd.server_close()
+
+    if "error" in result:
+        raise RuntimeError(f"IdP returned error: {result['error']}")
+
+    code = result["code"]
+
+    import requests  # optional dep — not required for the rest of the wizard
+
+    # Exchange code for tokens — use internal base to avoid TLS issues from wizard host
+    token_url = f"{_token_base}/realms/{realm}/protocol/openid-connect/token"
+    token_resp = requests.post(
+        token_url,
+        data={
+            "grant_type": "authorization_code",
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "code": code,
+            "redirect_uri": redirect_uri,
+            "code_verifier": code_verifier,
+        },
+    )
+    token_resp.raise_for_status()
+    tokens = token_resp.json()
+
+    # Decode id_token (no signature verification — we're the recipient)
+    id_token_claims: dict = {}
+    if "id_token" in tokens:
+        payload_b64 = tokens["id_token"].split(".")[1]
+        # Fix padding
+        payload_b64 += "=" * (-len(payload_b64) % 4)
+        id_token_claims = json.loads(base64.urlsafe_b64decode(payload_b64))
+
+    # Hit userinfo for additional claims
+    userinfo_claims: dict = {}
+    try:
+        ui_resp = requests.get(
+            f"{_token_base}/realms/{realm}/protocol/openid-connect/userinfo",
+            headers={"Authorization": f"Bearer {tokens['access_token']}"},
+        )
+        if ui_resp.ok:
+            userinfo_claims = ui_resp.json()
+    except Exception:
+        pass
+
+    # Fetch external IdP (broker) token and hit external userinfo for federation claims.
+    # These are what mapper configuration actually needs — KC's own token only reflects
+    # claims that mappers have already transferred, which is none on a fresh setup.
+    ext_claims: dict = {}
+    if ext_userinfo_url:
+        try:
+            broker_url = f"{_token_base}/realms/{realm}/broker/{idp_alias}/token"
+            broker_bearer = tokens["access_token"]
+            broker_resp = requests.get(broker_url, headers={"Authorization": f"Bearer {broker_bearer}"})
+
+            if broker_resp.status_code == 403 and kc_admin:
+                # KC 26 requires broker/read-token role. Grant it, then retry with the
+                # ORIGINAL token — KC checks the role from the DB, not JWT claims, so
+                # a refresh is not required and avoids session rotation losing the stored token.
+                user_id = id_token_claims.get("sub", "")
+                if user_id:
+                    kc_admin.grant_broker_read_token(user_id)
+                    broker_resp = requests.get(
+                        broker_url, headers={"Authorization": f"Bearer {broker_bearer}"}
+                    )
+
+            if broker_resp.ok:
+                ext_token = broker_resp.json()
+                ext_access_token = ext_token.get("access_token", "")
+                if ext_access_token:
+                    ext_ui_resp = requests.get(
+                        ext_userinfo_url,
+                        headers={"Authorization": f"Bearer {ext_access_token}"},
+                    )
+                    if ext_ui_resp.ok:
+                        for k, v in ext_ui_resp.json().items():
+                            ext_claims[f"ext_{k}"] = v
+                    else:
+                        ext_claims["_ext_userinfo_error"] = f"HTTP {ext_ui_resp.status_code}: {ext_ui_resp.text[:200]}"
+                else:
+                    ext_claims["_ext_broker_token_missing"] = f"broker response had no access_token: {str(ext_token)[:200]}"
+            else:
+                ext_claims["_ext_broker_error"] = f"HTTP {broker_resp.status_code}: {broker_resp.text[:200]}"
+        except Exception as exc:
+            ext_claims["_ext_fetch_exception"] = str(exc)
+
+    # Merge: userinfo wins on conflict; ext_ claims added alongside KC claims
+    return {**id_token_claims, **userinfo_claims, **ext_claims}
 
 
 def _ensure_envoy_proxy_group_mapper(kc: "KeycloakClient"):
@@ -457,8 +768,205 @@ def load_keycloak_admin_password(release: str, namespace: str) -> str:
     return kubectl_get_secret_field(f"{release}-secrets", "KEYCLOAK_ADMIN_PASSWORD", namespace)
 
 
+def _wizard_db_path() -> str:
+    return os.path.join(_repo_root(), ".metranova-wizard.db")
+
+
+def _fed_state_load(namespace: str) -> dict:
+    """Load saved federation state for namespace from local SQLite. Returns {} if none."""
+    import sqlite3
+    try:
+        con = sqlite3.connect(_wizard_db_path())
+        con.execute(
+            "CREATE TABLE IF NOT EXISTS federation ("
+            "  namespace TEXT NOT NULL,"
+            "  key TEXT NOT NULL,"
+            "  value TEXT NOT NULL,"
+            "  PRIMARY KEY (namespace, key)"
+            ")"
+        )
+        rows = con.execute(
+            "SELECT key, value FROM federation WHERE namespace = ?", (namespace,)
+        ).fetchall()
+        con.close()
+        return {k: v for k, v in rows}
+    except Exception:
+        return {}
+
+
+def _fed_state_save(namespace: str, state: dict) -> None:
+    """Persist federation state for namespace to local SQLite."""
+    import sqlite3
+    try:
+        con = sqlite3.connect(_wizard_db_path())
+        con.execute(
+            "CREATE TABLE IF NOT EXISTS federation ("
+            "  namespace TEXT NOT NULL,"
+            "  key TEXT NOT NULL,"
+            "  value TEXT NOT NULL,"
+            "  PRIMARY KEY (namespace, key)"
+            ")"
+        )
+        con.executemany(
+            "INSERT OR REPLACE INTO federation (namespace, key, value) VALUES (?, ?, ?)",
+            [(namespace, k, v) for k, v in state.items() if v],
+        )
+        con.commit()
+        con.close()
+    except Exception:
+        pass  # non-fatal — wizard continues without persistence
+
+
+def _resolve_envoy_oidc_secret(release: str, namespace: str) -> str:
+    """Return ENVOY_OIDC_CLIENT_SECRET from cluster, secrets YAML, or CSV — '' if not found."""
+    # 1. Cluster
+    val = kubectl_get_secret_field(f"{release}-secrets", "ENVOY_OIDC_CLIENT_SECRET", namespace)
+    if val:
+        return val
+
+    # 2. secrets/<release>-secrets.yaml (written by apply_secrets)
+    repo_root = _repo_root()
+    for candidate in [
+        os.path.join(repo_root, "secrets", f"{release}-secrets.yaml"),
+        os.path.join(repo_root, "stack", "secrets", f"{release}-secrets.yaml"),
+    ]:
+        if os.path.exists(candidate):
+            try:
+                import yaml  # type: ignore
+                with open(candidate) as fh:
+                    doc = yaml.safe_load(fh)
+                raw = (doc or {}).get("data", {}).get("ENVOY_OIDC_CLIENT_SECRET", "")
+                if raw:
+                    try:
+                        return base64.b64decode(raw).decode()
+                    except Exception:
+                        return raw  # plain-text fallback
+            except Exception:
+                pass
+
+    # 3. CSV export (metranova-secrets-<namespace>.csv in cwd or repo root)
+    for search_dir in [os.getcwd(), repo_root]:
+        csv_path = os.path.join(search_dir, f"metranova-secrets-{namespace}.csv")
+        if os.path.exists(csv_path):
+            try:
+                with open(csv_path, newline="") as fh:
+                    for row in csv.reader(fh):
+                        if (len(row) >= 3
+                                and row[0] == f"{release}-secrets"
+                                and row[1] == "ENVOY_OIDC_CLIENT_SECRET"):
+                            return row[2]
+            except Exception:
+                pass
+
+    return ""
+
+
 def load_ch_admin_password(namespace: str) -> str:
     return kubectl_get_secret_field("clickhouse-users", "admin-password", namespace)
+
+
+def detect_envoy_domain(namespace: str, release: str) -> str:
+    """Return sslip.io domain derived from Envoy LoadBalancer IP, or '' if not available."""
+    result = subprocess.run(
+        ["kubectl", "get", "svc", f"{release}-envoy", "-n", namespace,
+         "-o", "jsonpath={.status.loadBalancer.ingress[0].ip}"],
+        capture_output=True, text=True,
+    )
+    ip = result.stdout.strip()
+    if not ip:
+        return ""
+    return f"{ip.replace('.', '-')}.sslip.io"
+
+
+def patch_auth_domain(namespace: str, release: str, domain: str, kc: "KeycloakClient | None" = None) -> list[str]:
+    """
+    Patch KC_HOSTNAME on the Keycloak deployment and replace the domain in the
+    Envoy configmap. Also updates the envoy-proxy Keycloak client's redirect URIs
+    when kc is provided. Returns a list of error strings (empty = success).
+    """
+    errors = []
+
+    # 1. Keycloak deployment — set KC_HOSTNAME
+    kc_deploy = f"{release}-keycloak"
+    r = subprocess.run(
+        ["kubectl", "set", "env", f"deployment/{kc_deploy}",
+         f"KC_HOSTNAME=https://{domain}", "-n", namespace],
+        capture_output=True, text=True,
+    )
+    if r.returncode != 0:
+        errors.append(f"KC_HOSTNAME patch failed: {r.stderr.strip()}")
+
+    # 2. Envoy configmap — replace any existing domain in authorization_endpoint,
+    #    redirect_uri, and issuer fields. We read the raw YAML, do a targeted replace,
+    #    and apply it back.
+    cm_name = f"{release}-envoy"
+    r = subprocess.run(
+        ["kubectl", "get", "configmap", cm_name, "-n", namespace, "-o", "json"],
+        capture_output=True, text=True,
+    )
+    if r.returncode != 0:
+        errors.append(f"Could not read Envoy configmap: {r.stderr.strip()}")
+        return errors
+
+    import re as _re
+    cm_json = r.stdout
+    # Replace any https://... domain in the three known field positions
+    patched = _re.sub(
+        r'(authorization_endpoint: https?://)([^/\s]+)',
+        lambda m: f"{m.group(1)}{domain}",
+        cm_json,
+    )
+    patched = _re.sub(
+        r'(redirect_uri: \\?"https?://)([^/\\"]+)',
+        lambda m: f'{m.group(1)}{domain}',
+        patched,
+    )
+    patched = _re.sub(
+        r'(issuer: https?://)([^/\s\\n"]+)',
+        lambda m: f"{m.group(1)}{domain}",
+        patched,
+    )
+
+    r2 = subprocess.run(
+        ["kubectl", "apply", "-f", "-", "-n", namespace],
+        input=patched, capture_output=True, text=True,
+    )
+    if r2.returncode != 0:
+        errors.append(f"Envoy configmap patch failed: {r2.stderr.strip()}")
+
+    # 3. Restart Envoy so it picks up the new configmap
+    r3 = subprocess.run(
+        ["kubectl", "rollout", "restart", f"deployment/{release}-envoy", "-n", namespace],
+        capture_output=True, text=True,
+    )
+    if r3.returncode != 0:
+        errors.append(f"Envoy rollout restart failed: {r3.stderr.strip()}")
+
+    # 4. Update envoy-proxy Keycloak client redirect URIs for the new domain
+    if kc:
+        try:
+            callback_uri = f"https://{domain}/oauth2/callback"
+            client = kc.get_client_by_client_id("envoy-proxy")
+            if client:
+                client_uuid = client["id"]
+                kc.add_redirect_uri(client_uuid, callback_uri)
+        except Exception as exc:
+            errors.append(f"KC redirect URI update failed: {exc}")
+
+    # 5. Sync envoy-proxy client secret — realm JSON imports a placeholder; the real
+    #    secret lives in the cluster k8s secret and must be written back into KC.
+    if kc:
+        try:
+            real_secret = kubectl_get_secret_field(f"{release}-secrets", "ENVOY_OIDC_CLIENT_SECRET", namespace)
+            if real_secret:
+                client = kc.get_client_by_client_id("envoy-proxy")
+                if client:
+                    client["secret"] = real_secret
+                    kc._request("PUT", f"/clients/{client['id']}", client)
+        except Exception as exc:
+            errors.append(f"KC client secret sync failed: {exc}")
+
+    return errors
 
 
 def cluster_is_reachable(namespace: str) -> bool:
@@ -1027,6 +1535,7 @@ class WizardConnections:
         self.kc_pf: Optional[PortForward] = None
         self.ch: Optional[ClickHouseClient] = None
         self.kc: Optional[KeycloakClient] = None
+        self.namespace: str = ""
 
     @property
     def connected(self) -> bool:
@@ -1138,8 +1647,23 @@ def section_connect(d, conn: WizardConnections, namespace: str, release: str,
     conn.ch    = ch_client
     conn.kc    = kc_client
 
-    _msgbox(d, "Connected to ClickHouse and Keycloak.\n\nYou can now use Organizations, Rules, and Grants.",
-            title="Connected", width=56, height=10)
+    # Auto-detect Envoy LoadBalancer IP and patch KC_HOSTNAME / Envoy configmap
+    d.infobox("Detecting cluster domain...", width=56, height=8, title="Connecting")
+    detected_domain = detect_envoy_domain(namespace, release)
+    conn.public_domain = detected_domain  # used by section_federation for PKCE
+    if detected_domain:
+        errs = patch_auth_domain(namespace, release, detected_domain, kc=kc_client)
+        if errs:
+            domain_msg = f"Domain auto-patch had warnings:\n  " + "\n  ".join(errs)
+        else:
+            domain_msg = f"Domain set to: {detected_domain}\n(KC_HOSTNAME + Envoy configmap patched)"
+    else:
+        domain_msg = "Could not detect Envoy LoadBalancer IP — set auth.domain manually."
+
+    _msgbox(d,
+        f"Connected to ClickHouse and Keycloak.\n\n{domain_msg}\n\n"
+        "You can now use Organizations, Rules, and Grants.",
+        title="Connected", width=66, height=14)
 
 
 # ── TUI: section 2 — init authz schema ────────────────────────────────────────
@@ -1833,23 +2357,43 @@ def _ensure_ch_role(ch: ClickHouseClient, group_name: str):
 
 def section_grants(d, conn: WizardConnections):
     while True:
+        fed_state = _fed_state_load(conn.namespace)
+        fed_alias = (
+            getattr(conn, "federation_alias", None)
+            or fed_state.get("alias", "")
+        )
+        org_claim_name = fed_state.get("org_claim", "organization")
+
         grants = _list_grants(conn.ch)
         grant_index = {str(i): g for i, g in enumerate(grants)}
         choices = []
         for i, g in enumerate(grants):
             perm_icon = "R" if g["permission"] == "read" else "W"
             tlp_short = g["max_tlp_level"].replace("tlp:", "")
+            # Show [auto] badge if an auto-assign mapper exists for this group
+            auto_badge = ""
+            if fed_alias:
+                existing_mappers = {
+                    m["name"] for m in conn.kc.list_idp_mappers(fed_alias)
+                }
+                if f"auto-assign-{g['group_name']}" in existing_mappers:
+                    auto_badge = " [auto]"
             choices.append((str(i),
-                f"[{perm_icon}] {g['org_name']:<18} {tlp_short:<8} {g['group_name']}"))
+                f"[{perm_icon}] {g['org_name']:<18} {tlp_short:<8} {g['group_name']}{auto_badge}"))
         choices.append(("__new__", "+ Add grant"))
 
+        fed_hint = (
+            f"Federation: {fed_alias}  |  auto-assign available"
+            if fed_alias else
+            "Federation not configured — run Federation (F) to enable auto-assign"
+        )
         code, tag = d.menu(
-            "Grants link Keycloak groups to org+TLP+permission.\n"
-            "[R]=read  [W]=write  (independent — write does NOT imply read)\n\n"
-            "Creating a grant also creates the Keycloak group and CH role.",
+            f"Grants link Keycloak groups to org+TLP+permission.\n"
+            f"[R]=read  [W]=write  [auto]=auto-assigned at login\n\n"
+            f"{fed_hint}",
             choices=choices, title="Access Grants",
             width=84, height=22, menu_height=12,
-            ok_label="View", cancel_label="Back",
+            ok_label="View/Edit", cancel_label="Back",
             extra_button=True, extra_label="Revoke",
         )
 
@@ -1870,14 +2414,78 @@ def section_grants(d, conn: WizardConnections):
                 _grant_revoke(d, conn, grant)
             continue
 
+        # View existing grant — offer auto-assign mapper action
         grant = grant_index[tag]
-        _msgbox(d,
+        mapper_name = f"auto-assign-{grant['group_name']}"
+        has_auto = False
+        if fed_alias:
+            has_auto = any(
+                m["name"] == mapper_name
+                for m in conn.kc.list_idp_mappers(fed_alias)
+            )
+
+        auto_line = (
+            f"Auto-assign: active via '{fed_alias}'" if has_auto
+            else f"Auto-assign: none" + (" (run Add mapper to enable)" if fed_alias else "")
+        )
+        action_choices = [("details", "View details")]
+        if fed_alias and not has_auto:
+            action_choices.append(("add_mapper", "Add auto-assign mapper"))
+        if fed_alias and has_auto:
+            action_choices.append(("remove_mapper", "Remove auto-assign mapper"))
+
+        code2, action = d.menu(
             f"Group:       {grant['group_name']}\n"
             f"Org:         {grant['org_name']} ({grant['slug']})\n"
             f"Permission:  {grant['permission']}\n"
             f"Max TLP:     {grant['max_tlp_level']}\n"
-            f"Granted by:  {grant['granted_by']}",
-            title="Grant details", width=66, height=14)
+            f"Granted by:  {grant['granted_by']}\n"
+            f"{auto_line}",
+            choices=action_choices,
+            title="Grant details", width=70, height=18, menu_height=5,
+            ok_label="Go", cancel_label="Back",
+        )
+        if code2 in (d.CANCEL, d.ESC):
+            continue
+
+        if action == "add_mapper":
+            try:
+                conn.kc.upsert_idp_mapper(fed_alias, {
+                    "identityProviderMapper": "oidc-advanced-group-idp-mapper",
+                    "identityProviderAlias": fed_alias,
+                    "name": mapper_name,
+                    "config": {
+                        "syncMode": "FORCE",
+                        "claims": json.dumps([{"key": org_claim_name, "value": grant["org_name"]}]),
+                        "are.claim.values.regex": "false",
+                        "group": f"/{grant['group_name']}",
+                    },
+                })
+                _msgbox(d,
+                    f"Auto-assign mapper created.\n\n"
+                    f"Any '{grant['org_name']}' user will join\n"
+                    f"'{grant['group_name']}' at next login.",
+                    title="Mapper created", width=62, height=12)
+            except Exception as exc:
+                _error(d, f"Failed to create mapper:\n\n{exc}")
+
+        elif action == "remove_mapper":
+            if _confirm(d,
+                f"Remove auto-assign mapper for '{grant['group_name']}'?\n\n"
+                f"Existing group members are NOT affected.\n"
+                f"New '{grant['org_name']}' logins will no longer be auto-assigned.",
+                title="Remove mapper", width=66, height=14):
+                try:
+                    existing = {m["name"]: m for m in conn.kc.list_idp_mappers(fed_alias)}
+                    if mapper_name in existing:
+                        m = existing[mapper_name]
+                        conn.kc._request(
+                            "DELETE",
+                            f"/identity-provider/instances/{fed_alias}/mappers/{m['id']}",
+                        )
+                    _msgbox(d, "Auto-assign mapper removed.", title="Done", width=50, height=8)
+                except Exception as exc:
+                    _error(d, f"Failed to remove mapper:\n\n{exc}")
 
 
 def _grant_create(d, conn: WizardConnections):
@@ -1908,18 +2516,38 @@ def _grant_create(d, conn: WizardConnections):
     if c != d.OK or not granted_by.strip():
         return
 
+    # Check if a federation IdP is configured — enables auto-assign mapper option.
+    fed_state = _fed_state_load(getattr(conn, "namespace", ""))
+    fed_alias = fed_state.get("alias", "") or getattr(conn, "federation_alias", "")
+    org_claim_name = fed_state.get("org_claim", "organization")
+    auto_assign = False
+    if fed_alias:
+        auto_assign = _confirm(d,
+            f"Auto-assign via federation '{fed_alias}'?\n\n"
+            f"Users whose '{org_claim_name}' claim equals\n"
+            f"'{org['name']}' will be added to\n"
+            f"'{group}' automatically at every login.\n\n"
+            f"All members of {org['name']} will receive this access\n"
+            f"without per-user configuration.",
+            title="Auto-assign mapper", width=66, height=18)
+
     # Preview and confirm
+    steps = (
+        f"  1. Create Keycloak group '{group}'\n"
+        f"  2. CREATE ROLE in ClickHouse\n"
+        f"  3. INSERT into metranova_authz.grants"
+    )
+    if auto_assign:
+        steps += f"\n  4. Create IdP auto-assign mapper on '{fed_alias}'"
+
     if not _confirm(d,
         f"Create grant:\n\n"
         f"  Keycloak group:  {group}\n"
         f"  Organization:    {org['name']} ({org['slug']})\n"
         f"  Permission:      {perm}\n"
         f"  Max TLP:         {tlp}\n\n"
-        f"This will:\n"
-        f"  1. Create Keycloak group '{group}'\n"
-        f"  2. CREATE ROLE in ClickHouse\n"
-        f"  3. INSERT into metranova_authz.grants",
-        title="Confirm grant", width=68, height=22):
+        f"This will:\n{steps}",
+        title="Confirm grant", width=68, height=24):
         return
 
     errors = []
@@ -1950,14 +2578,36 @@ def _grant_create(d, conn: WizardConnections):
     except RuntimeError as e:
         errors.append(f"CH grant row: {e}")
 
+    # 4. IdP auto-assign mapper: org claim value → KC group (fires on every login)
+    if auto_assign and fed_alias:
+        try:
+            conn.kc.upsert_idp_mapper(fed_alias, {
+                "identityProviderMapper": "oidc-advanced-group-idp-mapper",
+                "identityProviderAlias": fed_alias,
+                "name": f"auto-assign-{group}",
+                "config": {
+                    "syncMode": "FORCE",
+                    "claims": json.dumps([{"key": org_claim_name, "value": org["name"]}]),
+                    "are.claim.values.regex": "false",
+                    "group": f"/{group}",
+                },
+            })
+        except Exception as e:
+            errors.append(f"IdP auto-assign mapper: {e}")
+
     if errors:
         _error(d, "Partial failure creating grant:\n\n" + "\n".join(errors))
     else:
+        auto_note = (
+            f"\nAuto-assign mapper active: any '{org['name']}' user\n"
+            f"will join '{group}' at next login."
+            if auto_assign else
+            "\nKeycloak group is ready — add members manually\nor re-run federation to configure auto-assign."
+        )
         _msgbox(d,
-            f"Grant created.\n\n"
-            f"Keycloak group '{group}' is ready for mapper configuration.\n"
+            f"Grant created.{auto_note}\n\n"
             f"Row policy dict refreshes within 30 seconds.",
-            title="Grant created", width=68, height=14)
+            title="Grant created", width=68, height=16)
 
 
 def _grant_revoke(d, conn: WizardConnections, grant: dict):
@@ -1987,6 +2637,22 @@ def _grant_revoke(d, conn: WizardConnections, grant: dict):
         conn.ch.multiquery(f"DROP ROLE IF EXISTS `{group}`;")
     except RuntimeError as e:
         errors.append(f"CH role: {e}")
+
+    # 4. Remove the auto-assign IdP mapper if one was created for this group
+    fed_state = _fed_state_load(getattr(conn, "namespace", ""))
+    fed_alias = fed_state.get("alias", "") or getattr(conn, "federation_alias", "")
+    if fed_alias:
+        try:
+            mapper_name = f"auto-assign-{group}"
+            existing = {m["name"]: m for m in conn.kc.list_idp_mappers(fed_alias)}
+            if mapper_name in existing:
+                m = existing[mapper_name]
+                conn.kc._request(
+                    "DELETE",
+                    f"/identity-provider/instances/{fed_alias}/mappers/{m['id']}",
+                )
+        except Exception as e:
+            errors.append(f"IdP mapper cleanup: {e}")
 
     if errors:
         _error(d, "Partial failure revoking grant:\n\n" + "\n".join(errors))
@@ -2607,11 +3273,395 @@ def section_argocd_sync(d, namespace: str, release: str, ch_service: str):
             title="Timeout", width=64, height=14)
 
 
+# ── TUI: section F — federation ───────────────────────────────────────────────
+
+def section_federation(d, conn, namespace, release: str = "metranova-auth"):
+    """Step F — configure an OIDC IdP federation in Keycloak.
+
+    Guides through: alias, display name, well-known URL, client credentials,
+    broker redirect URI display, IdP upsert, PKCE claim introspect, and mapper
+    creation.
+    """
+
+    # Load saved state for this namespace
+    saved = _fed_state_load(namespace)
+
+    def _pre(val: str) -> dict:
+        """Pass init= only when we have a real value, never an empty string."""
+        return {'init': val} if val else {}
+
+    # Step 1: pick existing IdP or create new
+    existing_idps = conn.kc.list_idps()
+    mappers_only = False  # True → skip IdP config, jump straight to PKCE + mappers
+
+    if existing_idps:
+        choices = [
+            (idp["alias"], f"{idp.get('displayName', idp['alias'])} [{idp['alias']}]")
+            for idp in existing_idps
+        ] + [("__new__", "Create a new identity provider")]
+        saved_alias = saved.get("alias", "")
+        default_item = saved_alias if any(a == saved_alias for a, _ in choices) else choices[0][0]
+        code, alias = d.menu(
+            "Federation — Step 1\n\n"
+            "Select an existing identity provider to manage,\n"
+            "or create a new one:",
+            choices=choices,
+            title="Federation — Select IdP", width=72, height=20, menu_height=10,
+            ok_label="Select", cancel_label="Cancel",
+            default_item=default_item,
+        )
+        if code != d.OK:
+            return
+        if alias == "__new__":
+            # Fall through to the alias inputbox below
+            c, alias = d.inputbox(
+                "Federation — Step 1 of 8\n\n"
+                "IdP alias — short identifier for the external identity provider.\n"
+                "Example: globus",
+                title="Federation (1/8) — Alias", width=72, height=12,
+            )
+            if c != d.OK or not alias.strip():
+                return
+            alias = alias.strip()
+            existing_idp = None
+        else:
+            existing_idp = conn.kc.get_idp(alias)
+            # Offer: just mappers, full edit, or cancel
+            code, choice = d.menu(
+                f"IdP '{alias}' is already configured in Keycloak.\n\n"
+                "What would you like to do?",
+                choices=[
+                    ("mappers", "Set up / update mappers only (skip IdP config)"),
+                    ("edit",    "Edit IdP configuration and mappers"),
+                ],
+                title=f"Federation — {alias}", width=72, height=16, menu_height=6,
+                ok_label="Select", cancel_label="Cancel",
+            )
+            if code != d.OK:
+                return
+            mappers_only = (choice == "mappers")
+    else:
+        # No existing IdPs — go straight to alias input
+        c, alias = d.inputbox(
+            "Federation — Step 1 of 8\n\n"
+            "IdP alias — short identifier for the external identity provider.\n"
+            "Example: globus",
+            title="Federation (1/8) — Alias", width=72, height=12,
+            **_pre(saved.get("alias", "")),
+        )
+        if c != d.OK or not alias.strip():
+            return
+        alias = alias.strip()
+        existing_idp = conn.kc.get_idp(alias)
+
+    if mappers_only:
+        # Skip all IdP config steps — jump straight to PKCE introspect
+        display_name = (existing_idp or {}).get("displayName", alias)
+        well_known_url = saved.get("well_known_url", "")
+        ext_client_id = (existing_idp or {}).get("config", {}).get("clientId", "")
+        ext_client_secret = ""
+        default_scope = (existing_idp or {}).get("config", {}).get("defaultScope", "openid email profile")
+
+    if not mappers_only:
+        # Step 2: display name
+        init_display = (existing_idp or {}).get("displayName", "") or saved.get("display_name", "")
+        c, display_name = d.inputbox(
+            "Federation — Step 2 of 8\n\n"
+            "Display name — shown on the Keycloak login page.\n"
+            "Example: Globus",
+            title="Federation (2/8) — Display name", width=72, height=10,
+            **_pre(init_display),
+        )
+        if c != d.OK or not display_name.strip():
+            return
+        display_name = display_name.strip()
+
+        # Step 3: well-known URL
+        init_wk = (existing_idp or {}).get("config", {}).get("metadataDescriptorUrl", "") or saved.get("well_known_url", "")
+        c, well_known_url = d.inputbox(
+            "Federation — Step 3 of 8\n\n"
+            "Well-known OpenID Configuration URL.\n"
+            "Example: https://auth.globus.org/.well-known/openid-configuration",
+            title="Federation (3/8) — Well-known URL", width=72, height=10,
+            **_pre(init_wk),
+        )
+        if c != d.OK or not well_known_url.strip():
+            return
+        well_known_url = well_known_url.strip()
+
+        # Fetch discovery document — needed for explicit endpoint population and scope hints
+        d.infobox(f"Fetching discovery document...\n{well_known_url}", width=72, height=6,
+                  title="Federation (3/9) — Fetching")
+        try:
+            discovery_doc = KeycloakClient.fetch_oidc_discovery(well_known_url)
+        except Exception as exc:
+            _error(d, f"Could not fetch well-known URL:\n\n{exc}")
+            return
+
+        # Step 4: confirm scopes
+        doc_scopes = " ".join(discovery_doc.get("scopes_supported", []))
+        init_scope = saved.get("default_scope", "") or (
+            "openid email profile"
+            if not doc_scopes
+            else " ".join(s for s in doc_scopes.split() if s in ("openid", "email", "profile"))
+        )
+        scope_hint = (
+            f"Scopes available per discovery doc:\n  {doc_scopes}\n\n"
+            if doc_scopes else ""
+        )
+        c, default_scope = d.inputbox(
+            f"Federation — Step 4 of 9\n\n"
+            f"{scope_hint}"
+            "Space-separated scopes to request. 'openid' is always required.",
+            title="Federation (4/9) — Scopes", width=72, height=14,
+            **_pre(init_scope),
+        )
+        if c != d.OK:
+            return
+        default_scope = default_scope.strip() or "openid email profile"
+
+        # Step 5: external IdP credentials
+        init_cid = (existing_idp or {}).get("config", {}).get("clientId", "") or saved.get("ext_client_id", "")
+        c, ext_client_id = d.inputbox(
+            "Federation — Step 5a of 9\n\n"
+            "Client ID registered with the external identity provider.",
+            title="Federation (5a/9) — IdP client ID", width=72, height=10,
+            **_pre(init_cid),
+        )
+        if c != d.OK or not ext_client_id.strip():
+            return
+        ext_client_id = ext_client_id.strip()
+
+        secret_hint = "\n(Leave blank to keep the existing secret.)" if existing_idp else ""
+        init_secret = saved.get("ext_client_secret", "")
+        c, ext_client_secret = d.inputbox(
+            f"Federation — Step 5b of 9\n\n"
+            f"Client secret from the external identity provider.{secret_hint}",
+            title="Federation (5b/9) — IdP client secret", width=72, height=10,
+            **_pre(init_secret),
+        )
+        if c != d.OK:
+            return
+        ext_client_secret = ext_client_secret.strip()
+
+        # Step 6: show broker redirect URI
+        public_base = f"https://{conn.public_domain}" if getattr(conn, "public_domain", None) else conn.kc.base_url
+        broker_uri = f"{public_base}/realms/{conn.kc.realm}/broker/{alias}/endpoint"
+        _msgbox(d,
+            "Federation — Step 6 of 9\n\n"
+            "Register this redirect URI with the external identity provider:\n\n"
+            f"  {broker_uri}\n\n"
+            "Add it to the client's allowed redirect URIs in the IdP's\n"
+            "developer console before completing the PKCE test in step 8.",
+            title="Federation (6/9) — Broker Redirect URI", width=76, height=16,
+        )
+
+        # Step 7: create or update IdP in Keycloak
+        d.infobox("Configuring IdP in Keycloak...", width=52, height=6,
+                  title="Federation (7/9)")
+        try:
+            if existing_idp:
+                endpoint_config = {
+                    "authorizationUrl": discovery_doc["authorization_endpoint"],
+                    "tokenUrl": discovery_doc["token_endpoint"],
+                    "userInfoUrl": discovery_doc.get("userinfo_endpoint", ""),
+                    "jwksUrl": discovery_doc.get("jwks_uri", ""),
+                    "issuer": discovery_doc.get("issuer", ""),
+                    "useJwksUrl": "true",
+                    "validateSignature": "true",
+                    "useDiscoveryEndpoint": "false",
+                    "clientId": ext_client_id,
+                    "defaultScope": default_scope,
+                }
+                patch = {
+                    "displayName": display_name,
+                    "config": {**existing_idp.get("config", {}), **endpoint_config},
+                }
+                if ext_client_secret:
+                    patch["config"]["clientSecret"] = ext_client_secret
+                conn.kc.update_idp(alias, patch)
+                action_word = "updated"
+            else:
+                if not ext_client_secret:
+                    _error(d, "Client secret is required when creating a new IdP.")
+                    return
+                conn.kc.create_idp(
+                    alias, display_name, well_known_url, ext_client_id, ext_client_secret,
+                    default_scope=default_scope,
+                )
+                action_word = "created"
+        except Exception as exc:
+            _error(d, f"Failed to configure IdP:\n\n{exc}")
+            return
+
+        _msgbox(d,
+            f"IdP '{alias}' {action_word} in Keycloak.\n\n"
+            "Proceed to step 8 to verify the claims via a live login.",
+            title=f"Federation (7/9) — IdP {action_word}", width=64, height=10,
+        )
+
+    # Step 8: PKCE introspect — uses the envoy-proxy Keycloak client
+    pkce_secret = _resolve_envoy_oidc_secret(release, namespace)
+    if not pkce_secret:
+        c, pkce_secret = d.inputbox(
+            "Federation — Step 8 of 9\n\n"
+            "To verify claims, the wizard opens a browser and logs in via the\n"
+            f"'{alias}' IdP using the envoy-proxy Keycloak client.\n\n"
+            "Enter the envoy-proxy client secret (from the cluster secrets):",
+            title="Federation (8/9) — PKCE client secret", width=72, height=14,
+        )
+        if c != d.OK:
+            return
+        pkce_secret = pkce_secret.strip()
+
+    pkce_port = 8888
+    pkce_redirect = f"http://localhost:{pkce_port}/callback"
+
+    # Register the callback URI on the envoy-proxy Keycloak client, remove after
+    envoy_client_pre = conn.kc.get_client_by_client_id("envoy-proxy")
+    if not envoy_client_pre:
+        _error(d, "envoy-proxy client not found in Keycloak — cannot register redirect URI.")
+        return
+    envoy_uuid_pre = envoy_client_pre["id"]
+    try:
+        conn.kc.add_redirect_uri(envoy_uuid_pre, pkce_redirect)
+    except Exception as exc:
+        _error(d, f"Failed to register redirect URI on envoy-proxy:\n\n{exc}")
+        return
+
+    _msgbox(d,
+        "A browser window will open (or a URL printed to the terminal).\n\n"
+        "Log in with a test account via the external IdP.\n"
+        "After login, return here — the wizard captures the callback.",
+        title="Federation (8/9) — Opening browser", width=68, height=12,
+    )
+
+    public_domain = getattr(conn, "public_domain", None)
+    pkce_kc_base = f"https://{public_domain}" if public_domain else conn.kc.base_url
+
+    # Get the external userinfo URL from the IdP config so we can fetch raw federation claims
+    current_idp = conn.kc.get_idp(alias)
+    ext_userinfo_url = (current_idp or {}).get("config", {}).get("userInfoUrl", "")
+
+    try:
+        claims = _pkce_introspect(
+            pkce_kc_base,
+            conn.kc.realm,
+            "envoy-proxy",
+            pkce_secret,
+            alias,
+            port=pkce_port,
+            token_base=conn.kc.base_url,
+            ext_userinfo_url=ext_userinfo_url,
+            kc_admin=conn.kc,
+        )
+    except Exception as exc:
+        _error(d, f"PKCE introspect failed:\n\n{exc}")
+        return
+    finally:
+        try:
+            conn.kc.remove_redirect_uri(envoy_uuid_pre, pkce_redirect)
+        except Exception:
+            pass
+
+    # Show all claims
+    claims_lines = "\n".join(
+        f"  {k}: {str(v)[:60]}" for k, v in sorted(claims.items())
+    )
+    _msgbox(d,
+        f"Claims from '{alias}':\n\n{claims_lines}",
+        title="Federation (8/9) — Claims received",
+        width=76, height=min(30, len(claims) + 8),
+    )
+
+    # Ask user to pick the organization claim
+    claim_choices = [
+        (k, f"{k} = {str(v)[:48]}") for k, v in sorted(claims.items())
+    ]
+    if not claim_choices:
+        _error(d, "No claims returned — cannot map an organization attribute.")
+        return
+
+    saved_claim = saved.get("org_claim", "")
+    default_claim = saved_claim if saved_claim in dict(claim_choices) else (claim_choices[0][0] if claim_choices else "")
+    code, org_claim = d.menu(
+        "Pick the claim to use as the user's 'organization' attribute:",
+        choices=claim_choices,
+        title="Federation (8/9) — Pick org claim",
+        width=72, height=20, menu_height=12,
+        ok_label="Select", cancel_label="Cancel",
+        default_item=default_claim,
+    )
+    if code != d.OK:
+        return
+
+    # Step 8: create IdP attribute importer + protocol mapper on envoy-proxy
+    d.infobox("Creating IdP and protocol mappers...", width=52, height=6,
+              title="Federation (9/9)")
+    try:
+        # Strip the "ext_" prefix we added for display — the mapper reads the raw
+        # claim from the external IdP token, not our renamed wizard keys.
+        raw_claim = org_claim[4:] if org_claim.startswith("ext_") else org_claim
+        conn.kc.upsert_idp_mapper(alias, {
+            "identityProviderMapper": "oidc-user-attribute-idp-mapper",
+            "identityProviderAlias": alias,
+            "name": "org-claim-importer",
+            "config": {
+                "syncMode": "INHERIT",
+                "claim": raw_claim,
+                "user.attribute": "organization",
+            },
+        })
+
+        envoy_client = conn.kc.get_client_by_client_id("envoy-proxy")
+        if not envoy_client:
+            _error(d, "envoy-proxy client not found in Keycloak.\n"
+                      "Create it before configuring federation mappers.")
+            return
+        client_uuid = envoy_client["id"]
+        conn.kc.upsert_protocol_mapper(client_uuid, {
+            "name": "authz-group-membership",
+            "protocol": "openid-connect",
+            "protocolMapper": "oidc-group-membership-mapper",
+            "config": {
+                "claim.name": "groups",
+                "full.path": "false",
+                "id.token.claim": "true",
+                "access.token.claim": "true",
+                "userinfo.token.claim": "false",
+            },
+        })
+    except Exception as exc:
+        _error(d, f"Failed to create mappers:\n\n{exc}")
+        return
+
+    conn.federation_alias = alias
+    _fed_state_save(namespace, {
+        "alias": alias,
+        "display_name": display_name,
+        "well_known_url": well_known_url,
+        "default_scope": default_scope,
+        "ext_client_id": ext_client_id,
+        "ext_client_secret": ext_client_secret,
+        "org_claim": raw_claim,
+    })
+
+    _msgbox(d,
+        f"Federation setup complete.\n\n"
+        f"  IdP alias:         {alias}\n"
+        f"  Org claim:         {raw_claim}\n"
+        f"  Attribute importer: org-claim-importer\n"
+        f"  Protocol mapper:    authz-group-membership (on envoy-proxy)",
+        title="Federation complete", width=68, height=14,
+    )
+
+
 # ── Main TUI loop ──────────────────────────────────────────────────────────────
 
 def run_wizard(namespace: str, release: str, dry_run: bool, ch_service: str = ""):
     d = _make_dialog(namespace)
     conn = WizardConnections()
+    conn.namespace = namespace
 
     # Clean up port-forwards on exit
     def _cleanup(*_):
@@ -2630,6 +3680,13 @@ def run_wizard(namespace: str, release: str, dry_run: bool, ch_service: str = ""
         while True:
             locked = not conn.connected
             x_badge = "[X]" if locked else ""
+            fed_state = _fed_state_load(namespace)
+            fed_alias = (
+                getattr(conn, "federation_alias", None)
+                or fed_state.get("alias", "")
+            )
+            f_badge = f"[{fed_alias}]" if fed_alias else "[none]"
+            g_badge = x_badge or ("" if fed_alias else "[no-fed]")
 
             choices = [
                 ("", "  ── Cluster"),
@@ -2643,7 +3700,9 @@ def run_wizard(namespace: str, release: str, dry_run: bool, ch_service: str = ""
                 ("", "  ── Authorization"),
                 ("4", _item("Organizations    — manage orgs", x_badge)),
                 ("5", _item("Rules            — classification rules", x_badge)),
-                ("6", _item("Grants           — access grants", x_badge)),
+                ("", "  ── Federation & Grants"),
+                ("F", _item("Federation       — OIDC IdP setup + claim mappers", f_badge)),
+                ("G", _item("Grants           — access grants + auto-assign", g_badge)),
                 ("", "  ── Operations"),
                 ("T", _item("Test Enforcement — row count per grant role", x_badge)),
                 ("L", _item("Audit Log        — view audit log", x_badge)),
@@ -2691,11 +3750,16 @@ def run_wizard(namespace: str, release: str, dry_run: bool, ch_service: str = ""
                     _msgbox(d, "Connect first (step 1).", title="Not connected")
                 else:
                     section_rules(d, conn)
-            elif tag == "6":
+            elif tag == "G":
                 if locked:
                     _msgbox(d, "Connect first (step 1).", title="Not connected")
                 else:
                     section_grants(d, conn)
+            elif tag == "F":
+                if locked:
+                    _msgbox(d, "Connect first (step 1).", title="Not connected")
+                else:
+                    section_federation(d, conn, namespace, release)
             elif tag == "T":
                 if locked:
                     _msgbox(d, "Connect first (step 1).", title="Not connected")

@@ -21,7 +21,7 @@ ldap:
 keycloak:
   image:
     repository: quay.io/keycloak/keycloak
-    tag: "26.1.4"
+    tag: "26.8.0"
     pullPolicy: IfNotPresent
   adminUsername: admin
   adminPassword: "CHANGEME"

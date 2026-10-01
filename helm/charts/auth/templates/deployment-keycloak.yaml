@@ -26,6 +26,9 @@ spec:
       serviceAccountName: {{ include "metranova-auth.serviceAccountName" . }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
+        {{- if .Values.keycloak.persistence.enabled }}
+        fsGroup: 1000
+        {{- end }}
       containers:
         - name: keycloak
           securityContext:
@@ -79,10 +82,19 @@ spec:
             - name: realm-config
               mountPath: /opt/keycloak/data/import
               readOnly: true
+            {{- if .Values.keycloak.persistence.enabled }}
+            - name: keycloak-data
+              mountPath: /opt/keycloak/data/h2
+            {{- end }}
       volumes:
         - name: realm-config
           configMap:
             name: {{ include "metranova-auth.fullname" . }}-keycloak
+        {{- if .Values.keycloak.persistence.enabled }}
+        - name: keycloak-data
+          persistentVolumeClaim:
+            claimName: {{ include "metranova-auth.fullname" . }}-keycloak-data
+        {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

@@ -170,3 +170,90 @@ approach was designed specifically to avoid this limitation.
 - Dictionary refresh (30–60 s) is the only window between a rule/grant change and its
   enforcement.  For immediate effect, run `SYSTEM RELOAD DICTIONARY` on the affected
   dictionary.
+
+## Federation
+
+MetrANOVA can delegate authentication to an external OIDC Identity Provider — Globus,
+a university SSO, or any standards-compliant IdP — without changing the authorization
+model.  Keycloak acts as a federation broker: it accepts the external login, maps the
+incoming token claims to local user attributes and group memberships, and issues its own
+tokens to downstream clients.  ClickHouse, Envoy, and the auth-proxy never see the
+external IdP directly; they continue to trust only Keycloak.
+
+The full identity chain for a federated user is:
+
+```
+external IdP → Keycloak Identity Provider (broker) → Keycloak user attribute
+    → Keycloak group membership → envoy-proxy id_token (groups claim)
+    → Envoy validation → auth-proxy → ClickHouse LDAP bind
+    → role_mapping → currentRoles() → authz_group_read_orgs → row policy
+```
+
+### Setting up federation (wizard step F)
+
+The wizard's Federation step creates the Identity Provider in Keycloak via the admin
+API, then runs a PKCE auth flow so the operator can inspect real token claims before
+committing to a mapper configuration.
+
+**Before the wizard can create the IdP**, the external IdP must be registered with
+a client whose redirect URI points back to Keycloak.  The wizard displays the broker
+redirect URI immediately:
+
+```
+{keycloak_base}/realms/{realm}/broker/{alias}/endpoint
+```
+
+This URL must be added to the external IdP's client configuration out-of-band — the
+wizard cannot reach the external IdP's admin interface.  Once registered, the operator
+resumes the wizard to complete IdP creation.
+
+### PKCE introspection flow
+
+After creating the Identity Provider, the wizard starts a local HTTP server on a
+loopback port and constructs a Keycloak authorization URL that includes
+`kc_idp_hint={alias}`.  The `kc_idp_hint` parameter bypasses Keycloak's IdP
+selection screen and forces the auth flow through the specific federation.  The
+operator opens the URL in a browser; after login the external IdP redirects to
+Keycloak which redirects to the wizard's local callback.
+
+The wizard exchanges the authorization code for tokens, decodes the id_token JWT, and
+queries the userinfo endpoint.  It then presents all observed claims so the operator
+can choose which one represents organizational membership (commonly `organization`,
+`idp`, or an institution-specific attribute).
+
+This step requires the wizard to run on the same machine as the browser, or to be
+reachable via SSH port-forward on the callback port.
+
+### The two mapper types
+
+Wiring a federation claim into the authorization model requires two distinct Keycloak
+mappers that serve opposite directions.
+
+**IdP Attribute Importer (incoming)** — created on the Identity Provider, not on a
+client.  When a user authenticates through the federation, Keycloak copies the
+chosen claim from the external IdP's id_token into a Keycloak user attribute named
+`organization`.  This mapper captures raw identity information; it does not assign
+groups or affect any downstream token by itself.
+
+**Protocol mapper on `envoy-proxy` (outgoing)** — an `oidc-group-membership-mapper`
+added to the `envoy-proxy` client with claim name `groups` and `full.path=false`.
+When Keycloak issues tokens to Envoy, this mapper injects the user's current
+Keycloak group memberships into the id_token and access_token.  Group names like
+`authz-tlp-esnet-amber-read` appear in the `groups` array that Envoy validates.
+
+Both mappers are required.  Without the attribute importer, Keycloak has no record
+of the user's external organization.  Without the protocol mapper, group memberships
+never reach Envoy and the user's `currentRoles()` in ClickHouse will be empty.
+
+### Group assignment for federated users
+
+The wizard's Grant step (step 6) creates Keycloak groups following the naming
+convention `authz-tlp-{org}-{level}-{permission}` (e.g.
+`authz-tlp-esnet-amber-read`).  These groups are not populated automatically from
+federation claims.  An administrator must add federated users to the appropriate
+groups in Keycloak, or a future claim-to-group mapper can automate assignment based
+on the `organization` attribute.
+
+Once a user is in a group, the protocol mapper on `envoy-proxy` includes it in the
+JWT.  The LDAP sync path propagates the Keycloak group membership to a ClickHouse
+role assignment, and from that point the standard row-policy evaluation applies.

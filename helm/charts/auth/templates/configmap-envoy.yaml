@@ -46,7 +46,7 @@ data:
                       cluster: keycloak
                       uri: http://{{ include "metranova-auth.fullname" . }}-keycloak:8080/realms/{{ .Values.realm }}/protocol/openid-connect/token
                       timeout: 15s
-                    authorization_endpoint: https://{{ .Values.domain }}/realms/{{ .Values.realm }}/protocol/openid-connect/auth
+                    authorization_endpoint: https://{{ .Values.domain }}/realms/{{ .Values.realm }}/protocol/openid-connect/auth{{- if .Values.idpHint }}?kc_idp_hint={{ .Values.idpHint }}{{- end }}
                     redirect_uri: "https://{{ .Values.domain }}/oauth2/callback"
                     redirect_path_matcher:
                       path:
@@ -54,6 +54,10 @@ data:
                     signout_path:
                       path:
                         exact: /signout
+                    auth_scopes:
+                    - openid
+                    - email
+                    - profile
                     forward_bearer_token: true
                     credentials:
                       client_id: envoy-proxy
