@@ -146,6 +146,10 @@ spec:
           {{- $chImageRepository = coalesce (get $chImage "repository") $chImageRepository }}
           {{- $chImageTag = coalesce (get $chImage "tag") $chImageTag }}
           {{- end }}
+          {{- with .Values.config.ch.podSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           containers:
             - name: clickhouse
               image: {{ printf "%s:%s" $chImageRepository $chImageTag | quote }}

@@ -55,6 +55,9 @@ config:
     command: []
     affinity: {}
     tolerations: []
+    podSecurityContext:
+      fsGroup: 101
+      fsGroupChangePolicy: OnRootMismatch
     topologySpreadConstraints: []
     userSecret:
       autoCreate: true
