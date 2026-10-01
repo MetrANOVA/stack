@@ -25,10 +25,11 @@ spec:
       {{- include "metranova-auth.imagePullSecrets" . | nindent 6 }}
       serviceAccountName: {{ include "metranova-auth.serviceAccountName" . }}
       securityContext:
-        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+        {{- $sc := deepCopy (.Values.podSecurityContext | default dict) }}
         {{- if .Values.keycloak.persistence.enabled }}
-        fsGroup: 1000
+        {{- $_ := set $sc "fsGroup" 1000 }}
         {{- end }}
+        {{- toYaml $sc | nindent 8 }}
       containers:
         - name: keycloak
           securityContext:
