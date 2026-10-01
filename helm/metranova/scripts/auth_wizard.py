@@ -470,11 +470,24 @@ class KeycloakClient:
             },
             "storeToken": True,
         })
+        # Grant broker/read-token to realm defaults so all users can call the
+        # broker token endpoint. Required for PKCE claim picker in KC 26+.
+        self.grant_broker_read_token_to_realm_defaults()
 
     def update_idp(self, alias: str, patch: dict) -> None:
         existing = self.get_idp(alias) or {}
         existing.update(patch)
         self._request("PUT", f"/identity-provider/instances/{alias}", existing)
+
+    def _broker_client_and_role(self) -> tuple[str, dict] | tuple[None, None]:
+        """Return (broker_client_uuid, read-token role dict) or (None, None)."""
+        broker_clients = self._request("GET", "/clients?clientId=broker") or []
+        if not broker_clients:
+            return None, None
+        broker_uuid = broker_clients[0]["id"]
+        roles = self._request("GET", f"/clients/{broker_uuid}/roles") or []
+        read_token = next((r for r in roles if r["name"] == "read-token"), None)
+        return (broker_uuid, read_token) if read_token else (None, None)
 
     def grant_broker_read_token(self, user_id: str) -> None:
         """Assign broker/read-token role to user so they can call /broker/{alias}/token.
@@ -482,18 +495,35 @@ class KeycloakClient:
         KC 26 requires this role for users to retrieve their stored external IdP tokens.
         Idempotent: no-ops if the role is already assigned.
         """
-        broker_clients = self._request("GET", "/clients?clientId=broker") or []
-        if not broker_clients:
-            return
-        broker_uuid = broker_clients[0]["id"]
-        roles = self._request("GET", f"/clients/{broker_uuid}/roles") or []
-        read_token = next((r for r in roles if r["name"] == "read-token"), None)
-        if not read_token:
+        broker_uuid, read_token = self._broker_client_and_role()
+        if not broker_uuid:
             return
         existing = self._request("GET", f"/users/{user_id}/role-mappings/clients/{broker_uuid}") or []
         if any(r["name"] == "read-token" for r in existing):
             return
         self._request("POST", f"/users/{user_id}/role-mappings/clients/{broker_uuid}", [read_token])
+
+    def grant_broker_read_token_to_realm_defaults(self) -> None:
+        """Add broker/read-token to the realm's default roles composite.
+
+        This ensures every user who logs in automatically receives the role in
+        their JWT, so the broker token endpoint works without per-user grants.
+        Idempotent.
+        """
+        broker_uuid, read_token = self._broker_client_and_role()
+        if not broker_uuid:
+            return
+        default_role_name = f"default-roles-{self.realm}"
+        realm_roles = self._request("GET", "/roles") or []
+        default_role = next((r for r in realm_roles if r["name"] == default_role_name), None)
+        if not default_role:
+            return
+        existing_composites = (
+            self._request("GET", f"/roles-by-id/{default_role['id']}/composites/clients/{broker_uuid}") or []
+        )
+        if any(r["name"] == "read-token" for r in existing_composites):
+            return
+        self._request("POST", f"/roles-by-id/{default_role['id']}/composites", [read_token])
 
     def list_idp_mappers(self, alias: str) -> list[dict]:
         return self._request("GET", f"/identity-provider/instances/{alias}/mappers") or []
@@ -530,6 +560,10 @@ class KeycloakClient:
         uris = [u for u in client.get("redirectUris", []) if u != uri]
         client["redirectUris"] = uris
         self._request("PUT", f"/clients/{client_uuid}", client)
+
+
+class _BrokerTokenNeedsReauth(Exception):
+    """Raised when broker/read-token was just granted and PKCE must be re-run for a fresh token."""
 
 
 def _pkce_introspect(
@@ -690,15 +724,15 @@ def _pkce_introspect(
             broker_resp = requests.get(broker_url, headers={"Authorization": f"Bearer {broker_bearer}"})
 
             if broker_resp.status_code == 403 and kc_admin:
-                # KC 26 requires broker/read-token role. Grant it, then retry with the
-                # ORIGINAL token — KC checks the role from the DB, not JWT claims, so
-                # a refresh is not required and avoids session rotation losing the stored token.
+                # KC 26 checks broker/read-token from JWT claims (not DB), so the role
+                # must be present at token issuance time. Grant it globally (realm
+                # defaults) and per-user, then signal the caller to re-run PKCE so the
+                # next token carries the role. Retrying with the current token won't work.
                 user_id = id_token_claims.get("sub", "")
                 if user_id:
                     kc_admin.grant_broker_read_token(user_id)
-                    broker_resp = requests.get(
-                        broker_url, headers={"Authorization": f"Bearer {broker_bearer}"}
-                    )
+                kc_admin.grant_broker_read_token_to_realm_defaults()
+                raise _BrokerTokenNeedsReauth("broker/read-token granted; re-run PKCE for a fresh token")
 
             if broker_resp.ok:
                 ext_token = broker_resp.json()
@@ -3543,8 +3577,8 @@ def section_federation(d, conn, namespace, release: str = "metranova-auth"):
     current_idp = conn.kc.get_idp(alias)
     ext_userinfo_url = (current_idp or {}).get("config", {}).get("userInfoUrl", "")
 
-    try:
-        claims = _pkce_introspect(
+    def _run_pkce() -> dict:
+        return _pkce_introspect(
             pkce_kc_base,
             conn.kc.realm,
             "envoy-proxy",
@@ -3555,6 +3589,20 @@ def section_federation(d, conn, namespace, release: str = "metranova-auth"):
             ext_userinfo_url=ext_userinfo_url,
             kc_admin=conn.kc,
         )
+
+    try:
+        try:
+            claims = _run_pkce()
+        except _BrokerTokenNeedsReauth:
+            # broker/read-token was just granted — re-open browser so KC issues a
+            # fresh token that carries the role in its claims.
+            _msgbox(d,
+                "Permission granted.\n\n"
+                "A second browser window will open so Keycloak issues\n"
+                "a fresh token with the new role. Log in again.",
+                title="Re-authentication required", width=60, height=10,
+            )
+            claims = _run_pkce()
     except Exception as exc:
         _error(d, f"PKCE introspect failed:\n\n{exc}")
         return

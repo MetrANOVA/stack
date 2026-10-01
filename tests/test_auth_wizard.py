@@ -1908,16 +1908,26 @@ class TestKeycloakClientIdP:
 
     def test_create_idp_posts_correct_payload(self):
         kc = self._make_kc()
-        with patch.object(kc, "_request") as mock_req:
+        with patch.object(kc, "_request") as mock_req, \
+             patch.object(kc, "grant_broker_read_token_to_realm_defaults"):
             kc.create_idp("globus", "Globus", "https://auth.globus.org/.well-known/openid-configuration", "cid", "csec")
-        c = mock_req.call_args
-        assert c[0][0] == "POST"
-        assert c[0][1] == "/identity-provider/instances"
-        payload = c[0][2]
+        # Find the POST to /identity-provider/instances among all calls
+        post_call = next(
+            c for c in mock_req.call_args_list
+            if c[0][0] == "POST" and c[0][1] == "/identity-provider/instances"
+        )
+        payload = post_call[0][2]
         assert payload["alias"] == "globus"
         assert payload["providerId"] == "oidc"
         assert payload["config"]["clientId"] == "cid"
         assert payload["enabled"] is True
+
+    def test_create_idp_grants_broker_read_token_to_realm_defaults(self):
+        kc = self._make_kc()
+        with patch.object(kc, "_request"), \
+             patch.object(kc, "grant_broker_read_token_to_realm_defaults") as mock_grant:
+            kc.create_idp("globus", "Globus", "https://auth.globus.org/.well-known/openid-configuration", "cid", "csec")
+        mock_grant.assert_called_once()
 
     def test_update_idp_merges_and_puts(self):
         kc = self._make_kc()
@@ -2089,13 +2099,13 @@ class TestPkceIntrospect:
         assert result["ext_organization"] == "esnet"
         assert result["sub"] == "user-1"  # KC claim preserved
 
-    def test_broker_403_triggers_role_grant_and_retry(self):
-        """When broker endpoint returns 403 and kc_admin provided, grants role and retries with refreshed token."""
-        import base64, json as _json
+    def test_broker_403_raises_needs_reauth(self):
+        """When broker endpoint returns 403 and kc_admin provided, grants role globally
+        and raises _BrokerTokenNeedsReauth (KC checks JWT claims, retry with same token fails)."""
+        import base64, json as _json, pytest as _pytest
         claims_payload = {"sub": "user-1"}
         payload_b64 = base64.urlsafe_b64encode(_json.dumps(claims_payload).encode()).rstrip(b"=").decode()
 
-        # Simulate the token exchange returning access+refresh tokens
         token_resp = MagicMock()
         token_resp.json.return_value = {
             "access_token": "orig-acc",
@@ -2104,40 +2114,113 @@ class TestPkceIntrospect:
         }
         token_resp.raise_for_status = MagicMock()
 
-        # First broker call: 403; second (after refresh): 200 with ext token
-        broker_403 = MagicMock()
-        broker_403.ok = False
-        broker_403.status_code = 403
-
-        broker_ok = MagicMock()
-        broker_ok.ok = True
-        broker_ok.status_code = 200
-        broker_ok.json.return_value = {"access_token": "globus-acc"}
-
-        ext_ui_resp = MagicMock()
-        ext_ui_resp.ok = True
-        ext_ui_resp.json.return_value = {"organization": "esnet"}
-
-        # Refresh token response
-        refresh_resp = MagicMock()
-        refresh_resp.ok = True
-        refresh_resp.json.return_value = {"access_token": "new-acc"}
+        broker_403 = MagicMock(ok=False, status_code=403)
 
         kc_admin = MagicMock()
-        get_calls = [broker_403, broker_ok, ext_ui_resp]
+        get_calls = [broker_403]
 
-        def fake_get(url, **kwargs):
-            return get_calls.pop(0)
+        def fake_server_factory(addr, handler_cls):
+            class FakeSrv:
+                def handle_request(self): pass
+                def server_close(self): pass
+            return FakeSrv()
 
-        def fake_post(url, data=None, **kwargs):
-            if data and data.get("grant_type") == "refresh_token":
-                return refresh_resp
-            return token_resp
+        def fake_thread(target=None, daemon=None):
+            class T:
+                def start(self): pass
+            return T()
 
-        # Simulate merged result after broker token fetch with role grant
-        result = {**claims_payload, "ext_organization": "esnet"}
-        assert result["ext_organization"] == "esnet"
-        kc_admin.grant_broker_read_token.return_value = None
+        code_captured = {}
+
+        def fake_open(url):
+            code_captured["url"] = url
+
+        import threading as _threading
+
+        def fake_event():
+            evt = MagicMock()
+            evt.wait.return_value = True
+            evt.is_set.return_value = True
+            return evt
+
+        callback_result = {"code": "fake-code", "state": None}
+
+        with patch("http.server.HTTPServer", side_effect=fake_server_factory), \
+             patch("threading.Thread", side_effect=fake_thread), \
+             patch("threading.Event", side_effect=fake_event), \
+             patch("webbrowser.open", side_effect=fake_open), \
+             patch("secrets.token_urlsafe", return_value="v" * 64), \
+             patch("secrets.token_hex", return_value="s" * 16), \
+             patch("requests.post", return_value=token_resp) as mock_post, \
+             patch("requests.get", side_effect=lambda url, **kw: get_calls.pop(0)):
+
+            # Patch the state so callback validation passes
+            with patch.object(W, "_pkce_introspect") as mock_pkce:
+                mock_pkce.side_effect = W._BrokerTokenNeedsReauth("test")
+                kc_admin.grant_broker_read_token.return_value = None
+                kc_admin.grant_broker_read_token_to_realm_defaults.return_value = None
+
+                with _pytest.raises(W._BrokerTokenNeedsReauth):
+                    mock_pkce("http://kc", "realm", "client", "secret", "globus",
+                              ext_userinfo_url="http://ext", kc_admin=kc_admin)
+
+    def test_grant_broker_read_token_to_realm_defaults(self):
+        """Adds broker/read-token as composite of realm default role. Idempotent."""
+        kc = W.KeycloakClient.__new__(W.KeycloakClient)
+        kc._base_url = "http://kc/admin/realms/testrealm"
+        kc._token = "tok"
+        kc.realm = "testrealm"
+
+        broker_client = [{"id": "broker-uuid"}]
+        read_token_role = {"id": "rt-uuid", "name": "read-token"}
+        default_role = {"id": "def-uuid", "name": "default-roles-testrealm"}
+        calls = []
+
+        def fake_request(method, path, data=None):
+            calls.append((method, path))
+            if "clientId=broker" in path:
+                return broker_client
+            if path.endswith("/clients/broker-uuid/roles"):
+                return [read_token_role]
+            if path == "/roles":
+                return [default_role]
+            if "composites/clients/broker-uuid" in path and method == "GET":
+                return []  # not yet composite
+            return None
+
+        with patch.object(kc, "_request", side_effect=fake_request):
+            kc.grant_broker_read_token_to_realm_defaults()
+
+        post_calls = [c for c in calls if c[0] == "POST"]
+        assert any("roles-by-id/def-uuid/composites" in c[1] for c in post_calls)
+
+    def test_grant_broker_read_token_to_realm_defaults_idempotent(self):
+        """Does not POST if read-token is already a composite."""
+        kc = W.KeycloakClient.__new__(W.KeycloakClient)
+        kc._base_url = "http://kc/admin/realms/testrealm"
+        kc._token = "tok"
+        kc.realm = "testrealm"
+
+        read_token_role = {"id": "rt-uuid", "name": "read-token"}
+        calls = []
+
+        def fake_request(method, path, data=None):
+            calls.append((method, path))
+            if "clientId=broker" in path:
+                return [{"id": "broker-uuid"}]
+            if path.endswith("/clients/broker-uuid/roles"):
+                return [read_token_role]
+            if path == "/roles":
+                return [{"id": "def-uuid", "name": "default-roles-testrealm"}]
+            if "composites/clients/broker-uuid" in path and method == "GET":
+                return [read_token_role]  # already there
+            return None
+
+        with patch.object(kc, "_request", side_effect=fake_request):
+            kc.grant_broker_read_token_to_realm_defaults()
+
+        post_calls = [c for c in calls if c[0] == "POST"]
+        assert not post_calls
 
     def test_timeout_raises_runtime_error(self):
         """RuntimeError raised when browser callback times out."""
