@@ -265,8 +265,8 @@ data:
             - endpoint:
                 address:
                   socket_address:
-                    address: {{ .Values.portal.service | default "metranova-api" }}
-                    port_value: {{ .Values.portal.port | default 8000 }}
+                    address: {{ include "metranova-auth.fullname" . }}-portal
+                    port_value: 8000
 
     admin:
       address:

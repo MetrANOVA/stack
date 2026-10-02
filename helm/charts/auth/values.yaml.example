@@ -140,10 +140,19 @@ grafana:
       cpu: 100m
       memory: 256Mi
 
-# Portal (MetrANOVA API/UI) — proxied at /
+# MetrANOVA Portal — proxied at /
 portal:
-  service: metranova-api
-  port: 8000
+  image:
+    repository: ghcr.io/esnet/metranova-portal
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  resources:
+    limits:
+      cpu: 250m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
 
 # ClickHouse connection — used by Grafana datasource and Envoy routing
 clickhouse:

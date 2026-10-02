@@ -109,3 +109,21 @@ spec:
   selector:
     {{- include "metranova-auth.selectorLabels" . | nindent 4 }}
     app.kubernetes.io/component: grafana
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "metranova-auth.fullname" . }}-portal
+  labels:
+    {{- include "metranova-auth.labels" . | nindent 4 }}
+    app.kubernetes.io/component: portal
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8000
+      targetPort: 8000
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "metranova-auth.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: portal
