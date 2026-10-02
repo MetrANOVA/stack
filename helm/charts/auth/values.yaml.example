@@ -1,7 +1,8 @@
 # Default values for metranova-auth
 
 global:
-  imagePullSecrets: []
+  imagePullSecrets:
+  - name: ghcr-pull-secret
 
 # Set existingSecret to the name of a pre-created secret (e.g. from bootstrap-secrets.py)
 # to prevent helm from overwriting secrets with CHANGEME values.
