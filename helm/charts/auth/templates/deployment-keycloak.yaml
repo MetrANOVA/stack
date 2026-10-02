@@ -61,6 +61,19 @@ spec:
               value: "https://{{ .Values.domain }}"
             - name: KC_PROXY_HEADERS
               value: xforwarded
+            - name: LDAP_HOST
+              value: {{ include "metranova-auth.fullname" . }}-openldap
+            - name: LDAP_PORT
+              value: "389"
+            - name: LDAP_BASE_DN
+              value: {{ include "metranova-auth.ldapBaseDN" . | quote }}
+            - name: LDAP_BIND_DN
+              value: "cn=admin,{{ include "metranova-auth.ldapBaseDN" . }}"
+            - name: LDAP_BIND_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "metranova-auth.fullname" . }}-secrets
+                  key: LDAP_ADMIN_PASSWORD
           ports:
             - name: http
               containerPort: 8080
@@ -85,6 +98,9 @@ spec:
             - name: realm-config
               mountPath: /opt/keycloak/data/import
               readOnly: true
+            - name: keycloak-providers
+              mountPath: /opt/keycloak/providers
+              readOnly: true
             {{- if .Values.keycloak.persistence.enabled }}
             - name: keycloak-data
               mountPath: /opt/keycloak/data/h2
@@ -93,6 +109,9 @@ spec:
         - name: realm-config
           configMap:
             name: {{ include "metranova-auth.fullname" . }}-keycloak
+        - name: keycloak-providers
+          configMap:
+            name: keycloak-providers
         {{- if .Values.keycloak.persistence.enabled }}
         - name: keycloak-data
           persistentVolumeClaim:
