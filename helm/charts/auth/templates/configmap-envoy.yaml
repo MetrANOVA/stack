@@ -150,6 +150,7 @@ data:
                       prefix: /clickhouse
                     route:
                       cluster: clickhouse_local_proxy
+                      prefix_rewrite: /
                   - match:
                       prefix: /token-store/api
                     route:
