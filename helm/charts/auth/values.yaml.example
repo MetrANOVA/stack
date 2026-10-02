@@ -140,6 +140,11 @@ grafana:
       cpu: 100m
       memory: 256Mi
 
+# Portal (MetrANOVA API/UI) — proxied at /
+portal:
+  service: metranova-api
+  port: 8000
+
 # ClickHouse connection — used by Grafana datasource and Envoy routing
 clickhouse:
   host: clickhouse

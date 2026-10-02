@@ -85,6 +85,9 @@ data:
                     - name: ":path"
                       string_match:
                         prefix: /realms/
+                    - name: ":path"
+                      string_match:
+                        prefix: /resources/
               - name: envoy.filters.http.jwt_authn
                 typed_config:
                   "@type": type.googleapis.com/envoy.extensions.filters.http.jwt_authn.v3.JwtAuthentication
@@ -133,6 +136,10 @@ data:
                     route:
                       cluster: keycloak
                   - match:
+                      prefix: /resources/
+                    route:
+                      cluster: keycloak
+                  - match:
                       prefix: /grafana/
                     route:
                       cluster: grafana
@@ -147,10 +154,8 @@ data:
                       cluster: token_store
                   - match:
                       prefix: /
-                    direct_response:
-                      status: 200
-                      body:
-                        inline_string: "MetrANOVA — authenticated"
+                    route:
+                      cluster: portal
 
       - name: http_redirect_listener
         address:
@@ -248,6 +253,20 @@ data:
                   socket_address:
                     address: {{ include "metranova-auth.fullname" . }}-token-store
                     port_value: 8000
+
+      - name: portal
+        connect_timeout: 5s
+        type: LOGICAL_DNS
+        lb_policy: ROUND_ROBIN
+        load_assignment:
+          cluster_name: portal
+          endpoints:
+          - lb_endpoints:
+            - endpoint:
+                address:
+                  socket_address:
+                    address: {{ .Values.portal.service | default "metranova-api" }}
+                    port_value: {{ .Values.portal.port | default 8000 }}
 
     admin:
       address:
