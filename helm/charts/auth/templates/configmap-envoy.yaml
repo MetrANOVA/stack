@@ -107,6 +107,18 @@ data:
                       forward: true
                   rules:
                   - match:
+                      path: /health
+                  - match:
+                      path: /signout
+                  - match:
+                      path: /oauth2/callback
+                  - match:
+                      prefix: /realms/
+                  - match:
+                      prefix: /resources/
+                  - match:
+                      prefix: /grafana/
+                  - match:
                       prefix: /clickhouse
                     requires:
                       provider_name: keycloak
