@@ -144,9 +144,9 @@ grafana:
 # MetrANOVA Portal — proxied at /
 portal:
   image:
-    repository: ghcr.io/esnet/metranova-portal
+    repository: ghcr.io/metranova/portal
     tag: "latest"
-    pullPolicy: IfNotPresent
+    pullPolicy: Always
   resources:
     limits:
       cpu: 250m
