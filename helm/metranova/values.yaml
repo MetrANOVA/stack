@@ -112,6 +112,16 @@ clickhouse:
         limits:
           memory: 16Gi
           cpu: 8000m
+      ldap:
+        enabled: false
+        serverName: metranova_ldap
+        host: ""
+        port: 389
+        bindDN: "uid={user_name},ou=users,{baseDN}"
+        baseDN: ""
+        groupsDN: ""
+        tls: false
+        verificationCooldown: 300
 
   extraResources: []
 

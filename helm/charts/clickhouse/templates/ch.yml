@@ -98,6 +98,49 @@ spec:
           <tcp_port_secure>9440</tcp_port_secure>
         </clickhouse>
 {{- end }}
+{{- if .Values.config.ch.ldap.enabled }}
+      # LDAP server connection
+      config.d/ldap.xml: |
+        <clickhouse>
+          <ldap_servers>
+            <{{ .Values.config.ch.ldap.serverName }}>
+              <host>{{ required "config.ch.ldap.host is required when ldap.enabled=true" .Values.config.ch.ldap.host }}</host>
+              <port>{{ .Values.config.ch.ldap.port | default 389 }}</port>
+              <bind_dn>{{ .Values.config.ch.ldap.bindDN | replace "{baseDN}" .Values.config.ch.ldap.baseDN }}</bind_dn>
+              <verification_cooldown>{{ .Values.config.ch.ldap.verificationCooldown | default 300 }}</verification_cooldown>
+              <enable_tls>{{ if .Values.config.ch.ldap.tls }}yes{{ else }}no{{ end }}</enable_tls>
+            </{{ .Values.config.ch.ldap.serverName }}>
+          </ldap_servers>
+        </clickhouse>
+      # LDAP user directory — authenticates any LDAP user; maps group cn directly to CH role name
+      config.d/ldap_user_directory.xml: |
+        <clickhouse>
+          <user_directories>
+            <users_xml>
+              <path>users.xml</path>
+            </users_xml>
+            <local_directory>
+              <path>/var/lib/clickhouse/access/</path>
+            </local_directory>
+            <ldap>
+              <server>{{ .Values.config.ch.ldap.serverName }}</server>
+              {{- if .Values.config.ch.ldap.groupsDN }}
+              <roles>
+                <role_mappings>
+                  <mapping>
+                    <base_dn>{{ .Values.config.ch.ldap.groupsDN }}</base_dn>
+                    <attribute>cn</attribute>
+                    <scope>subtree</scope>
+                    <search_filter>(&amp;(objectClass=groupOfNames)(member={user_dn}))</search_filter>
+                    <prefix></prefix>
+                  </mapping>
+                </role_mappings>
+              </roles>
+              {{- end }}
+            </ldap>
+          </user_directories>
+        </clickhouse>
+{{- end }}
 
   defaults:
     templates:

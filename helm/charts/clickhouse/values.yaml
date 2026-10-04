@@ -94,5 +94,18 @@ config:
       limits:
         memory: 16Gi
         cpu: 8000m
+    ldap:
+      enabled: false
+      # Internal name for the LDAP server block (referenced by user_directories)
+      serverName: metranova_ldap
+      # LDAP host — typically the OpenLDAP service in the same namespace
+      host: ""
+      port: 389
+      # DN template; {user_name} is substituted with the ClickHouse username at auth time
+      bindDN: "uid={user_name},ou=users,{baseDN}"
+      baseDN: ""
+      groupsDN: ""
+      tls: false
+      verificationCooldown: 300
 
 extraResources: []

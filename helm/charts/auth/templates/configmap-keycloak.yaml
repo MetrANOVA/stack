@@ -56,6 +56,13 @@ data:
                 "claim.name": "realm_access.roles",
                 "jsonType.label": "String"
               }
+            },
+            {
+              "name": "ch-nonce-mapper",
+              "protocol": "openid-connect",
+              "protocolMapper": "metranova-ch-nonce-mapper",
+              "consentRequired": false,
+              "config": {}
             }
           ]
         },
