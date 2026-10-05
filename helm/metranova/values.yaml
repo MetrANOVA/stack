@@ -864,3 +864,17 @@ auth:
   tokenStore:
     # Encryption key managed out-of-band by manage-secrets.sh bootstrap
     encryptionKey: ""
+
+  keycloakLdapSync:
+    image:
+      repository: ghcr.io/esnet/metranova-auth/keycloak-ldap-sync
+      tag: "latest"
+      pullPolicy: IfNotPresent
+    syncInterval: 30
+    resources:
+      limits:
+        cpu: 250m
+        memory: 128Mi
+      requests:
+        cpu: 50m
+        memory: 64Mi
