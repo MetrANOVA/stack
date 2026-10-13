@@ -405,6 +405,19 @@ def main() -> None:
     if use_raw_socket:
         # Check if destination is localhost/loopback and warn user FIRST
         # (before checking privileges, since this is a logic error not privilege error)
+        # Validate all exporter IPs are IPv4 — the raw socket outer packet is always IPv4
+        all_exporter_ips = []
+        if args.exporter_ip:
+            all_exporter_ips.append(args.exporter_ip)
+        if flow_specs:
+            all_exporter_ips.extend(s["exporter_ip"] for s in flow_specs if "exporter_ip" in s)
+        for eip in all_exporter_ips:
+            if ip_address(eip).version == 6:
+                print(f"Error: exporter_ip must be an IPv4 address (got {eip})")
+                print(f"       The raw socket transport is IPv4-only. The flows it carries")
+                print(f"       can report IPv6 addresses as field values.")
+                return
+
         is_loopback = resolved_host_ip.startswith("127.") or resolved_host_ip == "::1"
         if is_loopback:
             print(f"Error: --exporter-ip does not work with localhost/loopback ({resolved_host_ip})")
@@ -501,16 +514,9 @@ def main() -> None:
             exporter_ip = args.exporter_ip or flow.get("exporter_ip")
             
             if exporter_ip:
-                # Raw socket mode only supports IPv4
-                if ip_version == 6:
-                    print(f"Warning: Skipping IPv6 flow {flow['src_ip']} -> {flow['dst_ip']} "
-                          f"(raw socket mode only supports IPv4)")
-                    seq += 1
-                    i += 1
-                    time.sleep(args.interval)
-                    continue
-                
-                # Send via raw socket with spoofed source IP
+                # Send via raw socket with spoofed source IP.
+                # The outer IPv4 packet carries any IPFIX message regardless of whether
+                # the observed flows inside are IPv4 or IPv6.
                 raw_packet = _build_raw_ipv4_packet(
                     src_ip=exporter_ip,
                     dst_ip=resolved_host_ip,
