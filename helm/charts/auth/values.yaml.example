@@ -164,7 +164,7 @@ keycloakLdapSync:
   image:
     repository: ghcr.io/metranova/keycloak-ldap-sync
     tag: "latest"
-    pullPolicy: IfNotPresent
+    pullPolicy: Always
   # Seconds between Keycloak→LDAP group sync runs
   syncInterval: 30
   resources:
