@@ -66,7 +66,7 @@ Image pull secrets block
 {{- if .Values.global.imagePullSecrets }}
 imagePullSecrets:
 {{- range .Values.global.imagePullSecrets }}
-  - name: {{ . }}
+  - name: {{ .name }}
 {{- end }}
 {{- end }}
 {{- end }}
