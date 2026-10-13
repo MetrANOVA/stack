@@ -1,14 +1,35 @@
 #!/usr/bin/env python3
-"""Send basic IPFIX test records to nfacctd via UDP."""
+"""Send IPFIX test records to nfacctd via UDP.
+
+Supports normal UDP mode and raw socket mode with IP spoofing to simulate
+different router/exporter IPs. Raw socket mode requires root privileges.
+
+When using config mode (--config), templates are sent with every record to ensure
+nfacctd receives them before processing data records, especially important with
+fast intervals (--interval 0). This is safe and expected behavior in IPFIX.
+
+Usage:
+    # Normal mode (UDP source IP is the exporter)
+    python3 send_ipfix.py --host localhost --port 9996 --count 100
+    
+    # Config mode with YAML file (templates sent with every record)
+    python3 send_ipfix.py --config flows.yaml --host localhost --port 9996 \\
+        --count 100000 --interval 0
+    
+    # Raw socket mode with IP spoofing (requires root)
+    sudo python3 send_ipfix.py --host localhost --port 9996 \\
+        --exporter-ip 203.0.113.10 --count 100
+"""
 
 import argparse
+import os
 import random
 import socket
 import struct
 import time
 from ipaddress import ip_address, ip_network
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 try:
     import yaml
@@ -34,6 +55,7 @@ FIELDS_V4 = [
     (1, 8),    # octetDeltaCount
     (152, 8),  # flowStartMilliseconds
     (153, 8),  # flowEndMilliseconds
+    (34, 4),   # samplingInterval (1 = unsampled; required for nfacctd_renormalize)
 ]
 
 # IPv6 template fields
@@ -50,6 +72,7 @@ FIELDS_V6 = [
     (1, 8),    # octetDeltaCount
     (152, 8),  # flowStartMilliseconds
     (153, 8),  # flowEndMilliseconds
+    (34, 4),   # samplingInterval (1 = unsampled; required for nfacctd_renormalize)
 ]
 
 PROTOCOL_MAP = {
@@ -124,7 +147,10 @@ def parse_protocol(proto: Any) -> int:
 
 
 def generate_flow_from_spec(spec: dict) -> dict:
-    """Generate a random flow based on specification."""
+    """Generate a random flow based on specification.
+    
+    Returns a dict with flow data including optional exporter_ip if defined in spec.
+    """
     # Select random source IP from subnets
     src_subnet = random.choice(spec["source_ip"])
     src_ip = random_ip_from_subnet(src_subnet)
@@ -181,7 +207,7 @@ def generate_flow_from_spec(spec: dict) -> dict:
     if packet_count > MAX_UINT64:
         packet_count = MAX_UINT64
     
-    return {
+    flow = {
         "src_ip": src_ip,
         "dst_ip": dst_ip,
         "src_port": src_port,
@@ -193,6 +219,12 @@ def generate_flow_from_spec(spec: dict) -> dict:
         "octet_count": total_bytes,
         "duration_ms": int(duration * 1000),
     }
+    
+    # Include exporter_ip if defined in spec
+    if "exporter_ip" in spec:
+        flow["exporter_ip"] = spec["exporter_ip"]
+    
+    return flow
 
 
 def _pack_data_record(flow: dict, fields: list) -> bytes:
@@ -232,6 +264,8 @@ def _pack_data_record(flow: dict, fields: list) -> bytes:
             data += struct.pack("!Q", now_ms)
         elif field_id == 153:  # flowEndMilliseconds
             data += struct.pack("!Q", end_ms)
+        elif field_id == 34:   # samplingInterval: 1 = every packet (unsampled)
+            data += struct.pack("!I", flow.get("sampling_interval", 1))
     
     # Pad to 4-byte boundary
     pad_len = (-len(data)) % 4
@@ -252,6 +286,70 @@ def _pack_message(sets: bytes, seq: int, obs_domain_id: int) -> bytes:
     return header + sets
 
 
+def _compute_ip_checksum(header: bytes) -> int:
+    """Compute IP header checksum."""
+    checksum = 0
+    for i in range(0, len(header), 2):
+        checksum += int.from_bytes(header[i:i+2], 'big')
+    while checksum >> 16:
+        checksum = (checksum & 0xFFFF) + (checksum >> 16)
+    return ~checksum & 0xFFFF
+
+
+def _build_raw_ipv4_packet(src_ip: str, dst_ip: str, src_port: int, dst_port: int, payload: bytes) -> bytes:
+    """Build a raw IPv4 UDP packet with spoofed source IP."""
+    # IP header
+    version_ihl = (4 << 4) | 5  # IPv4, header length 5 (20 bytes)
+    dscp_ecn = 0
+    total_length = 20 + 8 + len(payload)  # IP header + UDP header + payload
+    identification = random.randint(0, 0xFFFF)
+    flags_fragment_offset = 0  # No fragmentation
+    ttl = 64
+    protocol = 17  # UDP
+    
+    src_ip_bytes = socket.inet_aton(src_ip)
+    dst_ip_bytes = socket.inet_aton(dst_ip)
+    
+    # Build IP header without checksum first
+    ip_header = struct.pack(
+        "!BBHHHBBH4s4s",
+        version_ihl,
+        dscp_ecn,
+        total_length,
+        identification,
+        flags_fragment_offset,
+        ttl,
+        protocol,
+        0,  # Checksum (will be filled)
+        src_ip_bytes,
+        dst_ip_bytes
+    )
+    
+    # Calculate IP checksum
+    ip_checksum = _compute_ip_checksum(ip_header)
+    
+    # Rebuild IP header with checksum
+    ip_header = struct.pack(
+        "!BBHHHBBH4s4s",
+        version_ihl,
+        dscp_ecn,
+        total_length,
+        identification,
+        flags_fragment_offset,
+        ttl,
+        protocol,
+        ip_checksum,
+        src_ip_bytes,
+        dst_ip_bytes
+    )
+    
+    # UDP header — checksum=0 means "disabled" (valid per RFC 768 for IPv4 UDP)
+    udp_length = 8 + len(payload)
+    udp_header = struct.pack("!HHHH", src_port, dst_port, udp_length, 0)
+
+    return ip_header + udp_header + payload
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Send IPFIX test data to nfacctd.")
     parser.add_argument("--config", type=str, help="YAML config file defining flow patterns")
@@ -268,6 +366,7 @@ def main() -> None:
     parser.add_argument("--dst-port", type=int, default=443, help="Destination port (default: 443)")
     parser.add_argument("--proto", type=int, default=6, help="IP protocol number (default: 6 for TCP)")
     parser.add_argument("--obs-domain-id", type=int, default=0, help="Observation domain ID (default: 0)")
+    parser.add_argument("--exporter-ip", type=str, default=None, help="Spoof exporter/router IP via raw sockets (requires root). Can also be specified per-flow in YAML config. If not set, uses actual sender IP.")
 
     args = parser.parse_args()
 
@@ -292,7 +391,40 @@ def main() -> None:
         
         print(f"Loaded {len(flow_specs)} flow specifications from {args.config}")
 
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    # Resolve hostname to IP address for use in both normal and raw socket modes
+    try:
+        resolved_host_ip = socket.gethostbyname(args.host)
+    except socket.gaierror:
+        print(f"Error: Could not resolve hostname '{args.host}'")
+        return
+    
+    # Determine whether raw socket mode is needed — either CLI flag or any YAML flow spec
+    yaml_has_exporter_ip = flow_specs and any("exporter_ip" in s for s in flow_specs)
+    use_raw_socket = args.exporter_ip is not None or yaml_has_exporter_ip
+    
+    if use_raw_socket:
+        # Check if destination is localhost/loopback and warn user FIRST
+        # (before checking privileges, since this is a logic error not privilege error)
+        is_loopback = resolved_host_ip.startswith("127.") or resolved_host_ip == "::1"
+        if is_loopback:
+            print(f"Error: --exporter-ip does not work with localhost/loopback ({resolved_host_ip})")
+            print(f"       Raw socket mode with spoofed IPs does not work reliably with loopback.")
+            print(f"       The Linux kernel filters these packets at the routing level.")
+            print(f"\nSuggested fixes:")
+            print(f"1. Remove exporter_ip from your YAML / --exporter-ip from CLI")
+            print(f"2. Use the actual container/service IP instead of localhost")
+            print(f"3. Create a virtual interface with your desired IP and use that")
+            return
+        
+        if os.geteuid() != 0:
+            print("Error: exporter_ip (via --exporter-ip or YAML) requires root privileges")
+            return
+        
+        sock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_UDP)
+        sock.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 1)
+    else:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    
     seq = 0
 
     # Determine which template to use (IPv4 or IPv6)
@@ -346,12 +478,16 @@ def main() -> None:
             
             data_set = _pack_data_set(template_id, record)
 
-            # Send template on first record, periodically, or when IP version changes
-            send_template = (
-                i == 0 or 
-                (args.template_every > 0 and i % args.template_every == 0) or
-                (flow_specs and last_sent_template_version != ip_version)
-            )
+            # Determine if we should send template with this record
+            if flow_specs:
+                # Config mode: always send template with every record to ensure nfacctd
+                # receives it before processing data, especially critical with --interval 0
+                # Templates are small and IPFIX collectors expect frequent resets
+                send_template = True
+            else:
+                # Manual mode: send template on first record and periodically
+                send_template = (i == 0 or 
+                                 (args.template_every > 0 and i % args.template_every == 0))
             
             if send_template:
                 sets = template_set + data_set
@@ -360,7 +496,33 @@ def main() -> None:
                 sets = data_set
 
             msg = _pack_message(sets, seq, args.obs_domain_id)
-            sock.sendto(msg, (args.host, args.port))
+            
+            # Determine which exporter IP to use (precedence: CLI > per-flow > default None)
+            exporter_ip = args.exporter_ip or flow.get("exporter_ip")
+            
+            if exporter_ip:
+                # Raw socket mode only supports IPv4
+                if ip_version == 6:
+                    print(f"Warning: Skipping IPv6 flow {flow['src_ip']} -> {flow['dst_ip']} "
+                          f"(raw socket mode only supports IPv4)")
+                    seq += 1
+                    i += 1
+                    time.sleep(args.interval)
+                    continue
+                
+                # Send via raw socket with spoofed source IP
+                raw_packet = _build_raw_ipv4_packet(
+                    src_ip=exporter_ip,
+                    dst_ip=resolved_host_ip,
+                    src_port=random.randint(49152, 65535),  # Random ephemeral port
+                    dst_port=args.port,
+                    payload=msg
+                )
+                sock.sendto(raw_packet, (resolved_host_ip, 0))  # 0 for protocol field when using raw socket
+            else:
+                # Send via standard UDP socket
+                sock.sendto(msg, (args.host, args.port))
+            
             seq += 1
             i += 1
             time.sleep(args.interval)
