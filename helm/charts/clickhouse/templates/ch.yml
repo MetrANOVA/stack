@@ -125,17 +125,13 @@ spec:
             <ldap>
               <server>{{ .Values.config.ch.ldap.serverName }}</server>
               {{- if .Values.config.ch.ldap.groupsDN }}
-              <roles>
-                <role_mappings>
-                  <mapping>
-                    <base_dn>{{ .Values.config.ch.ldap.groupsDN }}</base_dn>
-                    <attribute>cn</attribute>
-                    <scope>subtree</scope>
-                    <search_filter>(&amp;(objectClass=groupOfNames)(member={user_dn}))</search_filter>
-                    <prefix></prefix>
-                  </mapping>
-                </role_mappings>
-              </roles>
+              <role_mapping>
+                <base_dn>{{ .Values.config.ch.ldap.groupsDN }}</base_dn>
+                <attribute>cn</attribute>
+                <scope>subtree</scope>
+                <search_filter>(&amp;(objectClass=groupOfNames)(member={bind_dn}))</search_filter>
+                <prefix></prefix>
+              </role_mapping>
               {{- end }}
             </ldap>
           </user_directories>
