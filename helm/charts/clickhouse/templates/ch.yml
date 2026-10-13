@@ -107,7 +107,7 @@ spec:
               <host>{{ required "config.ch.ldap.host is required when ldap.enabled=true" .Values.config.ch.ldap.host }}</host>
               <port>{{ .Values.config.ch.ldap.port | default 389 }}</port>
               <bind_dn>{{ .Values.config.ch.ldap.bindDN | replace "{baseDN}" .Values.config.ch.ldap.baseDN }}</bind_dn>
-              <verification_cooldown>{{ .Values.config.ch.ldap.verificationCooldown | default 300 }}</verification_cooldown>
+              <verification_cooldown>{{ if kindIs "invalid" .Values.config.ch.ldap.verificationCooldown }}300{{ else }}{{ .Values.config.ch.ldap.verificationCooldown }}{{ end }}</verification_cooldown>
               <enable_tls>{{ if .Values.config.ch.ldap.tls }}yes{{ else }}no{{ end }}</enable_tls>
             </{{ .Values.config.ch.ldap.serverName }}>
           </ldap_servers>
