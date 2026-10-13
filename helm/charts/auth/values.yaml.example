@@ -162,7 +162,7 @@ clickhouse:
 
 keycloakLdapSync:
   image:
-    repository: ghcr.io/esnet/metranova-auth/keycloak-ldap-sync
+    repository: ghcr.io/metranova/keycloak-ldap-sync
     tag: "latest"
     pullPolicy: IfNotPresent
   # Seconds between Keycloak→LDAP group sync runs
