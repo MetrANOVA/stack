@@ -226,7 +226,16 @@ def main() -> None:
 			if args.clean:
 				remove_dir_if_exists(pipeline_dir / "conf")
 			else:
+				is_first_run = not (pipeline_dir / "conf").exists()
 				copytree_if_missing(pipeline_dir / "conf.example", pipeline_dir / "conf")
+				if is_first_run and sys.platform.startswith("linux"):
+					try:
+						subprocess.run(
+							["chown", "-R", "1000:1000", str(pipeline_dir / "caches")],
+							check=True,
+						)
+					except Exception:
+						pass
 
 				if message_bus_type:
 					export_src_dir = conf_d / message_bus_type
