@@ -3655,9 +3655,21 @@ def section_federation(d, conn, namespace, release: str = "metranova-auth"):
             "identityProviderAlias": alias,
             "name": "org-claim-importer",
             "config": {
-                "syncMode": "INHERIT",
+                "syncMode": "FORCE",
                 "claim": raw_claim,
                 "user.attribute": "organization",
+            },
+        })
+        # Map identity_provider_display_name → "idp" attribute so downstream
+        # systems (e.g. Grafana, audit logs) can see which IdP authenticated the user.
+        conn.kc.upsert_idp_mapper(alias, {
+            "identityProviderMapper": "oidc-user-attribute-idp-mapper",
+            "identityProviderAlias": alias,
+            "name": "idp-claim-importer",
+            "config": {
+                "syncMode": "FORCE",
+                "claim": "identity_provider_display_name",
+                "user.attribute": "idp",
             },
         })
 
