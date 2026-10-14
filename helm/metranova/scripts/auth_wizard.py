@@ -546,6 +546,34 @@ class KeycloakClient:
         else:
             self._request("POST", f"/clients/{client_uuid}/protocol-mappers/models", mapper)
 
+    def list_ldap_providers(self) -> list[dict]:
+        """Return LDAP UserStorageProvider components in the realm."""
+        return self._request(
+            "GET",
+            "/components?type=org.keycloak.storage.UserStorageProvider",
+        ) or []
+
+    def list_ldap_mappers(self, ldap_provider_id: str) -> list[dict]:
+        return self._request(
+            "GET",
+            f"/components?parent={ldap_provider_id}"
+            "&type=org.keycloak.storage.ldap.mappers.LDAPStorageMapper",
+        ) or []
+
+    def upsert_ldap_mapper(self, ldap_provider_id: str, mapper: dict) -> None:
+        """Create or update an LDAP storage mapper by name."""
+        existing = {m["name"]: m for m in self.list_ldap_mappers(ldap_provider_id)}
+        payload = {
+            "providerType": "org.keycloak.storage.ldap.mappers.LDAPStorageMapper",
+            "parentId": ldap_provider_id,
+            **mapper,
+        }
+        if mapper["name"] in existing:
+            m = {**existing[mapper["name"]], **payload}
+            self._request("PUT", f"/components/{m['id']}", m)
+        else:
+            self._request("POST", "/components", payload)
+
     def add_redirect_uri(self, client_uuid: str, uri: str) -> None:
         """Append a redirect URI to a client if not already present."""
         client = self._request("GET", f"/clients/{client_uuid}") or {}
@@ -3672,6 +3700,36 @@ def section_federation(d, conn, namespace, release: str = "metranova-auth"):
                 "user.attribute": "idp",
             },
         })
+
+        # Add LDAP storage mappers so that organization/idp attributes survive
+        # LDAP read-back for LDAP-federated users (WRITABLE editMode causes Keycloak
+        # to re-read from LDAP on every GET, overwriting locally-stored custom attrs).
+        ldap_providers = conn.kc.list_ldap_providers()
+        for ldap_provider in ldap_providers:
+            conn.kc.upsert_ldap_mapper(ldap_provider["id"], {
+                "name": "organization",
+                "providerId": "user-attribute-ldap-mapper",
+                "subComponents": {},
+                "config": {
+                    "ldap.attribute": ["o"],
+                    "user.model.attribute": ["organization"],
+                    "read.only": ["false"],
+                    "always.read.value.from.ldap": ["false"],
+                    "is.mandatory.in.ldap": ["false"],
+                },
+            })
+            conn.kc.upsert_ldap_mapper(ldap_provider["id"], {
+                "name": "idp",
+                "providerId": "user-attribute-ldap-mapper",
+                "subComponents": {},
+                "config": {
+                    "ldap.attribute": ["departmentNumber"],
+                    "user.model.attribute": ["idp"],
+                    "read.only": ["false"],
+                    "always.read.value.from.ldap": ["false"],
+                    "is.mandatory.in.ldap": ["false"],
+                },
+            })
 
         envoy_client = conn.kc.get_client_by_client_id("envoy-proxy")
         if not envoy_client:

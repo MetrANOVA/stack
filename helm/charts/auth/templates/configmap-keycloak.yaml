@@ -227,6 +227,32 @@ data:
                   }
                 },
                 {
+                  "id": "11111111-0000-0000-0000-000000000016",
+                  "name": "organization",
+                  "providerId": "user-attribute-ldap-mapper",
+                  "subComponents": {},
+                  "config": {
+                    "ldap.attribute": ["o"],
+                    "user.model.attribute": ["organization"],
+                    "read.only": ["false"],
+                    "always.read.value.from.ldap": ["false"],
+                    "is.mandatory.in.ldap": ["false"]
+                  }
+                },
+                {
+                  "id": "11111111-0000-0000-0000-000000000017",
+                  "name": "idp",
+                  "providerId": "user-attribute-ldap-mapper",
+                  "subComponents": {},
+                  "config": {
+                    "ldap.attribute": ["departmentNumber"],
+                    "user.model.attribute": ["idp"],
+                    "read.only": ["false"],
+                    "always.read.value.from.ldap": ["false"],
+                    "is.mandatory.in.ldap": ["false"]
+                  }
+                },
+                {
                   "id": "11111111-0000-0000-0000-000000000015",
                   "name": "groups",
                   "providerId": "group-ldap-mapper",
