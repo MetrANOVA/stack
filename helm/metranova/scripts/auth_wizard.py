@@ -560,6 +560,39 @@ class KeycloakClient:
             "&type=org.keycloak.storage.ldap.mappers.LDAPStorageMapper",
         ) or []
 
+    def list_auth_flows(self) -> list[dict]:
+        return self._request("GET", "/authentication/flows") or []
+
+    def copy_auth_flow(self, source_alias: str, new_name: str) -> None:
+        self._request(
+            "POST",
+            f"/authentication/flows/{source_alias.replace(' ', '%20')}/copy",
+            {"newName": new_name},
+        )
+
+    def get_flow_executions(self, flow_alias: str) -> list[dict]:
+        return self._request(
+            "GET",
+            f"/authentication/flows/{flow_alias.replace(' ', '%20')}/executions",
+        ) or []
+
+    def add_flow_execution(self, flow_alias: str, provider_id: str) -> None:
+        self._request(
+            "POST",
+            f"/authentication/flows/{flow_alias.replace(' ', '%20')}/executions/execution",
+            {"provider": provider_id},
+        )
+
+    def update_flow_execution(self, flow_alias: str, execution_id: str, requirement: str) -> None:
+        self._request(
+            "PUT",
+            f"/authentication/flows/{flow_alias.replace(' ', '%20')}/executions",
+            {"id": execution_id, "requirement": requirement},
+        )
+
+    def raise_execution_priority(self, execution_id: str) -> None:
+        self._request("POST", f"/authentication/executions/{execution_id}/raise-priority")
+
     def upsert_ldap_mapper(self, ldap_provider_id: str, mapper: dict) -> None:
         """Create or update an LDAP storage mapper by name."""
         existing = {m["name"]: m for m in self.list_ldap_mappers(ldap_provider_id)}
@@ -3337,6 +3370,74 @@ def section_argocd_sync(d, namespace: str, release: str, ch_service: str):
 
 # ── TUI: section F — federation ───────────────────────────────────────────────
 
+def _ensure_broker_first_login_flow(kc, idp_alias: str) -> None:
+    """Create (if absent) a first-broker-login flow that auto-links accounts.
+
+    Copies the built-in 'first broker login' flow, adds idp-auto-link as the
+    first ALTERNATIVE inside 'Account verification options' so that existing
+    users can re-link their IdP identity without a password prompt.  Assigns
+    the flow to the given IdP.
+    """
+    flow_name = f"{idp_alias.capitalize()} First Login"
+
+    existing = {f["alias"] for f in kc.list_auth_flows()}
+    if flow_name not in existing:
+        kc.copy_auth_flow("first broker login", flow_name)
+
+    executions = kc.get_flow_executions(flow_name)
+
+    # Locate the "Account verification options" sub-flow (level >= 2).
+    acct_verify_alias = next(
+        (
+            e["displayName"]
+            for e in executions
+            if "Account verification options" in e.get("displayName", "")
+            and e.get("level", 0) >= 2
+        ),
+        None,
+    )
+    if acct_verify_alias is None:
+        raise RuntimeError(
+            f"Cannot find 'Account verification options' sub-flow in '{flow_name}'"
+        )
+
+    # Check whether idp-auto-link is already inside that sub-flow (level >= 3).
+    auto_link = next(
+        (
+            e
+            for e in executions
+            if e.get("providerId") == "idp-auto-link" and e.get("level", 0) >= 3
+        ),
+        None,
+    )
+
+    if auto_link is None:
+        kc.add_flow_execution(acct_verify_alias, "idp-auto-link")
+        executions = kc.get_flow_executions(flow_name)
+        auto_link = next(
+            (
+                e
+                for e in executions
+                if e.get("providerId") == "idp-auto-link" and e.get("level", 0) >= 3
+            ),
+            None,
+        )
+
+    if auto_link and auto_link.get("requirement") != "ALTERNATIVE":
+        kc.update_flow_execution(flow_name, auto_link["id"], "ALTERNATIVE")
+
+    # Raise priority so idp-auto-link runs before email/password verification.
+    if auto_link:
+        for _ in range(3):
+            kc.raise_execution_priority(auto_link["id"])
+
+    # Assign this flow to the IdP.
+    idp_cfg = kc._request("GET", f"/identity-provider/instances/{idp_alias}") or {}
+    if idp_cfg.get("firstBrokerLoginFlowAlias") != flow_name:
+        idp_cfg["firstBrokerLoginFlowAlias"] = flow_name
+        kc._request("PUT", f"/identity-provider/instances/{idp_alias}", idp_cfg)
+
+
 def section_federation(d, conn, namespace, release: str = "metranova-auth"):
     """Step F — configure an OIDC IdP federation in Keycloak.
 
@@ -3749,6 +3850,11 @@ def section_federation(d, conn, namespace, release: str = "metranova-auth"):
                 "userinfo.token.claim": "false",
             },
         })
+
+        # Create a custom first-broker-login flow that auto-links accounts
+        # without requiring a password — users re-linking their IdP identity
+        # just click "Add to existing account", no password prompt.
+        _ensure_broker_first_login_flow(conn.kc, alias)
     except Exception as exc:
         _error(d, f"Failed to create mappers:\n\n{exc}")
         return

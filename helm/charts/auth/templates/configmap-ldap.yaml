@@ -51,3 +51,21 @@ data:
     cn: viewer1
     sn: viewer1
     uid: viewer1
+
+  acl-setup.sh: |
+    #!/bin/sh
+    # Wait for slapd to accept connections via the Unix socket.
+    until ldapwhoami -Y EXTERNAL -H ldapi:/// >/dev/null 2>&1; do sleep 1; done
+
+    # Idempotently add an ACL granting anonymous read on ou=groups so ClickHouse
+    # can search for group memberships without binding as a privileged user.
+    if ! ldapsearch -Y EXTERNAL -H ldapi:/// \
+        -b 'olcDatabase={1}mdb,cn=config' -s base olcAccess 2>/dev/null \
+        | grep -q 'ou=groups'; then
+      ldapmodify -Y EXTERNAL -H ldapi:/// <<'LDIF'
+dn: olcDatabase={1}mdb,cn=config
+changetype: modify
+add: olcAccess
+olcAccess: {2}to dn.subtree="ou=groups,{{ $baseDN }}" by * read
+LDIF
+    fi

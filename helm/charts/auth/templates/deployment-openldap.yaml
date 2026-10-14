@@ -65,9 +65,17 @@ spec:
             failureThreshold: 10
           resources:
             {{- toYaml .Values.openldap.resources | nindent 12 }}
+          lifecycle:
+            postStart:
+              exec:
+                command: ["/bin/sh", "/etc/ldap-acl/acl-setup.sh"]
           volumeMounts:
             - name: bootstrap-ldif
               mountPath: /container/service/slapd/assets/config/bootstrap/ldif/custom
+              readOnly: true
+            - name: bootstrap-ldif
+              mountPath: /etc/ldap-acl/acl-setup.sh
+              subPath: acl-setup.sh
               readOnly: true
             {{- if .Values.openldap.persistence.enabled }}
             - name: ldap-data
