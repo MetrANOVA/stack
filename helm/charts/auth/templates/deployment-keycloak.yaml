@@ -17,6 +17,7 @@ spec:
     metadata:
       annotations:
         checksum/config: {{ include (print $.Template.BasePath "/configmap-keycloak.yaml") . | sha256sum }}
+        checksum/theme: {{ include (print $.Template.BasePath "/configmap-keycloak-theme.yaml") . | sha256sum }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -105,6 +106,30 @@ spec:
             - name: keycloak-data
               mountPath: /opt/keycloak/data/h2
             {{- end }}
+            - name: keycloak-theme
+              mountPath: /opt/keycloak/themes/metranova/login/theme.properties
+              subPath: theme.properties
+              readOnly: true
+            - name: keycloak-theme
+              mountPath: /opt/keycloak/themes/metranova/login/login.ftl
+              subPath: login.ftl
+              readOnly: true
+            - name: keycloak-theme
+              mountPath: /opt/keycloak/themes/metranova/login/info.ftl
+              subPath: info.ftl
+              readOnly: true
+            - name: keycloak-theme
+              mountPath: /opt/keycloak/themes/metranova/login/logout-confirm.ftl
+              subPath: logout-confirm.ftl
+              readOnly: true
+            - name: keycloak-theme
+              mountPath: /opt/keycloak/themes/metranova/login/frontchannel-logout.ftl
+              subPath: frontchannel-logout.ftl
+              readOnly: true
+            - name: keycloak-theme
+              mountPath: /opt/keycloak/themes/metranova/login/resources/img/logo.svg
+              subPath: logo.svg
+              readOnly: true
       volumes:
         - name: realm-config
           configMap:
@@ -117,6 +142,9 @@ spec:
           persistentVolumeClaim:
             claimName: {{ include "metranova-auth.fullname" . }}-keycloak-data
         {{- end }}
+        - name: keycloak-theme
+          configMap:
+            name: {{ include "metranova-auth.fullname" . }}-keycloak-theme
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

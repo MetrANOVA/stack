@@ -18,6 +18,7 @@ data:
       "resetPasswordAllowed": true,
       "editUsernameAllowed": false,
       "bruteForceProtected": true,
+      "loginTheme": "metranova",
       "clients": [
         {
           "clientId": "envoy-proxy",
@@ -40,7 +41,8 @@ data:
           "clientAuthenticatorType": "client-secret",
           "secret": {{ .Values.envoy.oidcClientSecret | quote }},
           "attributes": {
-            "access.token.lifespan": "3600"
+            "access.token.lifespan": "3600",
+            "post.logout.redirect.uris": "https://{{ .Values.domain }}/*"
           },
           "protocolMappers": [
             {

@@ -1,0 +1,1013 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "metranova-auth.fullname" . }}-keycloak-theme
+  labels:
+    {{- include "metranova-auth.labels" . | nindent 4 }}
+data:
+  theme.properties: |
+    parent=base
+    import=common/keycloak
+  login.ftl: |
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <meta name="robots" content="noindex, nofollow">
+      <title>Sign in — MetrANOVA</title>
+      <link rel="preconnect" href="https://fonts.googleapis.com">
+      <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+      <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+      <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+          --mn-primary:      #345F68;
+          --mn-primary-dark: #214148;
+          --mn-primary-mid:  #4A7F8A;
+          --mn-teal:         #45A9BF;
+          --mn-lt-teal:      #C7DADF;
+          --mn-secondary:    #9FC9D2;
+          --mn-accent-2:     #F2C641;
+          --mn-surface-1:    #FFFFFF;
+          --mn-surface-3:    #EEF2F4;
+          --mn-copy:         #252F30;
+          --mn-dark-grey:    #4D595D;
+          --mn-light-grey:   #A5B3B7;
+          --mn-error:        #C0392B;
+          --mn-error-bg:     #FDECEA;
+          --mn-border:       rgba(52, 95, 104, 0.18);
+          --mn-border-focus: #45A9BF;
+          --mn-shadow:       rgba(0, 0, 0, 0.25);
+          --font:            'Neue Haas Unica Pro', Inter, sans-serif;
+          --font-body:       Inter, sans-serif;
+        }
+
+        body {
+          min-height: 100vh;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          font-family: var(--font-body);
+          -webkit-font-smoothing: antialiased;
+          background-color: var(--mn-primary-dark);
+          background-image:
+            linear-gradient(rgba(69, 169, 191, 0.07) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(69, 169, 191, 0.07) 1px, transparent 1px);
+          background-size: 40px 40px;
+          padding: 24px;
+        }
+
+        .brand {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 14px;
+          margin-bottom: 28px;
+        }
+        .brand img {
+          width: 60px;
+          height: 60px;
+          filter: drop-shadow(0 0 12px rgba(159, 201, 210, 0.35));
+        }
+        .brand-name {
+          font-family: var(--font);
+          font-size: 22px;
+          font-weight: 700;
+          letter-spacing: normal;
+          color: rgba(255, 255, 255, 0.95);
+        }
+
+        .card {
+          background: var(--mn-surface-1);
+          border-radius: 10px;
+          box-shadow: 0 4px 24px var(--mn-shadow), 0 1px 4px rgba(0,0,0,0.15);
+          width: 100%;
+          max-width: 400px;
+          overflow: hidden;
+          position: relative;
+        }
+        .card::before {
+          content: '';
+          position: absolute;
+          top: 0; left: 0; right: 0;
+          height: 3px;
+          background: linear-gradient(90deg, var(--mn-primary), var(--mn-teal));
+        }
+
+        .card-body {
+          padding: 32px 32px 28px;
+        }
+
+        .card-title {
+          font-family: var(--font);
+          font-size: 16px;
+          font-weight: 600;
+          color: var(--mn-copy);
+          margin-bottom: 6px;
+        }
+        .card-sub {
+          font-size: 13px;
+          color: var(--mn-light-grey);
+          margin-bottom: 24px;
+        }
+
+        /* ── Alert / error ─────────────────────── */
+        .alert {
+          display: flex;
+          align-items: flex-start;
+          gap: 9px;
+          padding: 11px 14px;
+          border-radius: 6px;
+          font-size: 13px;
+          font-weight: 500;
+          margin-bottom: 20px;
+          line-height: 1.5;
+        }
+        .alert-error {
+          background: var(--mn-error-bg);
+          border: 1px solid rgba(192, 57, 43, 0.22);
+          color: var(--mn-error);
+        }
+        .alert-info {
+          background: rgba(69, 169, 191, 0.08);
+          border: 1px solid rgba(69, 169, 191, 0.25);
+          color: var(--mn-primary);
+        }
+        .alert-warning {
+          background: rgba(242, 198, 65, 0.12);
+          border: 1px solid rgba(242, 198, 65, 0.35);
+          color: #8a6a00;
+        }
+
+        /* ── Form fields ───────────────────────── */
+        .field {
+          margin-bottom: 16px;
+        }
+        .field label {
+          display: block;
+          font-family: var(--font);
+          font-size: 11px;
+          font-weight: 700;
+          letter-spacing: 0.10em;
+          text-transform: uppercase;
+          color: var(--mn-primary-mid);
+          margin-bottom: 6px;
+        }
+        .field input {
+          width: 100%;
+          height: 40px;
+          padding: 0 12px;
+          font-family: var(--font-body);
+          font-size: 14px;
+          color: var(--mn-copy);
+          background: var(--mn-surface-3);
+          border: 1px solid var(--mn-border);
+          border-radius: 6px;
+          outline: none;
+          transition: border-color .15s, box-shadow .15s;
+        }
+        .field input:focus {
+          border-color: var(--mn-border-focus);
+          box-shadow: 0 0 0 3px rgba(69, 169, 191, 0.15);
+          background: #fff;
+        }
+        .field input.error {
+          border-color: var(--mn-error);
+        }
+
+        /* ── Remember me ───────────────────────── */
+        .remember {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          margin-bottom: 20px;
+        }
+        .remember input[type="checkbox"] {
+          width: 15px;
+          height: 15px;
+          accent-color: var(--mn-primary);
+          cursor: pointer;
+        }
+        .remember label {
+          font-size: 13px;
+          color: var(--mn-dark-grey);
+          cursor: pointer;
+        }
+
+        /* ── Buttons ───────────────────────────── */
+        .btn {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          width: 100%;
+          height: 42px;
+          border-radius: 6px;
+          font-family: var(--font);
+          font-size: 14px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: background .15s, opacity .15s;
+          text-decoration: none;
+          border: none;
+        }
+        .btn-primary {
+          background: var(--mn-primary);
+          color: #fff;
+        }
+        .btn-primary:hover { background: var(--mn-primary-mid); }
+
+        .btn-idp {
+          background: var(--mn-surface-3);
+          color: var(--mn-copy);
+          border: 1px solid var(--mn-border);
+          font-weight: 500;
+        }
+        .btn-idp:hover { background: #e4eaec; }
+
+        /* ── Divider ───────────────────────────── */
+        .divider {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          margin: 20px 0;
+        }
+        .divider::before, .divider::after {
+          content: '';
+          flex: 1;
+          height: 1px;
+          background: var(--mn-border);
+        }
+        .divider span {
+          font-size: 11px;
+          font-weight: 600;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: var(--mn-light-grey);
+          white-space: nowrap;
+        }
+
+        /* ── Footer ────────────────────────────── */
+        .card-footer {
+          padding: 14px 32px;
+          border-top: 1px solid var(--mn-border);
+          background: var(--mn-surface-3);
+          display: flex;
+          justify-content: flex-end;
+          gap: 16px;
+        }
+        .card-footer a {
+          font-size: 12px;
+          color: var(--mn-primary-mid);
+          text-decoration: none;
+        }
+        .card-footer a:hover { text-decoration: underline; }
+
+        .page-footer {
+          margin-top: 24px;
+          font-size: 12px;
+          color: rgba(159, 201, 210, 0.45);
+          font-family: var(--font);
+        }
+      </style>
+    </head>
+    <body>
+
+      <div class="brand">
+        <img src="${url.resourcesPath}/img/logo.svg" alt="MetrANOVA logo">
+        <span class="brand-name">MetrANOVA</span>
+      </div>
+
+      <div class="card">
+        <div class="card-body">
+
+          <div class="card-title">Sign in</div>
+          <div class="card-sub">Use your organization credentials to continue.</div>
+
+          <#if message?? && message.type != 'success'>
+            <div class="alert alert-${message.type}">
+              ${message.summary?no_esc}
+            </div>
+          </#if>
+
+          <#-- Social / IdP providers (e.g. Globus) -->
+          <#if social.providers?? && social.providers?size gt 0>
+            <#list social.providers as p>
+              <a class="btn btn-idp" href="${p.loginUrl}">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/>
+                </svg>
+                Sign in with ${p.displayName}
+              </a>
+            </#list>
+            <#if login?? && realm.password>
+              <div class="divider"><span>or</span></div>
+            </#if>
+          </#if>
+
+          <#-- Username / password form -->
+          <#if realm.password>
+            <form action="${url.loginAction}" method="post">
+              <input type="hidden" id="id-hidden-input" name="credentialId"
+                <#if auth?? && auth.selectedCredential?has_content>value="${auth.selectedCredential}"</#if>/>
+
+              <div class="field">
+                <label for="username">
+                  <#if !realm.loginWithEmailAllowed>Username
+                  <#elseif !realm.registrationEmailAsUsername>Username or email
+                  <#else>Email</#if>
+                </label>
+                <input
+                  id="username"
+                  name="username"
+                  type="text"
+                  value="${login.username!''}"
+                  autocomplete="username"
+                  autofocus
+                  <#if usernameEditDisabled??>disabled</#if>
+                  class="<#if messagesPerField.existsError('username','password')>error</#if>"
+                >
+              </div>
+
+              <div class="field">
+                <label for="password">Password</label>
+                <input
+                  id="password"
+                  name="password"
+                  type="password"
+                  autocomplete="current-password"
+                  class="<#if messagesPerField.existsError('username','password')>error</#if>"
+                >
+              </div>
+
+              <#if realm.rememberMe && !usernameEditDisabled??>
+                <div class="remember">
+                  <input type="checkbox" id="rememberMe" name="rememberMe"
+                    <#if login.rememberMe??>checked</#if>>
+                  <label for="rememberMe">Stay signed in</label>
+                </div>
+              </#if>
+
+              <button class="btn btn-primary" type="submit">Sign in</button>
+            </form>
+          </#if>
+
+        </div>
+
+        <#if realm.resetPasswordAllowed || realm.registrationAllowed>
+          <div class="card-footer">
+            <#if realm.resetPasswordAllowed>
+              <a href="${url.loginResetCredentialsUrl}">Forgot password?</a>
+            </#if>
+            <#if realm.registrationAllowed>
+              <a href="${url.registrationUrl}">Create account</a>
+            </#if>
+          </div>
+        </#if>
+      </div>
+
+      <div class="page-footer">MetrANOVA &mdash; Network Analytics Platform</div>
+
+    </body>
+    </html>
+  info.ftl: |
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <meta name="robots" content="noindex, nofollow">
+      <title>MetrANOVA</title>
+      <link rel="preconnect" href="https://fonts.googleapis.com">
+      <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+      <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+      <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+          --mn-primary:      #345F68;
+          --mn-primary-dark: #214148;
+          --mn-primary-mid:  #4A7F8A;
+          --mn-teal:         #45A9BF;
+          --mn-surface-1:    #FFFFFF;
+          --mn-surface-3:    #EEF2F4;
+          --mn-copy:         #252F30;
+          --mn-dark-grey:    #4D595D;
+          --mn-light-grey:   #A5B3B7;
+          --mn-border:       rgba(52, 95, 104, 0.18);
+          --mn-shadow:       rgba(0, 0, 0, 0.25);
+          --font:            'Neue Haas Unica Pro', Inter, sans-serif;
+          --font-body:       Inter, sans-serif;
+        }
+
+        body {
+          min-height: 100vh;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          font-family: var(--font-body);
+          -webkit-font-smoothing: antialiased;
+          background-color: var(--mn-primary-dark);
+          background-image:
+            linear-gradient(rgba(69, 169, 191, 0.07) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(69, 169, 191, 0.07) 1px, transparent 1px);
+          background-size: 40px 40px;
+          padding: 24px;
+        }
+
+        .brand {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 14px;
+          margin-bottom: 28px;
+        }
+        .brand img {
+          width: 60px;
+          height: 60px;
+          filter: drop-shadow(0 0 12px rgba(159, 201, 210, 0.35));
+        }
+        .brand-name {
+          font-family: var(--font);
+          font-size: 22px;
+          font-weight: 700;
+          letter-spacing: normal;
+          color: rgba(255, 255, 255, 0.95);
+        }
+
+        .card {
+          background: var(--mn-surface-1);
+          border-radius: 10px;
+          box-shadow: 0 4px 24px var(--mn-shadow), 0 1px 4px rgba(0,0,0,0.15);
+          width: 100%;
+          max-width: 400px;
+          overflow: hidden;
+          position: relative;
+        }
+        .card::before {
+          content: '';
+          position: absolute;
+          top: 0; left: 0; right: 0;
+          height: 3px;
+          background: linear-gradient(90deg, var(--mn-primary), var(--mn-teal));
+        }
+
+        .card-body {
+          padding: 40px 32px 36px;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          text-align: center;
+        }
+
+        .icon-wrap {
+          width: 48px;
+          height: 48px;
+          border-radius: 50%;
+          background: var(--mn-surface-3);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          margin-bottom: 20px;
+          color: var(--mn-primary);
+        }
+
+        .card-title {
+          font-family: var(--font);
+          font-size: 17px;
+          font-weight: 600;
+          color: var(--mn-copy);
+          margin-bottom: 8px;
+        }
+        .card-msg {
+          font-size: 14px;
+          color: var(--mn-dark-grey);
+          line-height: 1.6;
+          margin-bottom: 0;
+        }
+
+        .card-actions {
+          margin-top: 26px;
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          width: 100%;
+        }
+
+        .btn {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          width: 100%;
+          height: 42px;
+          border-radius: 6px;
+          font-family: var(--font);
+          font-size: 14px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: background .15s;
+          text-decoration: none;
+          border: none;
+        }
+        .btn-primary {
+          background: var(--mn-primary);
+          color: #fff;
+        }
+        .btn-primary:hover { background: var(--mn-primary-mid); }
+
+        .btn-ghost {
+          background: none;
+          color: var(--mn-primary-mid);
+          border: 1px solid var(--mn-border);
+        }
+        .btn-ghost:hover { background: var(--mn-surface-3); }
+
+        .page-footer {
+          margin-top: 24px;
+          font-size: 12px;
+          color: rgba(159, 201, 210, 0.45);
+          font-family: var(--font);
+        }
+      </style>
+    </head>
+    <body>
+
+      <div class="brand">
+        <img src="${url.resourcesPath}/img/logo.svg" alt="MetrANOVA logo">
+        <span class="brand-name">MetrANOVA</span>
+      </div>
+
+      <div class="card">
+        <div class="card-body">
+
+          <#-- Icon: checkmark for success/info, info circle otherwise -->
+          <div class="icon-wrap">
+            <#if message?? && message.summary?contains("logged out")>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+                <polyline points="16 17 21 12 16 7"/>
+                <line x1="21" y1="12" x2="9" y2="12"/>
+              </svg>
+            <#else>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="20 6 9 17 4 12"/>
+              </svg>
+            </#if>
+          </div>
+
+          <#-- Title -->
+          <div class="card-title">
+            <#if message?? && message.summary?contains("logged out")>
+              You've been signed out
+            <#elseif messageHeader??>
+              ${msg("${messageHeader}")}
+            <#elseif message??>
+              ${message.summary}
+            <#else>
+              Done
+            </#if>
+          </div>
+
+          <#-- Body message -->
+          <#if message??>
+            <#if message.summary?contains("logged out")>
+              <p class="card-msg">Your session has ended. Sign in again to continue.</p>
+            <#else>
+              <p class="card-msg">
+                ${message.summary?no_esc}<#if requiredActions??><#list requiredActions>: <strong><#items as reqActionItem>${msg("requiredAction.${reqActionItem}")}<#sep>, </#items></strong></#list></#if>
+              </p>
+            </#if>
+          </#if>
+
+          <#-- Actions / links -->
+          <#if !skipLink??>
+            <div class="card-actions">
+              <#if pageRedirectUri?has_content>
+                <a class="btn btn-primary" href="${pageRedirectUri}">${msg("backToApplication")}</a>
+              <#elseif actionUri?has_content>
+                <a class="btn btn-primary" href="${actionUri}">${msg("proceedWithAction")}</a>
+              <#elseif message?? && message.summary?contains("logged out")>
+                <a class="btn btn-primary" href="${url.loginUrl!''}">Sign in again</a>
+              <#elseif (client.baseUrl)?has_content>
+                <a class="btn btn-ghost" href="${client.baseUrl}">${msg("backToApplication")}</a>
+              </#if>
+            </div>
+          </#if>
+
+        </div>
+      </div>
+
+      <div class="page-footer">MetrANOVA &mdash; Network Analytics Platform</div>
+
+    </body>
+    </html>
+  logout-confirm.ftl: |
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <meta name="robots" content="noindex, nofollow">
+      <title>Sign out — MetrANOVA</title>
+      <link rel="preconnect" href="https://fonts.googleapis.com">
+      <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+      <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+      <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+          --mn-primary:      #345F68;
+          --mn-primary-dark: #214148;
+          --mn-primary-mid:  #4A7F8A;
+          --mn-teal:         #45A9BF;
+          --mn-lt-teal:      #C7DADF;
+          --mn-surface-1:    #FFFFFF;
+          --mn-surface-3:    #EEF2F4;
+          --mn-copy:         #252F30;
+          --mn-dark-grey:    #4D595D;
+          --mn-light-grey:   #A5B3B7;
+          --mn-error:        #C0392B;
+          --mn-border:       rgba(52, 95, 104, 0.18);
+          --mn-shadow:       rgba(0, 0, 0, 0.25);
+          --font:            'Neue Haas Unica Pro', Inter, sans-serif;
+          --font-body:       Inter, sans-serif;
+        }
+
+        body {
+          min-height: 100vh;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          font-family: var(--font-body);
+          -webkit-font-smoothing: antialiased;
+          background-color: var(--mn-primary-dark);
+          background-image:
+            linear-gradient(rgba(69, 169, 191, 0.07) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(69, 169, 191, 0.07) 1px, transparent 1px);
+          background-size: 40px 40px;
+          padding: 24px;
+        }
+
+        .brand {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 14px;
+          margin-bottom: 28px;
+        }
+        .brand img {
+          width: 60px;
+          height: 60px;
+          filter: drop-shadow(0 0 12px rgba(159, 201, 210, 0.35));
+        }
+        .brand-name {
+          font-family: var(--font);
+          font-size: 22px;
+          font-weight: 700;
+          letter-spacing: normal;
+          color: rgba(255, 255, 255, 0.95);
+        }
+
+        .card {
+          background: var(--mn-surface-1);
+          border-radius: 10px;
+          box-shadow: 0 4px 24px var(--mn-shadow), 0 1px 4px rgba(0,0,0,0.15);
+          width: 100%;
+          max-width: 400px;
+          overflow: hidden;
+          position: relative;
+        }
+        .card::before {
+          content: '';
+          position: absolute;
+          top: 0; left: 0; right: 0;
+          height: 3px;
+          background: linear-gradient(90deg, var(--mn-primary), var(--mn-teal));
+        }
+
+        .card-body {
+          padding: 32px 32px 28px;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          text-align: center;
+        }
+
+        .signout-icon {
+          width: 44px;
+          height: 44px;
+          border-radius: 50%;
+          background: var(--mn-surface-3);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          margin-bottom: 18px;
+          color: var(--mn-primary);
+        }
+
+        .card-title {
+          font-family: var(--font);
+          font-size: 17px;
+          font-weight: 600;
+          color: var(--mn-copy);
+          margin-bottom: 8px;
+        }
+        .card-sub {
+          font-size: 14px;
+          color: var(--mn-dark-grey);
+          line-height: 1.55;
+          margin-bottom: 28px;
+        }
+
+        .actions {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          width: 100%;
+        }
+
+        .btn {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          width: 100%;
+          height: 42px;
+          border-radius: 6px;
+          font-family: var(--font);
+          font-size: 14px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: background .15s, opacity .15s;
+          text-decoration: none;
+          border: none;
+        }
+        .btn-danger {
+          background: var(--mn-error);
+          color: #fff;
+        }
+        .btn-danger:hover { background: #a93226; }
+
+        .btn-ghost {
+          background: none;
+          color: var(--mn-primary-mid);
+          border: 1px solid var(--mn-border);
+        }
+        .btn-ghost:hover { background: var(--mn-surface-3); }
+
+        .page-footer {
+          margin-top: 24px;
+          font-size: 12px;
+          color: rgba(159, 201, 210, 0.45);
+          font-family: var(--font);
+        }
+      </style>
+    </head>
+    <body>
+
+      <div class="brand">
+        <img src="${url.resourcesPath}/img/logo.svg" alt="MetrANOVA logo">
+        <span class="brand-name">MetrANOVA</span>
+      </div>
+
+      <div class="card">
+        <div class="card-body">
+
+          <div class="signout-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+              <polyline points="16 17 21 12 16 7"/>
+              <line x1="21" y1="12" x2="9" y2="12"/>
+            </svg>
+          </div>
+
+          <div class="card-title">Sign out?</div>
+          <div class="card-sub">You'll be signed out of MetrANOVA and all connected applications.</div>
+
+          <div class="actions">
+            <form action="${url.logoutConfirmAction}" method="POST">
+              <input type="hidden" name="session_code" value="${logoutConfirm.code}">
+              <button class="btn btn-danger" name="confirmLogout" id="kc-logout" type="submit"
+                      onclick="this.disabled=true; this.form.submit();">
+                Sign out
+              </button>
+            </form>
+
+            <#if !logoutConfirm.skipLink && (client.baseUrl)?has_content>
+              <a class="btn btn-ghost" href="${client.baseUrl}">Stay signed in</a>
+            <#else>
+              <button class="btn btn-ghost" onclick="history.back()">Stay signed in</button>
+            </#if>
+          </div>
+
+        </div>
+      </div>
+
+      <div class="page-footer">MetrANOVA &mdash; Network Analytics Platform</div>
+
+    </body>
+    </html>
+  frontchannel-logout.ftl: |
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <meta name="robots" content="noindex, nofollow">
+      <title>Signing out — MetrANOVA</title>
+      <link rel="preconnect" href="https://fonts.googleapis.com">
+      <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+      <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+      <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+          --mn-primary:      #345F68;
+          --mn-primary-dark: #214148;
+          --mn-primary-mid:  #4A7F8A;
+          --mn-teal:         #45A9BF;
+          --mn-surface-1:    #FFFFFF;
+          --mn-surface-3:    #EEF2F4;
+          --mn-copy:         #252F30;
+          --mn-dark-grey:    #4D595D;
+          --mn-light-grey:   #A5B3B7;
+          --mn-border:       rgba(52, 95, 104, 0.18);
+          --mn-shadow:       rgba(0, 0, 0, 0.25);
+          --font:            'Neue Haas Unica Pro', Inter, sans-serif;
+          --font-body:       Inter, sans-serif;
+        }
+
+        body {
+          min-height: 100vh;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          font-family: var(--font-body);
+          -webkit-font-smoothing: antialiased;
+          background-color: var(--mn-primary-dark);
+          background-image:
+            linear-gradient(rgba(69, 169, 191, 0.07) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(69, 169, 191, 0.07) 1px, transparent 1px);
+          background-size: 40px 40px;
+          padding: 24px;
+        }
+
+        .brand {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 14px;
+          margin-bottom: 28px;
+        }
+        .brand img {
+          width: 60px;
+          height: 60px;
+          filter: drop-shadow(0 0 12px rgba(159, 201, 210, 0.35));
+        }
+        .brand-name {
+          font-family: var(--font);
+          font-size: 22px;
+          font-weight: 700;
+          letter-spacing: normal;
+          color: rgba(255, 255, 255, 0.95);
+        }
+
+        .card {
+          background: var(--mn-surface-1);
+          border-radius: 10px;
+          box-shadow: 0 4px 24px var(--mn-shadow), 0 1px 4px rgba(0,0,0,0.15);
+          width: 100%;
+          max-width: 400px;
+          overflow: hidden;
+          position: relative;
+        }
+        .card::before {
+          content: '';
+          position: absolute;
+          top: 0; left: 0; right: 0;
+          height: 3px;
+          background: linear-gradient(90deg, var(--mn-primary), var(--mn-teal));
+        }
+
+        .card-body {
+          padding: 40px 32px 36px;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          text-align: center;
+        }
+
+        /* Animated spinner ring */
+        .spinner {
+          width: 44px;
+          height: 44px;
+          border-radius: 50%;
+          border: 2.5px solid var(--mn-surface-3);
+          border-top-color: var(--mn-teal);
+          animation: spin 0.8s linear infinite;
+          margin-bottom: 20px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .card-title {
+          font-family: var(--font);
+          font-size: 17px;
+          font-weight: 600;
+          color: var(--mn-copy);
+          margin-bottom: 8px;
+        }
+        .card-sub {
+          font-size: 13px;
+          color: var(--mn-light-grey);
+          line-height: 1.55;
+        }
+
+        /* Hidden iframes for front-channel logout */
+        .fc-iframes { display: none; }
+
+        .btn {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          margin-top: 24px;
+          padding: 0 24px;
+          height: 40px;
+          border-radius: 6px;
+          font-family: var(--font);
+          font-size: 14px;
+          font-weight: 600;
+          cursor: pointer;
+          text-decoration: none;
+          border: none;
+          background: var(--mn-primary);
+          color: #fff;
+          transition: background .15s;
+        }
+        .btn:hover { background: var(--mn-primary-mid); }
+
+        .page-footer {
+          margin-top: 24px;
+          font-size: 12px;
+          color: rgba(159, 201, 210, 0.45);
+          font-family: var(--font);
+        }
+      </style>
+    </head>
+    <body>
+
+      <div class="brand">
+        <img src="${url.resourcesPath}/img/logo.svg" alt="MetrANOVA logo">
+        <span class="brand-name">MetrANOVA</span>
+      </div>
+
+      <div class="card">
+        <div class="card-body">
+          <div class="spinner"></div>
+          <div class="card-title">Signing you out&hellip;</div>
+          <div class="card-sub">Ending your session across all applications.</div>
+
+          <#if logout?? && logout.logoutRedirectUri?has_content>
+            <a class="btn" id="continue" href="${logout.logoutRedirectUri}">Continue</a>
+          </#if>
+        </div>
+      </div>
+
+      <#-- Front-channel logout iframes (hidden, fire-and-forget) -->
+      <div class="fc-iframes">
+        <#if logout?? && logout.clients??>
+          <#list logout.clients as client>
+            <iframe src="${client.frontChannelLogoutUrl}" title="${client.name}"></iframe>
+          </#list>
+        </#if>
+      </div>
+
+      <#-- Auto-redirect once iframes have loaded -->
+      <#if logout?? && logout.logoutRedirectUri?has_content>
+        <script>
+          document.addEventListener('readystatechange', function() {
+            if (document.readyState === 'complete') {
+              window.location.replace('${logout.logoutRedirectUri}');
+            }
+          });
+        </script>
+      </#if>
+
+      <div class="page-footer">MetrANOVA &mdash; Network Analytics Platform</div>
+
+    </body>
+    </html>
+  logo.svg: |
+    <svg width="360" height="360" viewBox="0 0 360 360" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M179.964 5C276.594 5 354.928 83.3339 354.928 179.964C354.928 276.594 276.594 354.928 179.964 354.928C83.334 354.928 5.00001 276.594 5 179.964C5 83.334 83.334 5.00005 179.964 5Z" fill="#F2C641" stroke="#9FC9D2" stroke-width="10"/>
+    <path d="M180.156 38.8489C158.423 38.9348 137.003 44.0325 117.561 53.7454C138.401 70.1721 155.005 90.8234 166.555 113.977C196.727 91.6681 233.963 78.7761 273.536 79.1183L273.535 79.1173C275.381 79.1339 277.241 79.232 279.097 79.3061C252.686 53.385 217.161 38.8588 180.156 38.8489ZM98.6184 65.1295C94.8924 67.6509 91.2891 70.3487 87.8205 73.214C87.6689 73.3453 87.522 73.4812 87.3709 73.6125C82.4532 77.8928 77.8376 82.5085 73.5573 87.4262C73.4561 87.5423 73.3503 87.6549 73.2495 87.7714C68.9699 92.7296 65.0402 97.9793 61.4888 103.483C61.361 103.68 61.2348 103.879 61.1081 104.077C57.5637 109.613 54.4099 115.388 51.6695 121.363C51.6319 121.444 51.5982 121.528 51.5611 121.61C48.85 127.576 46.5571 133.724 44.6992 140.008C44.639 140.211 44.5738 140.412 44.5145 140.615C44.1402 142.203 43.7934 143.798 43.4744 145.398C66.3327 136.164 90.8834 131.752 115.571 132.518C120.052 132.658 124.539 132.968 129.02 133.449H129.036H129.052C133.582 133.95 138.048 134.654 142.467 135.486C145.063 132.72 147.715 130.011 150.478 127.418C139.088 102.907 121.398 81.3189 98.6184 65.1273L98.6184 65.1295ZM273.343 99.3005C236.523 98.9636 202.068 111.49 174.711 133.009C175.318 134.689 175.863 136.391 176.408 138.094C176.489 138.094 176.569 138.094 176.651 138.094H176.667H176.679C236.11 138.112 289.194 172.846 313.746 225.312C314.4 223.656 315.023 221.987 315.614 220.307C315.674 220.104 315.739 219.902 315.798 219.698C317.622 213.437 319.009 207.057 319.951 200.605C319.987 200.362 320.018 200.118 320.052 199.875C320.979 193.358 321.449 186.784 321.46 180.201C321.46 180.188 321.461 180.174 321.461 180.16C321.461 177.756 321.396 175.355 321.273 172.955C321.228 172.285 321.179 171.614 321.125 170.945C321.013 169.23 320.895 167.515 320.72 165.806C320.62 164.925 320.511 164.045 320.395 163.166C320.213 161.669 320.033 160.172 319.804 158.682C319.646 157.714 319.478 156.747 319.3 155.782C319.057 154.395 318.815 153.008 318.53 151.628C318.32 150.64 318.099 149.654 317.867 148.67C317.558 147.316 317.244 145.963 316.895 144.619C316.63 143.62 316.354 142.623 316.067 141.63C315.696 140.324 315.318 139.021 314.911 137.727C314.592 136.725 314.263 135.727 313.922 134.733C313.488 133.457 313.042 132.186 312.572 130.922C312.197 129.915 311.81 128.912 311.412 127.914C310.926 126.694 310.423 125.48 309.903 124.274C309.48 123.289 309.046 122.31 308.601 121.335C308.045 120.122 307.468 118.919 306.878 117.722C306.406 116.757 305.923 115.798 305.429 114.844C304.829 113.692 304.202 112.555 303.57 111.42C303.036 110.449 302.489 109.484 301.932 108.526C301.276 107.412 300.591 106.316 299.906 105.221C299.338 104.301 298.76 103.389 298.172 102.482C297.947 102.159 297.722 101.834 297.501 101.507C294.828 101.06 292.159 100.578 289.466 100.269C289.452 100.269 289.441 100.269 289.427 100.269C284.027 99.6733 278.661 99.3588 273.345 99.3102L273.343 99.3005ZM108.987 152.623C107.005 152.637 105.024 152.688 103.047 152.776C81.0413 153.755 59.5238 159.629 39.6991 169.54C39.5873 170.678 39.4772 171.815 39.3653 172.953C39.1705 175.027 39.0217 177.106 38.9188 179.187C38.9047 179.539 38.8639 179.89 38.8562 180.242C39.0117 192.635 40.797 204.953 44.1659 216.88C59.633 188.583 83.6131 166.248 112.191 152.693C111.123 152.679 110.054 152.616 108.987 152.623Z" fill="#45A9BF"/>
+    <path d="M178.135 158.276C123.219 158.407 74.5982 192.743 55.6116 244.006C55.6783 244.162 55.7416 244.319 55.8088 244.475C59.1485 251.006 62.9779 257.276 67.2899 263.211C71.6408 269.2 76.4546 274.839 81.6888 280.073C86.9233 285.308 92.5627 290.121 98.5516 294.472C104.54 298.824 110.861 302.699 117.457 306.06C124.053 309.42 130.903 312.256 137.943 314.544C144.983 316.831 152.191 318.563 159.502 319.721C166.813 320.879 174.206 321.46 181.609 321.46C189.011 321.46 196.403 320.879 203.715 319.721C211.026 318.563 218.234 316.831 225.274 314.544C232.314 312.256 239.164 309.42 245.76 306.06C252.355 302.699 258.676 298.824 264.665 294.472C270.654 290.121 276.293 285.308 281.528 280.073C286.748 274.853 291.545 269.228 295.887 263.258C298.613 259.394 300.967 255.293 303.291 251.178C286.459 196.183 235.969 158.299 178.135 158.276Z" fill="#DA8F53"/>
+    <path d="M179.959 231.543C211.349 231.543 236.796 207.234 236.796 177.247C236.796 147.26 211.349 122.951 179.959 122.951C148.569 122.951 123.123 147.26 123.123 177.247C123.123 207.234 148.569 231.543 179.959 231.543Z" fill="white"/>
+    <path d="M179.959 231.543C211.349 231.543 236.796 207.234 236.796 177.247C236.796 147.26 211.349 122.951 179.959 122.951C148.569 122.951 123.123 147.26 123.123 177.247C123.123 207.234 148.569 231.543 179.959 231.543Z" fill="#9FC9D2" fill-opacity="0.8"/>
+    <path d="M180.156 113.539C171.407 113.539 162.745 115.262 154.663 118.61C146.581 121.958 139.237 126.865 133.051 133.051C126.865 139.236 121.958 146.58 118.611 154.662C115.263 162.745 113.54 171.407 113.54 180.155C113.54 188.903 115.263 197.566 118.611 205.648C121.958 213.73 126.865 221.074 133.051 227.26C139.237 233.446 146.581 238.352 154.663 241.7C162.745 245.048 171.407 246.771 180.156 246.771C188.904 246.771 197.566 245.048 205.648 241.7C213.731 238.352 221.074 233.446 227.26 227.26C233.446 221.074 238.353 213.73 241.701 205.648C245.048 197.566 246.771 188.903 246.771 180.155C246.771 171.407 245.048 162.745 241.701 154.662C238.353 146.58 233.446 139.236 227.26 133.051C221.074 126.865 213.731 121.958 205.648 118.61C197.566 115.262 188.904 113.539 180.156 113.539ZM180.156 129.689C186.783 129.689 193.345 130.994 199.468 133.53C205.591 136.066 211.155 139.784 215.841 144.47C220.527 149.156 224.244 154.72 226.781 160.842C229.317 166.965 230.622 173.528 230.622 180.155C230.622 186.782 229.317 193.345 226.781 199.468C224.244 205.591 220.527 211.154 215.841 215.84C211.155 220.527 205.591 224.244 199.468 226.78C193.345 229.316 186.783 230.622 180.156 230.622C173.528 230.622 166.966 229.316 160.843 226.78C154.72 224.244 149.157 220.527 144.47 215.84C139.784 211.154 136.067 205.591 133.531 199.468C130.994 193.345 129.689 186.782 129.689 180.155C129.689 173.528 130.994 166.965 133.531 160.842C136.067 154.72 139.784 149.156 144.47 144.47C149.157 139.784 154.72 136.066 160.843 133.53C166.966 130.994 173.528 129.689 180.156 129.689Z" fill="#345F68"/>
+    <path d="M180.156 8.57019C134.879 8.73341 91.5008 26.786 59.4765 58.7936L54.8386 63.4315C25.2226 95.0965 8.69179 136.799 8.56982 180.156C8.56987 274.92 85.3916 351.742 180.156 351.742C274.92 351.742 351.741 274.92 351.741 180.156C351.741 85.3918 274.92 8.57019 180.156 8.57019ZM180.156 28.7565C263.771 28.7563 331.555 96.5404 331.555 180.156C331.554 263.771 263.771 331.554 180.156 331.554C96.5406 331.554 28.7567 263.771 28.7562 180.156C28.8989 142.459 41.0809 108.191 66.5617 80.41L125.225 141.513C114.83 157.382 108.765 176.345 108.765 196.733C108.765 252.476 153.955 297.666 209.698 297.666C265.442 297.666 310.631 252.476 310.631 196.733C310.631 140.989 265.442 95.7998 209.698 95.7999C181.741 95.7999 156.441 107.17 138.163 125.534L76.5824 69.8301C104.817 42.2514 140.687 28.8081 180.156 28.7565ZM209.698 126.08C226.087 126.098 239.941 129.795 252.579 140.228L194.159 159.669L186.914 169.984C184.912 168.653 182.56 167.943 180.156 167.942C179.03 167.945 177.91 168.103 176.828 168.412L176.661 168.153L172.674 156.752L160.665 145.89C173.372 133.632 190.648 126.08 209.698 126.08ZM262.566 150.065C275.183 163.143 280.257 178.561 280.351 196.733C280.351 235.753 248.719 267.386 209.698 267.386C170.677 267.386 139.044 235.754 139.044 196.733C139.044 184.991 141.925 173.928 146.993 164.185L156.225 173.801L167.69 177.306L168.223 177.704C168.047 178.51 167.953 179.331 167.942 180.155C167.942 181.759 168.258 183.347 168.872 184.829C169.485 186.311 170.385 187.657 171.519 188.791C172.653 189.925 174 190.825 175.482 191.439C176.963 192.052 178.552 192.368 180.156 192.368C183.253 192.36 186.233 191.175 188.49 189.053C190.747 186.931 192.113 184.031 192.312 180.939L194.322 180.365L205.72 180.347L260.717 151.154L262.566 150.065Z" fill="#214148"/>
+    </svg>
