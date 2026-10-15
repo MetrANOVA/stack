@@ -62,10 +62,6 @@ data:
     if ! ldapsearch -Y EXTERNAL -H ldapi:/// \
         -b 'olcDatabase={1}mdb,cn=config' -s base olcAccess 2>/dev/null \
         | grep -q 'ou=groups'; then
-      ldapmodify -Y EXTERNAL -H ldapi:/// <<'LDIF'
-dn: olcDatabase={1}mdb,cn=config
-changetype: modify
-add: olcAccess
-olcAccess: {2}to dn.subtree="ou=groups,{{ $baseDN }}" by * read
-LDIF
+      printf 'dn: olcDatabase={1}mdb,cn=config\nchangetype: modify\nadd: olcAccess\nolcAccess: {2}to dn.subtree="ou=groups,{{ $baseDN }}" by * read\n' \
+        | ldapmodify -Y EXTERNAL -H ldapi:///
     fi
