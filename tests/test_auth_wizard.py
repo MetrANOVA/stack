@@ -2303,6 +2303,7 @@ class TestSectionFederation:
         with patch.object(W, "_pkce_introspect", return_value=self._CLAIMS), \
              patch.object(W, "_fed_state_load", return_value={}), \
              patch.object(W, "_fed_state_save"), \
+             patch.object(W, "_ensure_broker_first_login_flow"), \
              patch.object(W.KeycloakClient, "fetch_oidc_discovery", return_value=self._DISCOVERY):
             W.section_federation(d, conn, "metranova")
 
@@ -2356,13 +2357,16 @@ class TestSectionFederation:
             ["globus", "Globus", "https://well-known.url", "openid email profile", "cid", "sec", "pkce-sec"],
         )
         self._run(conn, d)
-        conn.kc.upsert_idp_mapper.assert_called_once()
-        alias_arg, mapper_arg = conn.kc.upsert_idp_mapper.call_args[0]
-        assert alias_arg == "globus"
-        assert mapper_arg["name"] == "org-claim-importer"
-        assert mapper_arg["config"]["claim"] == "organization"
-        assert mapper_arg["config"]["user.attribute"] == "organization"
-        assert mapper_arg["identityProviderMapper"] == "oidc-user-attribute-idp-mapper"
+        # Two mappers: organization→o and idp→departmentNumber
+        assert conn.kc.upsert_idp_mapper.call_count == 2
+        calls = {c[0][1]["name"]: c[0][1] for c in conn.kc.upsert_idp_mapper.call_args_list}
+        org_mapper = calls["org-claim-importer"]
+        assert org_mapper["config"]["claim"] == "organization"
+        assert org_mapper["config"]["user.attribute"] == "organization"
+        assert org_mapper["identityProviderMapper"] == "oidc-user-attribute-idp-mapper"
+        idp_mapper = calls["idp-claim-importer"]
+        assert idp_mapper["config"]["claim"] == "identity_provider_display_name"
+        assert idp_mapper["config"]["user.attribute"] == "idp"
 
     # ── protocol mapper on envoy-proxy ────────────────────────────────────────────
 
@@ -2405,8 +2409,8 @@ class TestSectionFederation:
         self._run(conn, d)
         conn.kc.create_idp.assert_not_called()
         conn.kc.update_idp.assert_not_called()
-        # Mappers still created
-        conn.kc.upsert_idp_mapper.assert_called_once()
+        # Both mappers (org + idp) still created
+        assert conn.kc.upsert_idp_mapper.call_count == 2
 
     # ── cancel on alias prompt aborts early ──────────────────────────────────────
 
@@ -2421,4 +2425,300 @@ class TestSectionFederation:
         W.section_federation(d, conn, "metranova")
         conn.kc.create_idp.assert_not_called()
         conn.kc.update_idp.assert_not_called()
+
+
+# ── patch_auth_domain ──────────────────────────────────────────────────────────
+
+class TestPatchAuthDomain:
+    """Tests for patch_auth_domain: ordering guarantee + error handling."""
+
+    _ENVOY_CM_JSON = json.dumps({
+        "apiVersion": "v1",
+        "kind": "ConfigMap",
+        "metadata": {"name": "metranova-auth-envoy", "namespace": "metranova"},
+        "data": {
+            "envoy.yaml": (
+                "authorization_endpoint: https://old.example.com/realms/x/auth\n"
+                'redirect_uri: "https://old.example.com/oauth2/callback"\n'
+                "issuer: https://old.example.com/realms/x\n"
+            )
+        },
+    })
+
+    def _run(self, kc=None, set_env_ok=True, cm_get_ok=True, cm_apply_ok=True):
+        """Run patch_auth_domain with subprocess mocked."""
+        domain = "new.example.com"
+        call_log: list[str] = []
+
+        def fake_run(cmd, **kwargs):
+            tag = " ".join(str(c) for c in cmd)
+            call_log.append(tag)
+            if "set" in cmd and "env" in cmd:
+                return SimpleNamespace(returncode=0 if set_env_ok else 1, stdout="", stderr="env error")
+            if "get" in cmd and "configmap" in cmd:
+                return SimpleNamespace(
+                    returncode=0 if cm_get_ok else 1,
+                    stdout=self._ENVOY_CM_JSON if cm_get_ok else "",
+                    stderr="cm error",
+                )
+            if "apply" in cmd:
+                return SimpleNamespace(returncode=0 if cm_apply_ok else 1, stdout="", stderr="apply error")
+            if "rollout" in cmd:
+                return SimpleNamespace(returncode=0, stdout="", stderr="")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        with patch("subprocess.run", side_effect=fake_run):
+            errors = W.patch_auth_domain("metranova", "metranova-auth", domain, kc=kc)
+
+        return errors, call_log
+
+    def test_no_errors_without_kc(self):
+        errors, _ = self._run(kc=None)
+        assert errors == []
+
+    def test_envoy_domain_replaced_in_apply(self):
+        """The configmap apply must use the new domain, not the old one."""
+        applied_bodies: list[str] = []
+
+        def fake_run(cmd, **kwargs):
+            if "apply" in cmd:
+                applied_bodies.append(kwargs.get("input", ""))
+            return SimpleNamespace(returncode=0, stdout=self._ENVOY_CM_JSON, stderr="")
+
+        with patch("subprocess.run", side_effect=fake_run):
+            W.patch_auth_domain("metranova", "metranova-auth", "new.example.com")
+
+        assert applied_bodies, "apply was not called"
+        body = applied_bodies[0]
+        assert "new.example.com" in body
+        assert "old.example.com" not in body
+
+    def test_kc_calls_happen_before_set_env(self):
+        """KC API calls must precede the kubectl set env (which restarts Keycloak)."""
+        kc = MagicMock()
+        kc.get_client_by_client_id.return_value = {"id": "client-uuid", "secret": "old"}
+
+        call_order: list[str] = []
+
+        def fake_run(cmd, **kwargs):
+            if "set" in cmd and "env" in cmd:
+                call_order.append("set_env")
+            return SimpleNamespace(returncode=0, stdout=self._ENVOY_CM_JSON, stderr="")
+
+        def fake_kc_get(client_id):
+            call_order.append(f"kc_get:{client_id}")
+            return {"id": "client-uuid", "secret": "old"}
+
+        kc.get_client_by_client_id.side_effect = fake_kc_get
+
+        with patch("subprocess.run", side_effect=fake_run), \
+             patch.object(W, "kubectl_get_secret_field", return_value="real-secret"):
+            W.patch_auth_domain("metranova", "metranova-auth", "new.example.com", kc=kc)
+
+        # All kc_get calls must appear before set_env
+        set_env_idx = call_order.index("set_env")
+        kc_indices = [i for i, e in enumerate(call_order) if e.startswith("kc_get:")]
+        assert kc_indices, "no KC API calls observed"
+        assert all(i < set_env_idx for i in kc_indices), (
+            f"KC call(s) at {kc_indices} occurred after set_env at {set_env_idx};\n"
+            f"full order: {call_order}"
+        )
+
+    def test_redirect_uri_added(self):
+        kc = MagicMock()
+        kc.get_client_by_client_id.return_value = {"id": "client-uuid", "secret": "old"}
+
+        with patch("subprocess.run", return_value=SimpleNamespace(returncode=0, stdout=self._ENVOY_CM_JSON, stderr="")), \
+             patch.object(W, "kubectl_get_secret_field", return_value=""):
+            W.patch_auth_domain("metranova", "metranova-auth", "new.example.com", kc=kc)
+
+        kc.add_redirect_uri.assert_called_once_with("client-uuid", "https://new.example.com/oauth2/callback")
+
+    def test_client_secret_synced(self):
+        kc = MagicMock()
+        kc.get_client_by_client_id.return_value = {"id": "client-uuid", "secret": "placeholder"}
+
+        with patch("subprocess.run", return_value=SimpleNamespace(returncode=0, stdout=self._ENVOY_CM_JSON, stderr="")), \
+             patch.object(W, "kubectl_get_secret_field", return_value="real-secret"):
+            W.patch_auth_domain("metranova", "metranova-auth", "new.example.com", kc=kc)
+
+        kc._request.assert_called_once()
+        call_args = kc._request.call_args
+        assert call_args[0][0] == "PUT"
+        assert call_args[0][2]["secret"] == "real-secret"
+
+    def test_kc_redirect_error_is_non_fatal(self):
+        kc = MagicMock()
+        kc.get_client_by_client_id.side_effect = Exception("connection refused")
+
+        with patch("subprocess.run", return_value=SimpleNamespace(returncode=0, stdout=self._ENVOY_CM_JSON, stderr="")), \
+             patch.object(W, "kubectl_get_secret_field", return_value=""):
+            errors, _ = self._run(kc=kc)
+
+        # Errors are reported but don't raise
+        assert any("KC redirect URI" in e for e in errors)
+
+    def test_kc_secret_error_is_non_fatal(self):
+        kc = MagicMock()
+        kc.get_client_by_client_id.return_value = {"id": "client-uuid", "secret": "x"}
+        kc._request.side_effect = Exception("connection refused")
+
+        with patch("subprocess.run", return_value=SimpleNamespace(returncode=0, stdout=self._ENVOY_CM_JSON, stderr="")), \
+             patch.object(W, "kubectl_get_secret_field", return_value="real-secret"):
+            errors = W.patch_auth_domain("metranova", "metranova-auth", "new.example.com", kc=kc)
+
+        assert any("KC client secret" in e for e in errors)
+
+    def test_set_env_failure_reported(self):
+        errors, _ = self._run(kc=None, set_env_ok=False)
+        assert any("KC_HOSTNAME" in e for e in errors)
+
+    def test_cm_get_failure_aborts_early(self):
+        """If the Envoy configmap can't be read, return immediately."""
+        errors, call_log = self._run(kc=None, cm_get_ok=False)
+        assert any("Envoy configmap" in e or "Could not read" in e for e in errors)
+        assert not any("apply" in c for c in call_log)
+
+    def test_no_kc_skips_all_kc_calls(self):
+        """When kc=None, no KC API calls are made."""
+        kc_mock = MagicMock()
+        # patch_auth_domain receives kc=None, so kc_mock must never be touched
+        with patch("subprocess.run", return_value=SimpleNamespace(returncode=0, stdout=self._ENVOY_CM_JSON, stderr="")):
+            W.patch_auth_domain("metranova", "metranova-auth", "new.example.com", kc=None)
+        kc_mock.assert_not_called()
+
+
+# ── _sql_str ───────────────────────────────────────────────────────────────────
+
+class TestSqlStr:
+    def test_no_quotes(self):
+        assert W._sql_str("hello world") == "hello world"
+
+    def test_single_quote_escaped(self):
+        assert W._sql_str("it's") == "it''s"
+
+    def test_multiple_quotes(self):
+        assert W._sql_str("don't won't") == "don''t won''t"
+
+    def test_empty_string(self):
+        assert W._sql_str("") == ""
+
+    def test_only_quote(self):
+        assert W._sql_str("'") == "''"
+
+    def test_consecutive_quotes(self):
+        assert W._sql_str("''") == "''''"
+
+
+# ── _rule_create SQL escaping ──────────────────────────────────────────────────
+
+class TestRuleCreateEscaping:
+    """_rule_create must escape user-provided strings in the INSERT SQL."""
+
+    def _make_conn(self):
+        conn = MagicMock()
+        conn.ch = MagicMock()
+        conn.ch.multiquery = MagicMock()
+        return conn
+
+    def _run_create(self, orig="as:293", scope="*", desc="test rule",
+                    tlp_tag="none", prio="0"):
+        org = {"id": "aaaaaaaa-0000-0000-0000-000000000001", "name": "ESnet", "slug": "esnet"}
+        conn = self._make_conn()
+        d = MagicMock()
+        d.OK = "ok"
+        d.CANCEL = "cancel"
+        d.inputbox.side_effect = [
+            ("ok", orig),   # step 1: originator
+            ("ok", scope),  # step 2: scope
+            ("ok", prio),   # step 3: priority
+            ("ok", desc),   # step 5: description
+        ]
+        d.menu.side_effect = [
+            ("ok", org["id"]),   # org selection
+            ("ok", tlp_tag),     # TLP override
+        ]
+        conn.ch.query.return_value = ""  # no orgs/match count
+
+        with patch.object(W, "_list_orgs", return_value=[org]), \
+             patch.object(W, "_rule_match_count", return_value=None):
+            W._rule_create(d, conn)
+
+        return conn.ch.multiquery.call_args
+
+    def test_description_with_apostrophe(self):
+        call = self._run_create(desc="ESnet's prefix")
+        assert call is not None
+        sql = call[0][0]
+        assert "ESnet''s prefix" in sql
+        assert "ESnet's prefix" not in sql.replace("ESnet''s prefix", "")
+
+    def test_originator_with_quote(self):
+        call = self._run_create(orig="router's-name")
+        sql = call[0][0]
+        assert "router''s-name" in sql
+
+    def test_scope_with_quote(self):
+        call = self._run_create(scope="comm:it's-lhcone")
+        sql = call[0][0]
+        assert "comm:it''s-lhcone" in sql
+
+    def test_clean_inputs_pass_through(self):
+        call = self._run_create(orig="as:293", scope="*", desc="ESnet flows")
+        sql = call[0][0]
+        assert "as:293" in sql
+        assert "ESnet flows" in sql
+
+
+# ── _rule_edit SQL escaping ────────────────────────────────────────────────────
+
+class TestRuleEditEscaping:
+    """_rule_edit must escape description in the UPDATE SQL."""
+
+    def _run_edit(self, desc="updated desc", prio="0", existing_desc="old"):
+        rule = {
+            "id": "bbbbbbbb-0000-0000-0000-000000000001",
+            "description": existing_desc,
+            "priority": 0,
+        }
+        conn = MagicMock()
+        conn.ch.multiquery = MagicMock()
+        d = MagicMock()
+        d.OK = "ok"
+        d.inputbox.side_effect = [("ok", desc), ("ok", prio)]
+
+        W._rule_edit(d, conn, rule)
+        return conn.ch.multiquery.call_args
+
+    def test_apostrophe_in_description_escaped(self):
+        call = self._run_edit(desc="ESnet's rule")
+        sql = call[0][0]
+        assert "ESnet''s rule" in sql
+        assert "ESnet's rule" not in sql.replace("ESnet''s rule", "")
+
+    def test_multiple_apostrophes(self):
+        call = self._run_edit(desc="it's a test, don't worry")
+        sql = call[0][0]
+        assert "it''s" in sql
+        assert "don''t" in sql
+
+    def test_clean_description_passes_through(self):
+        call = self._run_edit(desc="clean description")
+        sql = call[0][0]
+        assert "clean description" in sql
+
+    def test_priority_in_update_sql(self):
+        call = self._run_edit(prio="5")
+        sql = call[0][0]
+        assert "priority = 5" in sql
+
+    def test_cancel_does_not_update(self):
+        rule = {"id": "bbbbbbbb-0000-0000-0000-000000000001", "description": "", "priority": 0}
+        conn = MagicMock()
+        conn.ch.multiquery = MagicMock()
+        d = MagicMock()
+        d.OK = "ok"
+        d.inputbox.side_effect = [("cancel", "")]
+        W._rule_edit(d, conn, rule)
+        conn.ch.multiquery.assert_not_called()
 

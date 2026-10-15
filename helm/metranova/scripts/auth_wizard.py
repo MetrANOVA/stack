@@ -978,10 +978,40 @@ def patch_auth_domain(namespace: str, release: str, domain: str, kc: "KeycloakCl
     Patch KC_HOSTNAME on the Keycloak deployment and replace the domain in the
     Envoy configmap. Also updates the envoy-proxy Keycloak client's redirect URIs
     when kc is provided. Returns a list of error strings (empty = success).
+
+    KC API calls (steps 1-2) run BEFORE the kubectl set-env that restarts Keycloak
+    (step 3), because the rolling restart kills the port-forward that backs `kc`.
     """
     errors = []
 
-    # 1. Keycloak deployment — set KC_HOSTNAME
+    # 1. Update envoy-proxy Keycloak client redirect URIs for the new domain.
+    #    Must happen before step 3 (KC_HOSTNAME patch) which restarts Keycloak
+    #    and tears down the port-forward that backs `kc`.
+    if kc:
+        try:
+            callback_uri = f"https://{domain}/oauth2/callback"
+            client = kc.get_client_by_client_id("envoy-proxy")
+            if client:
+                client_uuid = client["id"]
+                kc.add_redirect_uri(client_uuid, callback_uri)
+        except Exception as exc:
+            errors.append(f"KC redirect URI update failed: {exc}")
+
+    # 2. Sync envoy-proxy client secret — realm JSON imports a placeholder; the real
+    #    secret lives in the cluster k8s secret and must be written back into KC.
+    #    Also before the KC restart in step 3.
+    if kc:
+        try:
+            real_secret = kubectl_get_secret_field(f"{release}-secrets", "ENVOY_OIDC_CLIENT_SECRET", namespace)
+            if real_secret:
+                client = kc.get_client_by_client_id("envoy-proxy")
+                if client:
+                    client["secret"] = real_secret
+                    kc._request("PUT", f"/clients/{client['id']}", client)
+        except Exception as exc:
+            errors.append(f"KC client secret sync failed: {exc}")
+
+    # 3. Keycloak deployment — set KC_HOSTNAME (triggers rolling restart)
     kc_deploy = f"{release}-keycloak"
     r = subprocess.run(
         ["kubectl", "set", "env", f"deployment/{kc_deploy}",
@@ -991,7 +1021,7 @@ def patch_auth_domain(namespace: str, release: str, domain: str, kc: "KeycloakCl
     if r.returncode != 0:
         errors.append(f"KC_HOSTNAME patch failed: {r.stderr.strip()}")
 
-    # 2. Envoy configmap — replace any existing domain in authorization_endpoint,
+    # 4. Envoy configmap — replace any existing domain in authorization_endpoint,
     #    redirect_uri, and issuer fields. We read the raw YAML, do a targeted replace,
     #    and apply it back.
     cm_name = f"{release}-envoy"
@@ -1029,37 +1059,13 @@ def patch_auth_domain(namespace: str, release: str, domain: str, kc: "KeycloakCl
     if r2.returncode != 0:
         errors.append(f"Envoy configmap patch failed: {r2.stderr.strip()}")
 
-    # 3. Restart Envoy so it picks up the new configmap
+    # 5. Restart Envoy so it picks up the new configmap
     r3 = subprocess.run(
         ["kubectl", "rollout", "restart", f"deployment/{release}-envoy", "-n", namespace],
         capture_output=True, text=True,
     )
     if r3.returncode != 0:
         errors.append(f"Envoy rollout restart failed: {r3.stderr.strip()}")
-
-    # 4. Update envoy-proxy Keycloak client redirect URIs for the new domain
-    if kc:
-        try:
-            callback_uri = f"https://{domain}/oauth2/callback"
-            client = kc.get_client_by_client_id("envoy-proxy")
-            if client:
-                client_uuid = client["id"]
-                kc.add_redirect_uri(client_uuid, callback_uri)
-        except Exception as exc:
-            errors.append(f"KC redirect URI update failed: {exc}")
-
-    # 5. Sync envoy-proxy client secret — realm JSON imports a placeholder; the real
-    #    secret lives in the cluster k8s secret and must be written back into KC.
-    if kc:
-        try:
-            real_secret = kubectl_get_secret_field(f"{release}-secrets", "ENVOY_OIDC_CLIENT_SECRET", namespace)
-            if real_secret:
-                client = kc.get_client_by_client_id("envoy-proxy")
-                if client:
-                    client["secret"] = real_secret
-                    kc._request("PUT", f"/clients/{client['id']}", client)
-        except Exception as exc:
-            errors.append(f"KC client secret sync failed: {exc}")
 
     return errors
 
@@ -1790,7 +1796,7 @@ CREATE TABLE IF NOT EXISTS metranova_authz.rules
     created_at                DateTime64(3) DEFAULT now64()
 )
 ENGINE = ReplacingMergeTree(created_at)
-ORDER BY (priority, id);
+ORDER BY id;
 
 CREATE TABLE IF NOT EXISTS metranova_authz.grants
 (
@@ -2287,6 +2293,11 @@ def _rule_so_far(org=None, orig=None, scope=None, prio=None, tlp=None) -> str:
     return "Rule so far:\n" + "\n".join(parts) + "\n\n"
 
 
+def _sql_str(s: str) -> str:
+    """Escape a string for use inside a SQL single-quoted literal."""
+    return s.replace("'", "''")
+
+
 def _rule_match_count(ch: ClickHouseClient, orig: str, scope: str) -> Optional[int]:
     """COUNT rows in metranova.data_flow matching the given patterns. Returns None on error."""
     conditions = []
@@ -2386,8 +2397,8 @@ def _rule_create(d, conn: WizardConnections):
             f"INSERT INTO metranova_authz.rules "
             f"(organization_id, policy_originator_pattern, policy_scope_pattern, "
             f"assigned_tlp, priority, description) VALUES "
-            f"('{org['id']}', '{orig}', '{scope}', "
-            f"{assigned_tlp}, {prio_int}, '{desc.strip()}');"
+            f"('{org['id']}', '{_sql_str(orig)}', '{_sql_str(scope)}', "
+            f"{assigned_tlp}, {prio_int}, '{_sql_str(desc.strip())}');"
         )
         _msgbox(d, "Rule created.\n\nThe dictionary refreshes automatically every 30–60 s.",
                 title="Created", width=60, height=10)
@@ -2408,7 +2419,7 @@ def _rule_edit(d, conn: WizardConnections, rule: dict):
         prio_int = int(prio.strip())
         conn.ch.multiquery(
             f"ALTER TABLE metranova_authz.rules UPDATE "
-            f"description = '{desc.strip()}', priority = {prio_int} "
+            f"description = '{_sql_str(desc.strip())}', priority = {prio_int} "
             f"WHERE id = '{rule['id']}';"
         )
         _msgbox(d, "Updated.", title="Saved")
