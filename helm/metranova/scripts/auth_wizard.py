@@ -601,8 +601,10 @@ class KeycloakClient:
             "parentId": ldap_provider_id,
             **mapper,
         }
+        payload.pop("subComponents", None)
         if mapper["name"] in existing:
             m = {**existing[mapper["name"]], **payload}
+            m.pop("subComponents", None)  # read-only; KC returns it in GET but rejects it in PUT
             self._request("PUT", f"/components/{m['id']}", m)
         else:
             self._request("POST", "/components", payload)
@@ -984,8 +986,8 @@ def patch_auth_domain(namespace: str, release: str, domain: str, kc: "KeycloakCl
     """
     errors = []
 
-    # 1. Update envoy-proxy Keycloak client redirect URIs for the new domain.
-    #    Must happen before step 3 (KC_HOSTNAME patch) which restarts Keycloak
+    # 1. Update envoy-proxy Keycloak client redirect + post-logout URIs for the new
+    #    domain. Must happen before step 3 (KC_HOSTNAME patch) which restarts Keycloak
     #    and tears down the port-forward that backs `kc`.
     if kc:
         try:
@@ -994,6 +996,12 @@ def patch_auth_domain(namespace: str, release: str, domain: str, kc: "KeycloakCl
             if client:
                 client_uuid = client["id"]
                 kc.add_redirect_uri(client_uuid, callback_uri)
+                # post.logout.redirect.uris is stored as a client attribute (not
+                # the top-level postLogoutRedirectUris field) in this KC version.
+                client.setdefault("attributes", {})["post.logout.redirect.uris"] = (
+                    f"https://{domain}/*"
+                )
+                kc._request("PUT", f"/clients/{client_uuid}", client)
         except Exception as exc:
             errors.append(f"KC redirect URI update failed: {exc}")
 
@@ -1010,6 +1018,21 @@ def patch_auth_domain(namespace: str, release: str, domain: str, kc: "KeycloakCl
                     kc._request("PUT", f"/clients/{client['id']}", client)
         except Exception as exc:
             errors.append(f"KC client secret sync failed: {exc}")
+
+    # 2b. Sync LDAP bind credential — realm JSON imports values.yaml.example which
+    #     uses a placeholder; the real password lives in the cluster k8s secret.
+    #     Without this, Keycloak can't query LDAP and first-broker-login fails.
+    _LDAP_PROVIDER_ID = "11111111-0000-0000-0000-000000000001"
+    if kc:
+        try:
+            ldap_pw = kubectl_get_secret_field(f"{release}-secrets", "LDAP_ADMIN_PASSWORD", namespace)
+            if ldap_pw:
+                provider = kc._request("GET", f"/components/{_LDAP_PROVIDER_ID}")
+                if provider:
+                    provider.setdefault("config", {})["bindCredential"] = [ldap_pw]
+                    kc._request("PUT", f"/components/{_LDAP_PROVIDER_ID}", provider)
+        except Exception as exc:
+            errors.append(f"KC LDAP bind credential sync failed: {exc}")
 
     # 3. Keycloak deployment — set KC_HOSTNAME (triggers rolling restart)
     kc_deploy = f"{release}-keycloak"
@@ -1035,22 +1058,11 @@ def patch_auth_domain(namespace: str, release: str, domain: str, kc: "KeycloakCl
 
     import re as _re
     cm_json = r.stdout
-    # Replace any https://... domain in the three known field positions
-    patched = _re.sub(
-        r'(authorization_endpoint: https?://)([^/\s]+)',
-        lambda m: f"{m.group(1)}{domain}",
-        cm_json,
-    )
-    patched = _re.sub(
-        r'(redirect_uri: \\?"https?://)([^/\\"]+)',
-        lambda m: f'{m.group(1)}{domain}',
-        patched,
-    )
-    patched = _re.sub(
-        r'(issuer: https?://)([^/\s\\n"]+)',
-        lambda m: f"{m.group(1)}{domain}",
-        patched,
-    )
+    # Replace the domain in all https:// URLs embedded in the Envoy configmap.
+    # The JSON-encoded YAML uses \" for quotes and \n for newlines, so we stop
+    # matching at the first unescaped slash (path boundary), whitespace, or quote.
+    _URL_DOMAIN_RE = _re.compile(r'(https?://)([^/\s\\"]+)')
+    patched = _URL_DOMAIN_RE.sub(lambda m: f"{m.group(1)}{domain}", cm_json)
 
     r2 = subprocess.run(
         ["kubectl", "apply", "-f", "-", "-n", namespace],
@@ -1901,6 +1913,26 @@ _DICT_SOURCE_SCOPE_SQL = (
     " GROUP BY scope_el"
 )
 
+# Source query for authz_scope_to_tlp dictionary.
+# For each observed scope element, finds the highest-priority rule with an assigned_tlp
+# and returns its TLP as a numeric (0=clear, 1=green, 2=amber, 3=red).
+# Scope elements that match no rule are absent from the dict; dictGetOrDefault returns 3 (tlp:red).
+_DICT_SOURCE_SCOPE_TLP_SQL = (
+    "SELECT scope_el,"
+    " toInt8(tlp_to_numeric(argMax(assigned_tlp, priority))) AS tlp_numeric"
+    " FROM ("
+    "   SELECT DISTINCT arrayJoin(policy_scope) AS scope_el"
+    "   FROM metranova.data_flow"
+    " ) AS data_scopes"
+    " CROSS JOIN ("
+    "   SELECT policy_scope_pattern, assigned_tlp, priority"
+    "   FROM metranova_authz.rules FINAL"
+    "   WHERE isNotNull(assigned_tlp)"
+    " ) AS tlp_rules"
+    " WHERE policy_scope_pattern = ''*''"
+    "    OR scope_el LIKE replace(policy_scope_pattern, ''*'', ''%'')"
+    " GROUP BY scope_el"
+)
 
 
 def _build_authz_policy_sql(ch_password: str,
@@ -1971,11 +2003,28 @@ SOURCE(CLICKHOUSE(
 LIFETIME(MIN 30 MAX 60)
 LAYOUT(COMPLEX_KEY_HASHED());
 
-DROP ROW POLICY IF EXISTS authz_read_policy ON metranova.data_flow;
-DROP ROW POLICY IF EXISTS authz_grafana_read_policy ON metranova.data_flow;
-DROP ROW POLICY IF EXISTS authz_write_policy ON metranova.data_flow;
+DROP DICTIONARY IF EXISTS metranova_authz.authz_scope_to_tlp;
+CREATE DICTIONARY metranova_authz.authz_scope_to_tlp
+(
+    scope_el    String,
+    tlp_numeric Int8
+)
+PRIMARY KEY scope_el
+SOURCE(CLICKHOUSE(
+    HOST '{ch_internal_host}'
+    PORT {ch_internal_port}
+    USER '{ch_user}'
+    PASSWORD '{pw}'
+    QUERY '{_DICT_SOURCE_SCOPE_TLP_SQL}'
+))
+LIFETIME(MIN 30 MAX 60)
+LAYOUT(COMPLEX_KEY_HASHED());
 
-CREATE ROW POLICY authz_read_policy ON metranova.data_flow
+DROP ROW POLICY IF EXISTS authz_read_policy ON metranova.*;
+DROP ROW POLICY IF EXISTS authz_grafana_read_policy ON metranova.*;
+DROP ROW POLICY IF EXISTS authz_write_policy ON metranova.*;
+
+CREATE ROW POLICY authz_read_policy ON metranova.*
 FOR SELECT
 USING arrayExists(
     org -> arrayExists(
@@ -1988,15 +2037,29 @@ USING arrayExists(
     ),
     arrayFlatten(arrayMap(
         r -> dictGetOrDefault('metranova_authz.authz_group_read_orgs', 'org_slugs',
-                              (r, tlp_to_numeric(policy_level)), cast([], 'Array(String)')),
+                              (r, if(empty(policy_scope), toInt8(3),
+                                    toInt8(arrayMax(arrayMap(
+                                        s -> dictGetOrDefault(
+                                            'metranova_authz.authz_scope_to_tlp',
+                                            'tlp_numeric', tuple(s), toInt8(3)
+                                        ),
+                                        policy_scope
+                                    ))))),
+                              cast([], 'Array(String)')),
         currentRoles()
     ))
 )
 TO ALL EXCEPT `clickhouse-admin`, admin, pipeline, default, grafana;
 
-CREATE ROW POLICY authz_grafana_read_policy ON metranova.data_flow
+CREATE ROW POLICY authz_grafana_read_policy ON metranova.*
 FOR SELECT
-USING (policy_level = 'tlp:clear')
+USING (
+    notEmpty(policy_scope)
+    AND toInt8(arrayMax(arrayMap(
+        s -> dictGetOrDefault('metranova_authz.authz_scope_to_tlp', 'tlp_numeric', tuple(s), toInt8(3)),
+        policy_scope
+    ))) = 0
+)
 TO grafana;
 
 -- NOTE: ClickHouse FOR INSERT row policies are not yet supported in upstream
@@ -2004,7 +2067,7 @@ TO grafana;
 -- only users/roles with explicit INSERT grants on metranova.data_flow can write.
 -- The authz_group_write_orgs dictionary is created above for future use when
 -- ClickHouse adds FOR INSERT policy support.
-DROP ROW POLICY IF EXISTS authz_write_policy ON metranova.data_flow;
+DROP ROW POLICY IF EXISTS authz_write_policy ON metranova.*;
 """
 
 
@@ -2457,7 +2520,8 @@ def _ensure_ch_role(ch: ClickHouseClient, group_name: str):
         f"GRANT SELECT ON metranova.data_flow TO `{group_name}`;\n"
         f"GRANT dictGet ON metranova_authz.authz_group_read_orgs TO `{group_name}`;\n"
         f"GRANT dictGet ON metranova_authz.authz_group_write_orgs TO `{group_name}`;\n"
-        f"GRANT dictGet ON metranova_authz.authz_scope_to_orgs TO `{group_name}`;"
+        f"GRANT dictGet ON metranova_authz.authz_scope_to_orgs TO `{group_name}`;\n"
+        f"GRANT dictGet ON metranova_authz.authz_scope_to_tlp TO `{group_name}`;"
     )
 
 
@@ -2816,7 +2880,9 @@ def _enforcement_report(ch: ClickHouseClient) -> dict:
             f"CREATE USER `{_REPORT_TEMP_USER}` IDENTIFIED WITH no_password;\n"
             f"GRANT SELECT ON metranova.data_flow TO `{_REPORT_TEMP_USER}`;\n"
             f"GRANT dictGet ON metranova_authz.authz_group_read_orgs TO `{_REPORT_TEMP_USER}`;\n"
-            f"GRANT dictGet ON metranova_authz.authz_group_write_orgs TO `{_REPORT_TEMP_USER}`;"
+            f"GRANT dictGet ON metranova_authz.authz_group_write_orgs TO `{_REPORT_TEMP_USER}`;\n"
+            f"GRANT dictGet ON metranova_authz.authz_scope_to_orgs TO `{_REPORT_TEMP_USER}`;\n"
+            f"GRANT dictGet ON metranova_authz.authz_scope_to_tlp TO `{_REPORT_TEMP_USER}`;"
         )
         no_grants = _row_count_as(ch, _REPORT_TEMP_USER)
     except Exception as exc:

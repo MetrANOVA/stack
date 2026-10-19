@@ -986,6 +986,14 @@ class TestEnsureChRole:
         assert "GRANT SELECT ON metranova_authz.rules" not in sql
         assert "GRANT SELECT ON metranova_authz.organizations" not in sql
 
+    def test_grants_scope_tlp_dict(self):
+        ch = MagicMock(spec=W.ClickHouseClient)
+        ch.multiquery.return_value = ""
+        W._ensure_ch_role(ch, "authz-tlp-esnet-amber-read")
+        sql = ch.multiquery.call_args[0][0]
+        assert "authz_scope_to_tlp" in sql
+        assert "dictGet" in sql
+
 
 class TestKubectlContext:
     def test_returns_current_context(self):
@@ -1441,8 +1449,11 @@ class TestBuildAuthzPolicySql:
     def test_grafana_policy_tlp_clear_only(self):
         sql = W._build_authz_policy_sql("pw")
         grafana_section = sql.split("CREATE ROW POLICY authz_grafana_read_policy")[1].split(";")[0]
-        assert "tlp:clear" in grafana_section
-        assert "dictGet" not in grafana_section
+        # Grafana sees only tlp:clear (numeric 0) rows, computed from scope at query time
+        assert "authz_scope_to_tlp" in grafana_section
+        assert "= 0" in grafana_section
+        # Must NOT use the row's policy_level column directly
+        assert "policy_level" not in grafana_section
 
     def test_grafana_exempt_from_main_read_policy(self):
         sql = W._build_authz_policy_sql("pw")
@@ -1503,6 +1514,81 @@ class TestBuildAuthzPolicySql:
             "CREATE ROW POLICY authz_grafana"
         )[0]
         assert "EXISTS (" not in read_policy
+
+    def test_policies_target_all_metranova_tables(self):
+        sql = W._build_authz_policy_sql("pw")
+        assert "ON metranova.*" in sql
+        assert "ON metranova.data_flow" not in sql
+
+    def test_drop_policies_target_all_metranova_tables(self):
+        sql = W._build_authz_policy_sql("pw")
+        assert "DROP ROW POLICY IF EXISTS authz_read_policy ON metranova.*" in sql
+        assert "DROP ROW POLICY IF EXISTS authz_grafana_read_policy ON metranova.*" in sql
+
+    def test_contains_scope_tlp_dict(self):
+        sql = W._build_authz_policy_sql("pw")
+        assert "authz_scope_to_tlp" in sql
+
+    def test_scope_tlp_dict_uses_argmax_priority(self):
+        sql = W._build_authz_policy_sql("pw")
+        assert "argMax" in sql
+        assert "priority" in sql
+
+    def test_scope_tlp_dict_filters_null_assigned_tlp(self):
+        sql = W._build_authz_policy_sql("pw")
+        assert "isNotNull(assigned_tlp)" in sql
+
+    def test_read_policy_does_not_read_policy_level_column(self):
+        sql = W._build_authz_policy_sql("pw")
+        read_policy = sql.split("CREATE ROW POLICY authz_read_policy ON")[1].split(
+            "CREATE ROW POLICY authz_grafana"
+        )[0]
+        # TLP is determined from scope at query time, never from the row's policy_level column
+        assert "policy_level" not in read_policy
+
+    def test_read_policy_uses_scope_tlp_dict(self):
+        sql = W._build_authz_policy_sql("pw")
+        read_policy = sql.split("CREATE ROW POLICY authz_read_policy ON")[1].split(
+            "CREATE ROW POLICY authz_grafana"
+        )[0]
+        assert "authz_scope_to_tlp" in read_policy
+
+    def test_read_policy_tlp_default_is_red(self):
+        sql = W._build_authz_policy_sql("pw")
+        read_policy = sql.split("CREATE ROW POLICY authz_read_policy ON")[1].split(
+            "CREATE ROW POLICY authz_grafana"
+        )[0]
+        # toInt8(3) is tlp:red — default when no rule matches a scope element
+        assert "toInt8(3)" in read_policy
+
+    def test_read_policy_empty_scope_defaults_to_tlp_red(self):
+        sql = W._build_authz_policy_sql("pw")
+        read_policy = sql.split("CREATE ROW POLICY authz_read_policy ON")[1].split(
+            "CREATE ROW POLICY authz_grafana"
+        )[0]
+        assert "empty(policy_scope)" in read_policy
+
+    def test_grafana_policy_does_not_read_policy_level_column(self):
+        sql = W._build_authz_policy_sql("pw")
+        grafana_section = sql.split("CREATE ROW POLICY authz_grafana_read_policy")[1].split(";")[0]
+        assert "policy_level" not in grafana_section
+
+    def test_grafana_policy_uses_scope_tlp_dict(self):
+        sql = W._build_authz_policy_sql("pw")
+        grafana_section = sql.split("CREATE ROW POLICY authz_grafana_read_policy")[1].split(";")[0]
+        assert "authz_scope_to_tlp" in grafana_section
+
+    def test_grafana_policy_restricts_to_tlp_clear(self):
+        sql = W._build_authz_policy_sql("pw")
+        grafana_section = sql.split("CREATE ROW POLICY authz_grafana_read_policy")[1].split(";")[0]
+        # 0 is the numeric for tlp:clear
+        assert "= 0" in grafana_section
+
+    def test_drop_before_create_for_scope_tlp_dict(self):
+        sql = W._build_authz_policy_sql("pw")
+        drop_pos   = sql.index("DROP DICTIONARY IF EXISTS metranova_authz.authz_scope_to_tlp")
+        create_pos = sql.index("CREATE DICTIONARY metranova_authz.authz_scope_to_tlp")
+        assert drop_pos < create_pos
 
 
 class TestAuthzPoliciesExist:
@@ -2537,15 +2623,47 @@ class TestPatchAuthDomain:
     def test_client_secret_synced(self):
         kc = MagicMock()
         kc.get_client_by_client_id.return_value = {"id": "client-uuid", "secret": "placeholder"}
+        kc._request.return_value = {"id": "11111111-0000-0000-0000-000000000001", "config": {}}
+
+        def fake_get_secret(secret_name, field, ns):
+            return "real-envoy-secret" if "ENVOY" in field else "real-ldap-pw"
 
         with patch("subprocess.run", return_value=SimpleNamespace(returncode=0, stdout=self._ENVOY_CM_JSON, stderr="")), \
-             patch.object(W, "kubectl_get_secret_field", return_value="real-secret"):
+             patch.object(W, "kubectl_get_secret_field", side_effect=fake_get_secret):
             W.patch_auth_domain("metranova", "metranova-auth", "new.example.com", kc=kc)
 
-        kc._request.assert_called_once()
-        call_args = kc._request.call_args
-        assert call_args[0][0] == "PUT"
-        assert call_args[0][2]["secret"] == "real-secret"
+        put_calls = [c for c in kc._request.call_args_list if c[0][0] == "PUT"]
+        envoy_put = next((c for c in put_calls if "clients" in c[0][1]), None)
+        assert envoy_put is not None
+        assert envoy_put[0][2]["secret"] == "real-envoy-secret"
+
+    def test_ldap_bind_credential_synced(self):
+        kc = MagicMock()
+        kc.get_client_by_client_id.return_value = {"id": "client-uuid", "secret": "x"}
+        kc._request.return_value = {"id": "11111111-0000-0000-0000-000000000001", "config": {}}
+
+        def fake_get_secret(secret_name, field, ns):
+            return "real-ldap-pw" if "LDAP" in field else "real-envoy-secret"
+
+        with patch("subprocess.run", return_value=SimpleNamespace(returncode=0, stdout=self._ENVOY_CM_JSON, stderr="")), \
+             patch.object(W, "kubectl_get_secret_field", side_effect=fake_get_secret):
+            W.patch_auth_domain("metranova", "metranova-auth", "new.example.com", kc=kc)
+
+        put_calls = [c for c in kc._request.call_args_list if c[0][0] == "PUT"]
+        ldap_put = next((c for c in put_calls if "components" in c[0][1]), None)
+        assert ldap_put is not None
+        assert ldap_put[0][2]["config"]["bindCredential"] == ["real-ldap-pw"]
+
+    def test_ldap_sync_error_is_non_fatal(self):
+        kc = MagicMock()
+        kc.get_client_by_client_id.return_value = {"id": "client-uuid", "secret": "x"}
+        kc._request.side_effect = Exception("ldap sync failed")
+
+        with patch("subprocess.run", return_value=SimpleNamespace(returncode=0, stdout=self._ENVOY_CM_JSON, stderr="")), \
+             patch.object(W, "kubectl_get_secret_field", return_value="some-pw"):
+            errors = W.patch_auth_domain("metranova", "metranova-auth", "new.example.com", kc=kc)
+
+        assert any("LDAP bind credential" in e for e in errors)
 
     def test_kc_redirect_error_is_non_fatal(self):
         kc = MagicMock()
@@ -2586,6 +2704,72 @@ class TestPatchAuthDomain:
         with patch("subprocess.run", return_value=SimpleNamespace(returncode=0, stdout=self._ENVOY_CM_JSON, stderr="")):
             W.patch_auth_domain("metranova", "metranova-auth", "new.example.com", kc=None)
         kc_mock.assert_not_called()
+
+    def test_path_redirect_domain_replaced(self):
+        """Regression: post_logout_redirect_uri in path_redirect must be patched."""
+        old_domain = "example.metranova.io"
+        new_domain = "136-108-216-21.sslip.io"
+        cm_json = json.dumps({
+            "apiVersion": "v1", "kind": "ConfigMap",
+            "metadata": {"name": "metranova-auth-envoy", "namespace": "metranova"},
+            "data": {
+                "envoy.yaml": (
+                    f'path_redirect: "/realms/metranova/protocol/openid-connect/logout'
+                    f'?post_logout_redirect_uri=https://{old_domain}/oauth2/sign_out"\n'
+                )
+            },
+        })
+        applied: list[str] = []
+
+        def fake_run(cmd, **kw):
+            if "get" in cmd:
+                return SimpleNamespace(returncode=0, stdout=cm_json, stderr="")
+            if "apply" in cmd:
+                applied.append(kw.get("input", ""))
+                return SimpleNamespace(returncode=0, stdout="", stderr="")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        with patch("subprocess.run", side_effect=fake_run):
+            W.patch_auth_domain("metranova", "metranova-auth", new_domain, kc=None)
+
+        assert applied
+        patched_yaml = json.loads(applied[0])["data"]["envoy.yaml"]
+        assert old_domain not in patched_yaml
+        assert new_domain in patched_yaml
+
+    def test_issuer_domain_containing_n_replaced_fully(self):
+        """Regression: old domain containing 'n' (e.g. sslip.ionova.io) must be
+        fully replaced, not truncated at the first 'n'."""
+        bad_domain = "136-108-216-21.sslip.ionova.io"
+        good_domain = "136-108-216-21.sslip.io"
+        cm_json = json.dumps({
+            "apiVersion": "v1", "kind": "ConfigMap",
+            "metadata": {"name": "metranova-auth-envoy", "namespace": "metranova"},
+            "data": {
+                "envoy.yaml": (
+                    f"authorization_endpoint: https://{bad_domain}/realms/x/auth\n"
+                    f'redirect_uri: "https://{bad_domain}/oauth2/callback"\n'
+                    f"issuer: https://{bad_domain}/realms/x\n"
+                )
+            },
+        })
+        applied: list[str] = []
+
+        def fake_run(cmd, **kw):
+            if "get" in cmd:
+                return SimpleNamespace(returncode=0, stdout=cm_json, stderr="")
+            if "apply" in cmd:
+                applied.append(kw.get("input", ""))
+                return SimpleNamespace(returncode=0, stdout="", stderr="")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        with patch("subprocess.run", side_effect=fake_run):
+            W.patch_auth_domain("metranova", "metranova-auth", good_domain, kc=None)
+
+        assert applied, "apply was never called"
+        patched_yaml = json.loads(applied[0])["data"]["envoy.yaml"]
+        assert bad_domain not in patched_yaml
+        assert good_domain in patched_yaml
 
 
 # ── _sql_str ───────────────────────────────────────────────────────────────────

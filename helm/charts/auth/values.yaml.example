@@ -157,7 +157,7 @@ portal:
 
 # ClickHouse connection — used by Grafana datasource and Envoy routing
 clickhouse:
-  host: clickhouse
+  host: clickhouse-ch-cluster
   port: 8123
 
 keycloakLdapSync:
@@ -179,11 +179,9 @@ networkPolicy:
   ldapIngress:
     # Allow pods outside the auth stack to bind to OpenLDAP (port 389/636).
     # Set clientPodSelector to match e.g. ClickHouse pods for LDAP user directory auth.
-    enabled: false
-    clientPodSelector: {}
-    # Example for ClickHouse Operator pods:
-    # clientPodSelector:
-    #   clickhouse.altinity.com/chi: ch-cluster
+    enabled: true
+    clientPodSelector:
+      clickhouse.altinity.com/app: chop
 
 serviceAccount:
   create: true
