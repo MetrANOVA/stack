@@ -1413,6 +1413,14 @@ class TestSectionArgoCDSync:
 
 # ── Tests: _build_authz_policy_sql and section_init_authz_policies ─────────────
 
+class TestAuthzSchemaSql:
+    def test_authz_public_role_gets_select_on_metranova(self):
+        # All LDAP users get authz-public via common_role_names; row policies
+        # control which rows they actually see.
+        assert "CREATE ROLE IF NOT EXISTS `authz-public`" in W._AUTHZ_SCHEMA_SQL
+        assert "GRANT SELECT ON metranova.* TO `authz-public`" in W._AUTHZ_SCHEMA_SQL
+
+
 class TestBuildAuthzPolicySql:
     def test_contains_tlp_function(self):
         sql = W._build_authz_policy_sql("secret")
