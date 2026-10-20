@@ -3294,6 +3294,38 @@ def _helm_repo_add(name: str, url: str) -> tuple[bool, str]:
     return True, ""
 
 
+def _helm_apply_crds(chart: str, version: str | None = None) -> tuple[bool, str]:
+    """Pull chart and apply its CRDs via kubectl.
+
+    Helm only installs CRDs on the very first `helm install` — subsequent
+    `helm upgrade` calls skip them. This ensures CRDs are always current
+    regardless of whether the release is new or being re-installed after a wipe.
+    """
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmpdir:
+        pull_cmd = ["helm", "pull", chart, "--untar", "--untardir", tmpdir]
+        if version:
+            pull_cmd += ["--version", version]
+        r = subprocess.run(pull_cmd, capture_output=True, text=True)
+        if r.returncode != 0:
+            return False, f"helm pull failed: {r.stderr.strip()}"
+
+        # Find the crds/ directory (chart name is last segment of chart path)
+        chart_name = chart.split("/")[-1]
+        crds_dir = os.path.join(tmpdir, chart_name, "crds")
+        if not os.path.isdir(crds_dir):
+            return True, "no crds/ directory in chart (nothing to apply)"
+
+        r2 = subprocess.run(
+            ["kubectl", "apply", "-f", crds_dir,
+             "--context", _kubectl_context()],
+            capture_output=True, text=True,
+        )
+        if r2.returncode != 0:
+            return False, f"kubectl apply crds failed: {r2.stderr.strip()}"
+        return True, r2.stdout.strip()
+
+
 def _helm_install(chart: str, release: str, namespace: str,
                    extra_flags: list[str]) -> tuple[bool, str]:
     r = subprocess.run(
@@ -3366,6 +3398,15 @@ def section_prerequisites(d, namespace: str):
         ok, msg = _helm_repo_add(name, url)
         if not ok:
             errors.append(f"{p['label']}: repo add failed — {msg}")
+            continue
+
+        d.infobox(
+            f"Applying CRDs for {p['helm_chart']}...",
+            width=64, height=6, title=f"Installing {p['label']}",
+        )
+        ok, msg = _helm_apply_crds(p["helm_chart"])
+        if not ok:
+            errors.append(f"{p['label']}: CRD apply failed — {msg}")
             continue
 
         d.infobox(

@@ -1240,6 +1240,77 @@ class TestHelmInstall:
         assert any("my-ctx" in " ".join(c) for c in calls)
 
 
+class TestHelmApplyCrds:
+    def test_applies_crds_when_dir_exists(self):
+        """Pulls chart, finds crds/ dir, calls kubectl apply."""
+        import tempfile, os
+        apply_cmds = []
+
+        def fake_run(cmd, **kw):
+            if "pull" in cmd:
+                # Simulate helm pull by creating the crds/ dir in untardir
+                untardir = cmd[cmd.index("--untardir") + 1]
+                chart_name = cmd[cmd.index("pull") + 1].split("/")[-1]
+                crds_dir = os.path.join(untardir, chart_name, "crds")
+                os.makedirs(crds_dir, exist_ok=True)
+                open(os.path.join(crds_dir, "mycrd.yaml"), "w").close()
+                return SimpleNamespace(returncode=0, stdout="", stderr="")
+            if "apply" in cmd:
+                apply_cmds.append(cmd)
+                return SimpleNamespace(returncode=0, stdout="created", stderr="")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        with patch("subprocess.run", side_effect=fake_run), \
+             patch.object(W, "_kubectl_context", return_value="test-ctx"):
+            ok, msg = W._helm_apply_crds("strimzi/strimzi-kafka-operator")
+
+        assert ok is True
+        assert apply_cmds, "kubectl apply was not called"
+        assert any("-f" in c for c in apply_cmds)
+
+    def test_returns_ok_when_no_crds_dir(self):
+        """Chart with no crds/ dir succeeds with informational message."""
+        def fake_run(cmd, **kw):
+            # helm pull succeeds but creates no crds/ dir
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        with patch("subprocess.run", side_effect=fake_run):
+            ok, msg = W._helm_apply_crds("some/chart")
+
+        assert ok is True
+        assert "no crds" in msg
+
+    def test_returns_false_when_pull_fails(self):
+        """helm pull failure is surfaced as an error."""
+        with patch("subprocess.run", return_value=SimpleNamespace(returncode=1, stdout="", stderr="not found")):
+            ok, msg = W._helm_apply_crds("bad/chart")
+        assert ok is False
+        assert "helm pull failed" in msg
+
+    def test_returns_false_when_kubectl_apply_fails(self):
+        """kubectl apply failure after successful pull is surfaced."""
+        import os
+
+        def fake_run(cmd, **kw):
+            if "pull" in cmd:
+                untardir = cmd[cmd.index("--untardir") + 1]
+                chart_name = cmd[cmd.index("pull") + 1].split("/")[-1]
+                crds_dir = os.path.join(untardir, chart_name, "crds")
+                os.makedirs(crds_dir, exist_ok=True)
+                open(os.path.join(crds_dir, "crd.yaml"), "w").close()
+                return SimpleNamespace(returncode=0, stdout="", stderr="")
+            if "apply" in cmd:
+                return SimpleNamespace(returncode=1, stdout="", stderr="permission denied")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        with patch("subprocess.run", side_effect=fake_run), \
+             patch.object(W, "_kubectl_context", return_value="ctx"):
+            ok, msg = W._helm_apply_crds("strimzi/strimzi-kafka-operator")
+
+        assert ok is False
+        assert "kubectl apply crds failed" in msg
+
+
 class TestSectionPrerequisites:
     def _make_dialog(self, checklist_selected):
         d = MagicMock()
@@ -1265,6 +1336,7 @@ class TestSectionPrerequisites:
         d = self._make_dialog(["strimzi"])
         with patch.object(W, "_crd_exists", return_value=False), \
              patch.object(W, "_helm_repo_add", return_value=(True, "")), \
+             patch.object(W, "_helm_apply_crds", return_value=(True, "")), \
              patch.object(W, "_helm_install", return_value=(True, "")) as mock_install, \
              patch.object(W, "_wait_for_crd", return_value=True), \
              patch.object(W, "_msgbox"):
@@ -1277,6 +1349,7 @@ class TestSectionPrerequisites:
         install_calls = []
         with patch.object(W, "_crd_exists", return_value=False), \
              patch.object(W, "_helm_repo_add", return_value=(True, "")), \
+             patch.object(W, "_helm_apply_crds", return_value=(True, "")), \
              patch.object(W, "_helm_install", side_effect=lambda *a, **kw: install_calls.append(a[0]) or (True, "")), \
              patch.object(W, "_wait_for_crd", return_value=True), \
              patch.object(W, "_msgbox"):
@@ -1289,11 +1362,24 @@ class TestSectionPrerequisites:
         scrollbox_texts = []
         with patch.object(W, "_crd_exists", return_value=False), \
              patch.object(W, "_helm_repo_add", return_value=(False, "connection refused")), \
+             patch.object(W, "_helm_apply_crds", return_value=(True, "")), \
              patch.object(W, "_helm_install") as mock_install, \
              patch.object(d, "scrollbox", side_effect=lambda msg, **kw: scrollbox_texts.append(msg)):
             W.section_prerequisites(d, "metranova")
         mock_install.assert_not_called()
         assert any("repo add failed" in t for t in scrollbox_texts)
+
+    def test_reports_error_when_crd_apply_fails(self):
+        d = self._make_dialog(["strimzi"])
+        scrollbox_texts = []
+        with patch.object(W, "_crd_exists", return_value=False), \
+             patch.object(W, "_helm_repo_add", return_value=(True, "")), \
+             patch.object(W, "_helm_apply_crds", return_value=(False, "permission denied")), \
+             patch.object(W, "_helm_install") as mock_install, \
+             patch.object(d, "scrollbox", side_effect=lambda msg, **kw: scrollbox_texts.append(msg)):
+            W.section_prerequisites(d, "metranova")
+        mock_install.assert_not_called()
+        assert any("CRD apply failed" in t for t in scrollbox_texts)
 
     def test_all_four_prerequisites_defined(self):
         keys = {p["key"] for p in W._PREREQUISITES}
