@@ -1195,6 +1195,28 @@ def _repo_root() -> str:
         os.path.dirname(os.path.abspath(__file__)))))
 
 
+def ensure_keycloak_providers_configmap(namespace: str, release: str, dry_run: bool = False):
+    """Create the keycloak-providers ConfigMap if it doesn't exist.
+
+    Keycloak mounts this ConfigMap as a volume for custom provider JARs.
+    It must exist before the pod starts or the pod stays Pending indefinitely.
+    An empty ConfigMap is valid — providers are optional.
+    """
+    cm_name = "keycloak-providers"
+    r = subprocess.run(
+        ["kubectl", "get", "configmap", cm_name, "-n", namespace],
+        capture_output=True, text=True,
+    )
+    if r.returncode == 0:
+        return  # already exists
+    if dry_run:
+        return
+    subprocess.run(
+        ["kubectl", "create", "configmap", cm_name, "-n", namespace],
+        capture_output=True, text=True,
+    )
+
+
 def apply_secrets(groups: dict, namespace: str, release: str,
                   dry_run: bool, fields: list[SecretField] = None,
                   dest: str = "files"):
@@ -1425,6 +1447,7 @@ def _run_secrets_menu(d, fields: list[SecretField],
             if "C" in selected:
                 groups = group_fields(fields)
                 apply_secrets(groups, namespace, release, dry_run, fields, dest="cluster")
+                ensure_keycloak_providers_configmap(namespace, release, dry_run)
                 if not dry_run:
                     _msgbox(d,
                         "Secrets applied directly to the cluster.\n\n"

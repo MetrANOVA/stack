@@ -969,6 +969,70 @@ class TestApplySecrets:
         assert "my-hmac" in manifest_text
 
 
+class TestEnsureKeycloakProvidersConfigmap:
+    def test_creates_when_missing(self):
+        """ConfigMap is created when it does not exist."""
+        cmds = []
+
+        def fake_run(cmd, **kw):
+            cmds.append(list(cmd))
+            if "get" in cmd:
+                return SimpleNamespace(returncode=1, stdout="", stderr="not found")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        with patch("subprocess.run", side_effect=fake_run):
+            W.ensure_keycloak_providers_configmap("metranova", "metranova-auth")
+
+        create_cmds = [c for c in cmds if "create" in c]
+        assert create_cmds, "kubectl create was not called"
+        assert any("keycloak-providers" in " ".join(c) for c in create_cmds)
+
+    def test_skips_when_already_exists(self):
+        """ConfigMap is not recreated when it already exists."""
+        cmds = []
+
+        def fake_run(cmd, **kw):
+            cmds.append(list(cmd))
+            return SimpleNamespace(returncode=0, stdout="existing", stderr="")
+
+        with patch("subprocess.run", side_effect=fake_run):
+            W.ensure_keycloak_providers_configmap("metranova", "metranova-auth")
+
+        create_cmds = [c for c in cmds if "create" in c]
+        assert not create_cmds, "kubectl create should not be called when CM exists"
+
+    def test_dry_run_never_creates(self):
+        """dry_run=True: never calls kubectl create even if CM is missing."""
+        cmds = []
+
+        def fake_run(cmd, **kw):
+            cmds.append(list(cmd))
+            if "get" in cmd:
+                return SimpleNamespace(returncode=1, stdout="", stderr="not found")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        with patch("subprocess.run", side_effect=fake_run):
+            W.ensure_keycloak_providers_configmap("metranova", "metranova-auth", dry_run=True)
+
+        create_cmds = [c for c in cmds if "create" in c]
+        assert not create_cmds, "kubectl create must not run in dry_run mode"
+
+    def test_configmap_name_is_keycloak_providers(self):
+        """CM name must match what the Helm chart expects (no release prefix)."""
+        names_checked = []
+
+        def fake_run(cmd, **kw):
+            if "get" in cmd:
+                names_checked.append(cmd[3])  # kubectl get configmap <name>
+                return SimpleNamespace(returncode=0, stdout="existing", stderr="")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        with patch("subprocess.run", side_effect=fake_run):
+            W.ensure_keycloak_providers_configmap("metranova", "metranova-auth")
+
+        assert names_checked == ["keycloak-providers"]
+
+
 class TestEnsureChRole:
     def test_sends_create_role_sql(self):
         ch = MagicMock(spec=W.ClickHouseClient)
