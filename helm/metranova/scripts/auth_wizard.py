@@ -1044,6 +1044,26 @@ def patch_auth_domain(namespace: str, release: str, domain: str, kc: "KeycloakCl
     if r.returncode != 0:
         errors.append(f"KC_HOSTNAME patch failed: {r.stderr.strip()}")
 
+    # 3b. Patch realm JSON configmap so Keycloak re-imports the correct domain
+    #     on next restart. Without this, a KC restart reverts all URL patches.
+    import re as _re2
+    kc_cm_name = f"{release}-keycloak"
+    r_kc = subprocess.run(
+        ["kubectl", "get", "configmap", kc_cm_name, "-n", namespace, "-o", "json"],
+        capture_output=True, text=True,
+    )
+    if r_kc.returncode == 0:
+        _URL_DOMAIN_RE2 = _re2.compile(r'(https?://)([^/\s\\"]+)')
+        patched_kc = _URL_DOMAIN_RE2.sub(lambda m: f"{m.group(1)}{domain}", r_kc.stdout)
+        r_kc2 = subprocess.run(
+            ["kubectl", "apply", "-f", "-", "-n", namespace],
+            input=patched_kc, capture_output=True, text=True,
+        )
+        if r_kc2.returncode != 0:
+            errors.append(f"Keycloak realm configmap patch failed: {r_kc2.stderr.strip()}")
+    else:
+        errors.append(f"Could not read Keycloak configmap: {r_kc.stderr.strip()}")
+
     # 4. Envoy configmap — replace any existing domain in authorization_endpoint,
     #    redirect_uri, and issuer fields. We read the raw YAML, do a targeted replace,
     #    and apply it back.

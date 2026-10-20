@@ -2795,6 +2795,63 @@ class TestPatchAuthDomain:
         assert bad_domain not in patched_yaml
         assert good_domain in patched_yaml
 
+    def test_realm_configmap_domain_patched(self):
+        """Keycloak realm configmap must be patched so KC re-imports the correct
+        domain on restart. Without this, a KC restart reverts the domain."""
+        old_domain = "old.example.com"
+        new_domain = "new.example.com"
+        # Both configmaps contain the old domain — the KC one has realm JSON
+        cm_with_old = json.dumps({
+            "apiVersion": "v1", "kind": "ConfigMap",
+            "metadata": {"name": "metranova-auth-envoy", "namespace": "metranova"},
+            "data": {
+                "envoy.yaml": (
+                    f"authorization_endpoint: https://{old_domain}/realms/x/auth\n"
+                    f'redirect_uri: "https://{old_domain}/oauth2/callback"\n'
+                    f"issuer: https://{old_domain}/realms/x\n"
+                )
+            },
+        })
+        applied_bodies: list[str] = []
+
+        def fake_run(cmd, **kw):
+            if "get" in cmd and "configmap" in cmd:
+                return SimpleNamespace(returncode=0, stdout=cm_with_old, stderr="")
+            if "apply" in cmd:
+                applied_bodies.append(kw.get("input", ""))
+                return SimpleNamespace(returncode=0, stdout="", stderr="")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        with patch("subprocess.run", side_effect=fake_run):
+            errors = W.patch_auth_domain("metranova", "metranova-auth", new_domain, kc=None)
+
+        assert errors == [], f"Unexpected errors: {errors}"
+        # Both the Keycloak realm configmap and the Envoy configmap should be patched
+        assert len(applied_bodies) >= 2, "Expected at least 2 apply calls (KC + Envoy)"
+        for body in applied_bodies:
+            assert new_domain in body, f"new domain missing from apply body: {body[:200]}"
+            assert old_domain not in body, f"old domain still present in apply body: {body[:200]}"
+
+    def test_realm_configmap_get_failure_is_non_fatal(self):
+        """If the Keycloak realm configmap can't be read, report error but continue."""
+        call_count = {"get": 0}
+
+        def fake_run(cmd, **kw):
+            if "get" in cmd and "configmap" in cmd:
+                call_count["get"] += 1
+                # First get (KC configmap) fails; second get (Envoy configmap) succeeds
+                if call_count["get"] == 1:
+                    return SimpleNamespace(returncode=1, stdout="", stderr="not found")
+                return SimpleNamespace(returncode=0, stdout=self._ENVOY_CM_JSON, stderr="")
+            if "apply" in cmd:
+                return SimpleNamespace(returncode=0, stdout="", stderr="")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        with patch("subprocess.run", side_effect=fake_run):
+            errors = W.patch_auth_domain("metranova", "metranova-auth", "new.example.com", kc=None)
+
+        assert any("Keycloak configmap" in e or "Could not read" in e for e in errors)
+
 
 # ── section_set_domain ─────────────────────────────────────────────────────────
 
