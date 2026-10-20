@@ -1224,7 +1224,8 @@ def export_csv(fields: list[SecretField], path: str):
         writer.writerow(["Secret", "Key", "Value", "Notes"])
         for fld in fields:
             secret_name, key = fld.key.split("/", 1)
-            writer.writerow([secret_name, key, fld.value, fld.description[:80]])
+            value = fld.cluster_value if fld.value == _ALREADY_SET_SENTINEL else fld.value
+            writer.writerow([secret_name, key, value, fld.description[:80]])
     print(f"Exported to {path}")
 
 
@@ -2026,28 +2027,37 @@ DROP ROW POLICY IF EXISTS authz_write_policy ON metranova.*;
 
 CREATE ROW POLICY authz_read_policy ON metranova.*
 FOR SELECT
-USING arrayExists(
-    org -> arrayExists(
-        s -> has(
-            dictGetOrDefault('metranova_authz.authz_scope_to_orgs', 'org_slugs',
-                             tuple(s), cast([], 'Array(String)')),
-            org
-        ),
-        policy_scope
-    ),
-    arrayFlatten(arrayMap(
-        r -> dictGetOrDefault('metranova_authz.authz_group_read_orgs', 'org_slugs',
-                              (r, if(empty(policy_scope), toInt8(3),
-                                    toInt8(arrayMax(arrayMap(
-                                        s -> dictGetOrDefault(
-                                            'metranova_authz.authz_scope_to_tlp',
-                                            'tlp_numeric', tuple(s), toInt8(3)
-                                        ),
-                                        policy_scope
-                                    ))))),
-                              cast([], 'Array(String)')),
-        currentRoles()
-    ))
+USING (
+    notEmpty(policy_scope)
+    AND (
+        toInt8(arrayMax(arrayMap(
+            s -> dictGetOrDefault('metranova_authz.authz_scope_to_tlp', 'tlp_numeric', tuple(s), toInt8(3)),
+            policy_scope
+        ))) = 0
+        OR arrayExists(
+            org -> arrayExists(
+                s -> has(
+                    dictGetOrDefault('metranova_authz.authz_scope_to_orgs', 'org_slugs',
+                                     tuple(s), cast([], 'Array(String)')),
+                    org
+                ),
+                policy_scope
+            ),
+            arrayFlatten(arrayMap(
+                r -> dictGetOrDefault('metranova_authz.authz_group_read_orgs', 'org_slugs',
+                                      (r, if(empty(policy_scope), toInt8(3),
+                                            toInt8(arrayMax(arrayMap(
+                                                s -> dictGetOrDefault(
+                                                    'metranova_authz.authz_scope_to_tlp',
+                                                    'tlp_numeric', tuple(s), toInt8(3)
+                                                ),
+                                                policy_scope
+                                            ))))),
+                                      cast([], 'Array(String)')),
+                currentRoles()
+            ))
+        )
+    )
 )
 TO ALL EXCEPT `clickhouse-admin`, admin, pipeline, default, grafana;
 
@@ -3377,6 +3387,53 @@ def _apply_argocd_manifest(manifest_rel_path: str) -> tuple[bool, str]:
     return True, r.stdout.strip()
 
 
+def section_set_domain(d, conn: "WizardConnections", namespace: str, release: str):
+    """Set or change the public hostname used by Keycloak, Envoy, and the wizard."""
+    suggested = (
+        getattr(conn, "public_domain", None)
+        or detect_envoy_domain(namespace, release)
+        or ""
+    )
+
+    code, domain = d.inputbox(
+        "Enter the public hostname for this MetrANOVA instance.\n\n"
+        "The default is derived from the Envoy LoadBalancer IP via sslip.io.\n"
+        "You can enter any FQDN (no https://, no trailing slash).",
+        init=suggested,
+        title="Set Public Domain",
+        width=70,
+        height=14,
+    )
+    if code != d.OK:
+        return
+
+    domain = domain.strip().rstrip("/")
+    if not domain:
+        _msgbox(d, "No domain entered — nothing changed.", title="Cancelled", width=50, height=6)
+        return
+
+    d.infobox(f"Patching domain to: {domain}\n\nUpdating Keycloak, Envoy configmap...",
+              width=62, height=8, title="Setting Domain")
+
+    kc = getattr(conn, "kc", None)
+    errs = patch_auth_domain(namespace, release, domain, kc=kc)
+    conn.public_domain = domain
+
+    if errs:
+        _msgbox(d,
+            f"Domain set to: {domain}\n\nWarnings:\n  " + "\n  ".join(errs),
+            title="Domain Set (with warnings)", width=72, height=min(20, len(errs) + 8))
+    else:
+        _msgbox(d,
+            f"Domain set to: {domain}\n\n"
+            "Updated:\n"
+            "  • KC_HOSTNAME env var on Keycloak deployment\n"
+            "  • Envoy configmap (authorization_endpoint, redirect_uri, issuer)\n"
+            "  • envoy-proxy client redirect + post-logout URIs in Keycloak\n"
+            "  • LDAP bind credential in Keycloak",
+            title="Domain Set", width=68, height=14)
+
+
 def section_argocd_sync(d, namespace: str, release: str, ch_service: str):
     """Optional step: register ArgoCD apps if needed and sync both auth + umbrella."""
     d.infobox("Checking ArgoCD applications...", width=48, height=6, title="ArgoCD")
@@ -3989,11 +4046,15 @@ def run_wizard(namespace: str, release: str, dry_run: bool, ch_service: str = ""
             f_badge = f"[{fed_alias}]" if fed_alias else "[none]"
             g_badge = x_badge or ("" if fed_alias else "[no-fed]")
 
+            current_domain = getattr(conn, "public_domain", None)
+            d_badge = f"[{current_domain}]" if current_domain else "[not set]"
+
             choices = [
                 ("", "  ── Cluster"),
                 ("C", "Cluster Setup    — install operators (CH, Kafka, Traefik, ArgoCD)"),
                 ("S", "Secrets          — generate and write K8s secrets"),
                 ("A", "ArgoCD Sync      — register apps and sync"),
+                ("D", _item("Domain           — set/change public hostname", d_badge)),
                 ("", "  ── Connection & Schema"),
                 ("1", _item("Connect          — open port-forwards", "[X]" if locked else "[OK]")),
                 ("2", _item("Init authz DB    — create metranova_authz schema", x_badge)),
@@ -4029,6 +4090,8 @@ def run_wizard(namespace: str, release: str, dry_run: bool, ch_service: str = ""
                 section_secrets(d, namespace, release, dry_run)
             elif tag == "A":
                 section_argocd_sync(d, namespace, release, ch_service)
+            elif tag == "D":
+                section_set_domain(d, conn, namespace, release)
             elif tag == "1":
                 section_connect(d, conn, namespace, release, ch_service=ch_service)
             elif tag == "2":

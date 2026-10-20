@@ -10,6 +10,7 @@ Coverage strategy:
 from __future__ import annotations
 
 import base64
+import csv
 import json
 import socket
 import subprocess
@@ -1568,6 +1569,18 @@ class TestBuildAuthzPolicySql:
         )[0]
         assert "empty(policy_scope)" in read_policy
 
+    def test_read_policy_tlp_clear_rows_visible_without_role(self):
+        # TLP:clear rows (numeric 0) must be readable even with no role grants
+        sql = W._build_authz_policy_sql("pw")
+        read_policy = sql.split("CREATE ROW POLICY authz_read_policy ON")[1].split(
+            "CREATE ROW POLICY authz_grafana"
+        )[0]
+        # Must have the TLP:clear bypass before the org-based OR branch
+        assert "= 0" in read_policy
+        clear_pos = read_policy.index("= 0")
+        or_pos = read_policy.index("arrayExists")
+        assert clear_pos < or_pos
+
     def test_grafana_policy_does_not_read_policy_level_column(self):
         sql = W._build_authz_policy_sql("pw")
         grafana_section = sql.split("CREATE ROW POLICY authz_grafana_read_policy")[1].split(";")[0]
@@ -2772,7 +2785,147 @@ class TestPatchAuthDomain:
         assert good_domain in patched_yaml
 
 
+# ── section_set_domain ─────────────────────────────────────────────────────────
+
+class TestSectionSetDomain:
+    """Unit tests for section_set_domain — menu-driven hostname setter."""
+
+    def _make_conn(self, domain=None):
+        conn = MagicMock(spec=W.WizardConnections)
+        conn.public_domain = domain
+        conn.kc = MagicMock()
+        return conn
+
+    def test_calls_patch_auth_domain_with_entered_domain(self):
+        d = MagicMock()
+        d.OK = "ok"
+        d.inputbox.return_value = ("ok", "myhost.example.com")
+        conn = self._make_conn()
+
+        with patch.object(W, "detect_envoy_domain", return_value="1-2-3-4.sslip.io"), \
+             patch.object(W, "patch_auth_domain", return_value=[]) as mock_patch:
+            W.section_set_domain(d, conn, "metranova", "metranova-auth")
+
+        mock_patch.assert_called_once_with("metranova", "metranova-auth", "myhost.example.com", kc=conn.kc)
+
+    def test_sets_conn_public_domain(self):
+        d = MagicMock()
+        d.OK = "ok"
+        d.inputbox.return_value = ("ok", "new.example.com")
+        conn = self._make_conn()
+
+        with patch.object(W, "detect_envoy_domain", return_value=""), \
+             patch.object(W, "patch_auth_domain", return_value=[]):
+            W.section_set_domain(d, conn, "metranova", "metranova-auth")
+
+        assert conn.public_domain == "new.example.com"
+
+    def test_default_is_sslip_domain(self):
+        d = MagicMock()
+        d.OK = "ok"
+        d.inputbox.return_value = ("ok", "1-2-3-4.sslip.io")
+        conn = self._make_conn()
+
+        with patch.object(W, "detect_envoy_domain", return_value="1-2-3-4.sslip.io"), \
+             patch.object(W, "patch_auth_domain", return_value=[]):
+            W.section_set_domain(d, conn, "metranova", "metranova-auth")
+
+        _, kwargs = d.inputbox.call_args
+        assert kwargs.get("init") == "1-2-3-4.sslip.io"
+
+    def test_prefers_existing_conn_domain_over_detected(self):
+        d = MagicMock()
+        d.OK = "ok"
+        d.inputbox.return_value = ("ok", "already-set.example.com")
+        conn = self._make_conn(domain="already-set.example.com")
+
+        with patch.object(W, "detect_envoy_domain", return_value="1-2-3-4.sslip.io") as mock_detect, \
+             patch.object(W, "patch_auth_domain", return_value=[]):
+            W.section_set_domain(d, conn, "metranova", "metranova-auth")
+
+        _, kwargs = d.inputbox.call_args
+        assert kwargs.get("init") == "already-set.example.com"
+        mock_detect.assert_not_called()
+
+    def test_strips_trailing_slash(self):
+        d = MagicMock()
+        d.OK = "ok"
+        d.inputbox.return_value = ("ok", "host.example.com/")
+        conn = self._make_conn()
+
+        with patch.object(W, "detect_envoy_domain", return_value=""), \
+             patch.object(W, "patch_auth_domain", return_value=[]) as mock_patch:
+            W.section_set_domain(d, conn, "metranova", "metranova-auth")
+
+        mock_patch.assert_called_once_with("metranova", "metranova-auth", "host.example.com", kc=conn.kc)
+
+    def test_cancel_does_nothing(self):
+        d = MagicMock()
+        d.OK = "ok"
+        d.inputbox.return_value = ("cancel", "")
+        conn = self._make_conn()
+
+        with patch.object(W, "patch_auth_domain", return_value=[]) as mock_patch:
+            W.section_set_domain(d, conn, "metranova", "metranova-auth")
+
+        mock_patch.assert_not_called()
+        assert conn.public_domain is None
+
+    def test_empty_input_does_nothing(self):
+        d = MagicMock()
+        d.OK = "ok"
+        d.inputbox.return_value = ("ok", "   ")
+        conn = self._make_conn()
+
+        with patch.object(W, "detect_envoy_domain", return_value=""), \
+             patch.object(W, "patch_auth_domain", return_value=[]) as mock_patch:
+            W.section_set_domain(d, conn, "metranova", "metranova-auth")
+
+        mock_patch.assert_not_called()
+
+    def test_errors_shown_in_msgbox(self):
+        d = MagicMock()
+        d.OK = "ok"
+        d.inputbox.return_value = ("ok", "host.example.com")
+        conn = self._make_conn()
+
+        with patch.object(W, "detect_envoy_domain", return_value=""), \
+             patch.object(W, "patch_auth_domain", return_value=["KC redirect URI update failed: timeout"]):
+            W.section_set_domain(d, conn, "metranova", "metranova-auth")
+
+        d.msgbox.assert_called_once()
+        msg = d.msgbox.call_args[0][0]
+        assert "KC redirect URI update failed" in msg
+
+
 # ── _sql_str ───────────────────────────────────────────────────────────────────
+
+class TestExportCsv:
+    def _make_field(self, key, value, cluster_value=""):
+        f = W.SecretField(key=key, label="Test", description="desc",
+                          group="G", generate=lambda: "x")
+        f.value = value
+        f.cluster_value = cluster_value
+        return f
+
+    def test_exports_plain_value(self, tmp_path):
+        f = self._make_field("mysecret/MY_KEY", "plaintext")
+        W.export_csv([f], str(tmp_path / "out.csv"))
+        rows = list(csv.reader(open(tmp_path / "out.csv")))
+        assert rows[1][2] == "plaintext"
+
+    def test_exports_cluster_value_for_sentinel(self, tmp_path):
+        f = self._make_field("mysecret/MY_KEY", W._ALREADY_SET_SENTINEL, cluster_value="actual-secret")
+        W.export_csv([f], str(tmp_path / "out.csv"))
+        rows = list(csv.reader(open(tmp_path / "out.csv")))
+        assert rows[1][2] == "actual-secret"
+
+    def test_sentinel_without_cluster_value_exports_empty(self, tmp_path):
+        f = self._make_field("mysecret/MY_KEY", W._ALREADY_SET_SENTINEL, cluster_value="")
+        W.export_csv([f], str(tmp_path / "out.csv"))
+        rows = list(csv.reader(open(tmp_path / "out.csv")))
+        assert rows[1][2] == ""
+
 
 class TestSqlStr:
     def test_no_quotes(self):
