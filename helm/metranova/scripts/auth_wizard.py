@@ -1845,11 +1845,15 @@ GRANT SELECT, INSERT, ALTER, CREATE, DROP ON metranova_authz.* TO `authz-admin`;
 CREATE ROLE IF NOT EXISTS `authz-reader`;
 GRANT SELECT ON metranova_authz.* TO `authz-reader`;
 
--- All LDAP-authenticated users receive the authz-public role via ClickHouse's
--- common_role_names config. This role grants SELECT on metranova.* so that
--- row policies (not GRANT restrictions) control visibility.
-CREATE ROLE IF NOT EXISTS `authz-public`;
-GRANT SELECT ON metranova.* TO `authz-public`;
+-- All LDAP-authenticated users receive the authz_public role via ClickHouse's
+-- <roles> config. This role grants SELECT on metranova.* so that row policies
+-- (not GRANT restrictions) control visibility. dictGet grants are required
+-- because row policy USING expressions evaluate dictGet at query time.
+CREATE ROLE IF NOT EXISTS authz_public;
+GRANT SELECT ON metranova.* TO authz_public;
+GRANT dictGet ON metranova_authz.authz_scope_to_orgs TO authz_public;
+GRANT dictGet ON metranova_authz.authz_scope_to_tlp TO authz_public;
+GRANT dictGet ON metranova_authz.authz_group_read_orgs TO authz_public;
 
 -- Roles referenced by row policies. clickhouse-admin is mapped from the LDAP
 -- group by the auth stack; pipeline and grafana are service account roles.

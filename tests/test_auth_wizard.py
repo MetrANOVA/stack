@@ -1417,8 +1417,11 @@ class TestAuthzSchemaSql:
     def test_authz_public_role_gets_select_on_metranova(self):
         # All LDAP users get authz-public via common_role_names; row policies
         # control which rows they actually see.
-        assert "CREATE ROLE IF NOT EXISTS `authz-public`" in W._AUTHZ_SCHEMA_SQL
-        assert "GRANT SELECT ON metranova.* TO `authz-public`" in W._AUTHZ_SCHEMA_SQL
+        assert "CREATE ROLE IF NOT EXISTS authz_public" in W._AUTHZ_SCHEMA_SQL
+        assert "GRANT SELECT ON metranova.* TO authz_public" in W._AUTHZ_SCHEMA_SQL
+        assert "GRANT dictGet ON metranova_authz.authz_scope_to_tlp TO authz_public" in W._AUTHZ_SCHEMA_SQL
+        assert "GRANT dictGet ON metranova_authz.authz_scope_to_orgs TO authz_public" in W._AUTHZ_SCHEMA_SQL
+        assert "GRANT dictGet ON metranova_authz.authz_group_read_orgs TO authz_public" in W._AUTHZ_SCHEMA_SQL
 
 
 class TestBuildAuthzPolicySql:

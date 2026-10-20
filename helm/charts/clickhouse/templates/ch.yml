@@ -124,9 +124,9 @@ spec:
             </local_directory>
             <ldap>
               <server>{{ .Values.config.ch.ldap.serverName }}</server>
-              <common_role_names>
-                <role>authz-public</role>
-              </common_role_names>
+              <roles>
+                <authz_public />
+              </roles>
               {{- if .Values.config.ch.ldap.groupsDN }}
               <role_mapping>
                 <base_dn>{{ .Values.config.ch.ldap.groupsDN }}</base_dn>
