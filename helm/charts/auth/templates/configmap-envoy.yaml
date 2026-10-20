@@ -88,6 +88,9 @@ data:
                     - name: ":path"
                       string_match:
                         prefix: /resources/
+                    - name: ":path"
+                      string_match:
+                        prefix: /admin/
               - name: envoy.filters.http.jwt_authn
                 typed_config:
                   "@type": type.googleapis.com/envoy.extensions.filters.http.jwt_authn.v3.JwtAuthentication
@@ -118,6 +121,8 @@ data:
                       prefix: /realms/
                   - match:
                       prefix: /resources/
+                  - match:
+                      prefix: /admin/
                   - match:
                       prefix: /grafana/
                   - match:
@@ -153,6 +158,10 @@ data:
                       cluster: keycloak
                   - match:
                       prefix: /resources/
+                    route:
+                      cluster: keycloak
+                  - match:
+                      prefix: /admin/
                     route:
                       cluster: keycloak
                   - match:
