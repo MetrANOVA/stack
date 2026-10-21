@@ -993,15 +993,17 @@ def patch_auth_domain(namespace: str, release: str, domain: str, kc: "KeycloakCl
         try:
             callback_uri = f"https://{domain}/oauth2/callback"
             client = kc.get_client_by_client_id("envoy-proxy")
-            if client:
-                client_uuid = client["id"]
-                kc.add_redirect_uri(client_uuid, callback_uri)
-                # post.logout.redirect.uris is stored as a client attribute (not
-                # the top-level postLogoutRedirectUris field) in this KC version.
-                client.setdefault("attributes", {})["post.logout.redirect.uris"] = (
-                    f"https://{domain}/*"
-                )
-                kc._request("PUT", f"/clients/{client_uuid}", client)
+            if not client:
+                raise RuntimeError("envoy-proxy client not found in Keycloak — realm may not be imported yet")
+            client_uuid = client["id"]
+            # Replace all redirect URIs with the new domain (don't just add — old ones must go)
+            client["redirectUris"] = [callback_uri, f"https://{domain}/*"]
+            # post.logout.redirect.uris is stored as a client attribute (not
+            # the top-level postLogoutRedirectUris field) in this KC version.
+            client.setdefault("attributes", {})["post.logout.redirect.uris"] = (
+                f"https://{domain}/*"
+            )
+            kc._request("PUT", f"/clients/{client_uuid}", client)
         except Exception as exc:
             errors.append(f"KC redirect URI update failed: {exc}")
 
@@ -1013,9 +1015,10 @@ def patch_auth_domain(namespace: str, release: str, domain: str, kc: "KeycloakCl
             real_secret = kubectl_get_secret_field(f"{release}-secrets", "ENVOY_OIDC_CLIENT_SECRET", namespace)
             if real_secret:
                 client = kc.get_client_by_client_id("envoy-proxy")
-                if client:
-                    client["secret"] = real_secret
-                    kc._request("PUT", f"/clients/{client['id']}", client)
+                if not client:
+                    raise RuntimeError("envoy-proxy client not found — cannot sync client secret")
+                client["secret"] = real_secret
+                kc._request("PUT", f"/clients/{client['id']}", client)
         except Exception as exc:
             errors.append(f"KC client secret sync failed: {exc}")
 
@@ -1028,9 +1031,10 @@ def patch_auth_domain(namespace: str, release: str, domain: str, kc: "KeycloakCl
             ldap_pw = kubectl_get_secret_field(f"{release}-secrets", "LDAP_ADMIN_PASSWORD", namespace)
             if ldap_pw:
                 provider = kc._request("GET", f"/components/{_LDAP_PROVIDER_ID}")
-                if provider:
-                    provider.setdefault("config", {})["bindCredential"] = [ldap_pw]
-                    kc._request("PUT", f"/components/{_LDAP_PROVIDER_ID}", provider)
+                if not provider:
+                    raise RuntimeError(f"LDAP component {_LDAP_PROVIDER_ID} not found in Keycloak")
+                provider.setdefault("config", {})["bindCredential"] = [ldap_pw]
+                kc._request("PUT", f"/components/{_LDAP_PROVIDER_ID}", provider)
         except Exception as exc:
             errors.append(f"KC LDAP bind credential sync failed: {exc}")
 
@@ -3791,11 +3795,19 @@ def section_federation(d, conn, namespace, release: str = "metranova-auth"):
 
         # Step 4: confirm scopes
         doc_scopes = " ".join(discovery_doc.get("scopes_supported", []))
-        init_scope = saved.get("default_scope", "") or (
-            "openid email profile"
-            if not doc_scopes
-            else " ".join(s for s in doc_scopes.split() if s in ("openid", "email", "profile"))
+        init_scope = (
+            saved.get("default_scope", "")
+            # Fall back to existing IdP config scope so re-runs don't lose non-standard scopes
+            or (existing_idp or {}).get("config", {}).get("defaultScope", "")
+            or (
+                "openid email profile"
+                if not doc_scopes
+                else " ".join(s for s in doc_scopes.split() if s in ("openid", "email", "profile"))
+            )
         )
+        # Globus requires a non-standard scope not in scopes_supported for org/idp claims
+        if "globus" in alias.lower() and "view_identity_set" not in init_scope:
+            init_scope = f"{init_scope} urn:globus:auth:scope:auth.globus.org:view_identity_set"
         scope_hint = (
             f"Scopes available per discovery doc:\n  {doc_scopes}\n\n"
             if doc_scopes else ""
@@ -3803,7 +3815,9 @@ def section_federation(d, conn, namespace, release: str = "metranova-auth"):
         c, default_scope = d.inputbox(
             f"Federation — Step 4 of 9\n\n"
             f"{scope_hint}"
-            "Space-separated scopes to request. 'openid' is always required.",
+            "Space-separated scopes to request. 'openid' is always required.\n"
+            "Non-standard scopes (e.g. Globus view_identity_set) may be needed\n"
+            "for organization/idp claims — add them even if not in the list above.",
             title="Federation (4/9) — Scopes", width=72, height=14,
             **_pre(init_scope),
         )

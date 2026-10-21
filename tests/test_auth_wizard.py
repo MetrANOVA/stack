@@ -2784,15 +2784,29 @@ class TestPatchAuthDomain:
             f"full order: {call_order}"
         )
 
-    def test_redirect_uri_added(self):
+    def test_redirect_uri_replaced(self):
+        """Redirect URIs should be fully replaced (not appended) so old domains are removed."""
         kc = MagicMock()
-        kc.get_client_by_client_id.return_value = {"id": "client-uuid", "secret": "old"}
+        kc.get_client_by_client_id.return_value = {
+            "id": "client-uuid",
+            "secret": "old",
+            "redirectUris": ["https://old.example.com/oauth2/callback", "https://old.example.com/*"],
+        }
 
         with patch("subprocess.run", return_value=SimpleNamespace(returncode=0, stdout=self._ENVOY_CM_JSON, stderr="")), \
              patch.object(W, "kubectl_get_secret_field", return_value=""):
             W.patch_auth_domain("metranova", "metranova-auth", "new.example.com", kc=kc)
 
-        kc.add_redirect_uri.assert_called_once_with("client-uuid", "https://new.example.com/oauth2/callback")
+        put_calls = [c for c in kc._request.call_args_list if c[0][0] == "PUT" and "clients" in c[0][1]]
+        assert put_calls, "Expected a PUT call to update the envoy-proxy client"
+        updated_client = put_calls[0][0][2]
+        # New domain URI is present
+        assert "https://new.example.com/oauth2/callback" in updated_client["redirectUris"]
+        assert "https://new.example.com/*" in updated_client["redirectUris"]
+        # Old domain URI is gone — full replacement, not append
+        assert "https://old.example.com/oauth2/callback" not in updated_client["redirectUris"]
+        assert "https://old.example.com/*" not in updated_client["redirectUris"]
+        assert len(updated_client["redirectUris"]) == 2
 
     def test_client_secret_synced(self):
         kc = MagicMock()
