@@ -2874,6 +2874,41 @@ class TestPatchAuthDomain:
         post_calls = [c for c in kc._request.call_args_list if c[0][0] == "POST" and "protocol-mappers" in c[0][1]]
         assert not post_calls, "ch-nonce mapper should not be added again when already present"
 
+    def test_grafana_groups_mapper_added_when_missing(self):
+        """groups mapper is added to grafana client when not already present."""
+        kc = MagicMock()
+        kc.get_client_by_client_id.return_value = {"id": "grafana-uuid", "secret": "old"}
+        kc.list_protocol_mappers.return_value = []
+        kc._request.side_effect = lambda method, path, *a, **kw: (
+            [] if method == "GET" and "protocol-mappers" in path else
+            {"id": "11111111-0000-0000-0000-000000000001", "config": {}}
+        )
+
+        with patch("subprocess.run", return_value=SimpleNamespace(returncode=0, stdout=self._ENVOY_CM_JSON, stderr="")), \
+             patch.object(W, "kubectl_get_secret_field", return_value=""):
+            W.patch_auth_domain("metranova", "metranova-auth", "new.example.com", kc=kc)
+
+        assert kc.create_protocol_mapper.called, "Expected create_protocol_mapper called for grafana groups mapper"
+        mapper_body = kc.create_protocol_mapper.call_args[0][1]
+        assert mapper_body["protocolMapper"] == "oidc-group-membership-mapper"
+        assert mapper_body["config"]["claim.name"] == "groups"
+
+    def test_grafana_groups_mapper_skipped_when_present(self):
+        """groups mapper is not added again if already configured on grafana client."""
+        kc = MagicMock()
+        kc.get_client_by_client_id.return_value = {"id": "grafana-uuid", "secret": "old"}
+        kc.list_protocol_mappers.return_value = [{"name": "groups", "protocolMapper": "oidc-group-membership-mapper"}]
+        kc._request.side_effect = lambda method, path, *a, **kw: (
+            [] if method == "GET" and "protocol-mappers" in path else
+            {"id": "11111111-0000-0000-0000-000000000001", "config": {}}
+        )
+
+        with patch("subprocess.run", return_value=SimpleNamespace(returncode=0, stdout=self._ENVOY_CM_JSON, stderr="")), \
+             patch.object(W, "kubectl_get_secret_field", return_value=""):
+            W.patch_auth_domain("metranova", "metranova-auth", "new.example.com", kc=kc)
+
+        assert not kc.create_protocol_mapper.called, "grafana groups mapper should not be added again"
+
     def test_client_secret_synced(self):
         kc = MagicMock()
         kc.get_client_by_client_id.return_value = {"id": "client-uuid", "secret": "placeholder"}

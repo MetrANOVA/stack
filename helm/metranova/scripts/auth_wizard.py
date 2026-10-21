@@ -844,6 +844,29 @@ def _ensure_envoy_proxy_group_mapper(kc: "KeycloakClient"):
     })
 
 
+def _ensure_grafana_group_mapper(kc: "KeycloakClient"):
+    """Idempotently ensure the grafana Keycloak client emits group memberships in tokens."""
+    client = kc.get_client_by_client_id("grafana")
+    if not client:
+        raise RuntimeError("grafana client not found in Keycloak")
+    client_uuid = client["id"]
+    mappers = kc.list_protocol_mappers(client_uuid)
+    if any(m.get("name") == "groups" for m in mappers):
+        return
+    kc.create_protocol_mapper(client_uuid, {
+        "name": "groups",
+        "protocol": "openid-connect",
+        "protocolMapper": "oidc-group-membership-mapper",
+        "config": {
+            "full.path": "false",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "claim.name": "groups",
+            "userinfo.token.claim": "true",
+        },
+    })
+
+
 # ── K8s / cluster helpers ──────────────────────────────────────────────────────
 
 def kubectl_get_secret_field(secret_name: str, field: str, namespace: str) -> str:
@@ -1027,6 +1050,14 @@ def patch_auth_domain(namespace: str, release: str, domain: str, kc: "KeycloakCl
                 })
         except Exception as exc:
             errors.append(f"KC ch-nonce mapper setup failed: {exc}")
+
+    # 1c. Ensure grafana Keycloak client emits group memberships so Grafana can
+    #     evaluate role_attribute_path against the groups[] claim.
+    if kc:
+        try:
+            _ensure_grafana_group_mapper(kc)
+        except Exception as exc:
+            errors.append(f"KC grafana groups mapper setup failed: {exc}")
 
     # 2. Sync envoy-proxy client secret — realm JSON imports a placeholder; the real
     #    secret lives in the cluster k8s secret and must be written back into KC.
