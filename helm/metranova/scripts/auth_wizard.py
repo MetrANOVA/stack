@@ -1155,6 +1155,34 @@ def patch_auth_domain(namespace: str, release: str, domain: str, kc: "KeycloakCl
     if r3.returncode != 0:
         errors.append(f"Envoy rollout restart failed: {r3.stderr.strip()}")
 
+    # 6. Patch the ArgoCD Application Helm parameter so every future sync
+    #    renders with the correct domain — this is the permanent fix that
+    #    prevents ArgoCD from overwriting live patches on the next sync.
+    argocd_patch = {
+        "spec": {
+            "source": {
+                "helm": {
+                    "parameters": [
+                        {"name": "domain", "value": domain},
+                        {"name": "envoy.tls.existingTLSSecret", "value": f"{release}-tls"},
+                        {"name": "secrets.existingSecret", "value": f"{release}-secrets"},
+                    ]
+                }
+            }
+        }
+    }
+    import json as _json
+    r_argo = subprocess.run(
+        ["kubectl", "patch", "application", release,
+         "-n", "argocd",
+         "--type", "merge",
+         "-p", _json.dumps(argocd_patch),
+         "--context", _kubectl_context()],
+        capture_output=True, text=True,
+    )
+    if r_argo.returncode != 0:
+        errors.append(f"ArgoCD Helm parameter patch failed (non-fatal): {r_argo.stderr.strip()}")
+
     return errors
 
 
@@ -1781,6 +1809,7 @@ class WizardConnections:
         self.ch: Optional[ClickHouseClient] = None
         self.kc: Optional[KeycloakClient] = None
         self.namespace: str = ""
+        self.release: str = ""
 
     @property
     def connected(self) -> bool:
@@ -2305,10 +2334,33 @@ def section_init_authz(d, conn: WizardConnections):
         _error(d, f"Schema initialization failed:\n\n{exc}")
         return
 
+    # Create the grafana service account in ClickHouse using the password from
+    # the k8s secret. Uses IF NOT EXISTS so it's safe to re-run after a wipe.
+    grafana_pw = kubectl_get_secret_field(
+        f"{conn.release}-secrets", "GRAFANA_CLICKHOUSE_PASSWORD", conn.namespace
+    )
+    grafana_warnings = []
+    if grafana_pw:
+        try:
+            conn.ch.multiquery(
+                f"CREATE USER IF NOT EXISTS grafana "
+                f"IDENTIFIED WITH sha256_password BY '{grafana_pw}';\n"
+                f"GRANT SELECT ON metranova.* TO grafana;\n"
+            )
+        except Exception as exc:
+            grafana_warnings.append(f"grafana CH user: {exc}")
+    else:
+        grafana_warnings.append("GRAFANA_CLICKHOUSE_PASSWORD not found in cluster secret — grafana CH user not created")
+
+    extra = ""
+    if grafana_warnings:
+        extra = "\n\nWarnings:\n  " + "\n  ".join(grafana_warnings)
+
     _msgbox(d,
-            "metranova_authz schema initialized.\n\n"
-            "Database, tables, and roles created (IF NOT EXISTS).\n"
-            "Run step 3 (Init policies) next.",
+            f"metranova_authz schema initialized.\n\n"
+            f"Database, tables, and roles created (IF NOT EXISTS).\n"
+            f"Grafana ClickHouse user created/verified.\n"
+            f"Run step 3 (Init policies) next.{extra}",
             title="Schema ready", width=64, height=12)
 
 
@@ -3609,15 +3661,32 @@ def section_set_domain(d, conn: "WizardConnections", namespace: str, release: st
         _msgbox(d,
             f"Domain set to: {domain}\n\n"
             "Updated:\n"
+            "  • ArgoCD Application Helm parameter (survives future syncs)\n"
             "  • KC_HOSTNAME env var on Keycloak deployment\n"
             "  • Envoy configmap (authorization_endpoint, redirect_uri, issuer)\n"
             "  • envoy-proxy client redirect + post-logout URIs in Keycloak\n"
             "  • LDAP bind credential in Keycloak",
-            title="Domain Set", width=68, height=14)
+            title="Domain Set", width=68, height=15)
 
 
-def section_argocd_sync(d, namespace: str, release: str, ch_service: str):
+def section_argocd_sync(d, namespace: str, release: str, ch_service: str, conn=None):
     """Optional step: register ArgoCD apps if needed and sync both auth + umbrella."""
+    # Warn if domain hasn't been set yet — ArgoCD will render with the placeholder
+    # domain from values.yaml.example, which breaks Keycloak, Envoy, and Grafana.
+    current_domain = getattr(conn, "public_domain", None) if conn else None
+    if not current_domain:
+        code = d.yesno(
+            "⚠  Domain not set yet (step D).\n\n"
+            "ArgoCD will render manifests using the placeholder domain from\n"
+            "values.yaml.example. Keycloak, Envoy, and Grafana will all point\n"
+            "to the wrong hostname until you run step D.\n\n"
+            "Recommended: Cancel, run step D first, then come back to A.",
+            title="Domain not set", width=70, height=14,
+            yes_label="Sync anyway", no_label="Cancel (go set domain first)",
+        )
+        if code != d.OK:
+            return
+
     d.infobox("Checking ArgoCD applications...", width=48, height=6, title="ArgoCD")
 
     auth_exists = _argocd_app_exists(release)
@@ -4212,6 +4281,7 @@ def run_wizard(namespace: str, release: str, dry_run: bool, ch_service: str = ""
     d = _make_dialog(namespace)
     conn = WizardConnections()
     conn.namespace = namespace
+    conn.release = release
 
     # Clean up port-forwards on exit
     def _cleanup(*_):
@@ -4245,8 +4315,8 @@ def run_wizard(namespace: str, release: str, dry_run: bool, ch_service: str = ""
                 ("", "  ── Cluster"),
                 ("C", "Cluster Setup    — install operators (CH, Kafka, Traefik, ArgoCD)"),
                 ("S", "Secrets          — generate and write K8s secrets"),
+                ("D", _item("Domain           — set public hostname (do this before A)", d_badge)),
                 ("A", "ArgoCD Sync      — register apps and sync"),
-                ("D", _item("Domain           — set/change public hostname", d_badge)),
                 ("", "  ── Connection & Schema"),
                 ("1", _item("Connect          — open port-forwards", "[X]" if locked else "[OK]")),
                 ("2", _item("Init authz DB    — create metranova_authz schema", x_badge)),
@@ -4281,7 +4351,7 @@ def run_wizard(namespace: str, release: str, dry_run: bool, ch_service: str = ""
             elif tag == "S":
                 section_secrets(d, namespace, release, dry_run)
             elif tag == "A":
-                section_argocd_sync(d, namespace, release, ch_service)
+                section_argocd_sync(d, namespace, release, ch_service, conn=conn)
             elif tag == "D":
                 section_set_domain(d, conn, namespace, release)
             elif tag == "1":
