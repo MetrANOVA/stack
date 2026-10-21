@@ -322,7 +322,7 @@
       "id": 4,
       "title": "Top Source ASes",
       "description": "Highest-volume source autonomous systems",
-      "type": "bargauge",
+      "type": "table",
       "datasource": {
         "type": "grafana-clickhouse-datasource",
         "uid": "metranova-clickhouse"
@@ -334,12 +334,7 @@
         "h": 8
       },
       "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "continuous-BlYlRd"
-          },
-          "unit": "decbytes"
-        },
+        "defaults": {},
         "overrides": [
           {
             "matcher": {
@@ -354,25 +349,40 @@
               {
                 "id": "unit",
                 "value": "decbytes"
+              },
+              {
+                "id": "custom.displayMode",
+                "value": "gradient-gauge"
+              },
+              {
+                "id": "min",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "src_as"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Source AS"
               }
             ]
           }
         ]
       },
       "options": {
-        "orientation": "horizontal",
-        "displayMode": "gradient",
-        "valueMode": "color",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "/^total_bits$/",
-          "values": true
-        },
-        "showUnfilled": true,
-        "tooltip": {
-          "mode": "single"
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "total_bits"
+          }
+        ],
+        "footer": {
+          "show": false
         }
       },
       "targets": [
