@@ -113,13 +113,13 @@ clickhouse:
           memory: 16Gi
           cpu: 8000m
       ldap:
-        enabled: false
+        enabled: true
         serverName: metranova_ldap
-        host: ""
+        host: "metranova-auth-openldap.metranova.svc.cluster.local"
         port: 389
         bindDN: "uid={user_name},ou=users,{baseDN}"
-        baseDN: ""
-        groupsDN: ""
+        baseDN: "dc=metranova,dc=io"
+        groupsDN: "ou=groups,dc=metranova,dc=io"
         tls: false
         verificationCooldown: 300
 
