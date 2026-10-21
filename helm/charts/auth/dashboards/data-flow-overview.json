@@ -312,7 +312,7 @@
             "type": "grafana-clickhouse-datasource",
             "uid": "metranova-clickhouse"
           },
-          "rawSql": "SELECT\n  protocol,\n  sum(bit_count) AS total_bits\nFROM metranova.data_flow\nWHERE $__timeFilter(insert_time)\nGROUP BY protocol\nORDER BY total_bits DESC",
+          "rawSql": "SELECT\n  CASE protocol\n    WHEN '1'   THEN 'ICMP'\n    WHEN '6'   THEN 'TCP'\n    WHEN '17'  THEN 'UDP'\n    WHEN '47'  THEN 'GRE'\n    WHEN '50'  THEN 'ESP'\n    WHEN '58'  THEN 'ICMPv6'\n    WHEN '89'  THEN 'OSPF'\n    WHEN '132' THEN 'SCTP'\n    ELSE concat('proto/', protocol)\n  END AS protocol,\n  sum(bit_count) AS total_bits\nFROM metranova.data_flow\nWHERE $__timeFilter(insert_time)\nGROUP BY protocol\nORDER BY total_bits DESC",
           "format": "table",
           "refId": "A"
         }
