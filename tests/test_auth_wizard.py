@@ -980,7 +980,8 @@ class TestEnsureKeycloakProvidersConfigmap:
                 return SimpleNamespace(returncode=1, stdout="", stderr="not found")
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-        with patch("subprocess.run", side_effect=fake_run):
+        with patch("subprocess.run", side_effect=fake_run), \
+             patch.object(W, "_find_nonce_mapper_jar", return_value=None):
             W.ensure_keycloak_providers_configmap("metranova", "metranova-auth")
 
         create_cmds = [c for c in cmds if "create" in c]
@@ -988,18 +989,45 @@ class TestEnsureKeycloakProvidersConfigmap:
         assert any("keycloak-providers" in " ".join(c) for c in create_cmds)
 
     def test_skips_when_already_exists(self):
-        """ConfigMap is not recreated when it already exists."""
+        """ConfigMap is not recreated when it already exists (patch may still run for JAR)."""
         cmds = []
 
         def fake_run(cmd, **kw):
             cmds.append(list(cmd))
             return SimpleNamespace(returncode=0, stdout="existing", stderr="")
 
-        with patch("subprocess.run", side_effect=fake_run):
+        with patch("subprocess.run", side_effect=fake_run), \
+             patch.object(W, "_find_nonce_mapper_jar", return_value=None):
             W.ensure_keycloak_providers_configmap("metranova", "metranova-auth")
 
         create_cmds = [c for c in cmds if "create" in c]
         assert not create_cmds, "kubectl create should not be called when CM exists"
+
+    def test_patches_jar_into_configmap_when_jar_found(self):
+        """When the JAR is found, it is patched into the ConfigMap as binaryData."""
+        import tempfile, os
+        cmds = []
+
+        def fake_run(cmd, **kw):
+            cmds.append(list(cmd))
+            if "get" in cmd:
+                return SimpleNamespace(returncode=0, stdout="existing", stderr="")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        with tempfile.NamedTemporaryFile(suffix=".jar", delete=False) as f:
+            f.write(b"FAKE JAR BYTES")
+            jar_path = f.name
+        try:
+            with patch("subprocess.run", side_effect=fake_run), \
+                 patch.object(W, "_find_nonce_mapper_jar", return_value=jar_path):
+                W.ensure_keycloak_providers_configmap("metranova", "metranova-auth")
+        finally:
+            os.unlink(jar_path)
+
+        patch_cmds = [c for c in cmds if "patch" in c]
+        assert patch_cmds, "kubectl patch was not called to load JAR"
+        patch_args = " ".join(patch_cmds[0])
+        assert "keycloak-ch-nonce-mapper.jar" in patch_args
 
     def test_dry_run_never_creates(self):
         """dry_run=True: never calls kubectl create even if CM is missing."""
@@ -1011,7 +1039,8 @@ class TestEnsureKeycloakProvidersConfigmap:
                 return SimpleNamespace(returncode=1, stdout="", stderr="not found")
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-        with patch("subprocess.run", side_effect=fake_run):
+        with patch("subprocess.run", side_effect=fake_run), \
+             patch.object(W, "_find_nonce_mapper_jar", return_value=None):
             W.ensure_keycloak_providers_configmap("metranova", "metranova-auth", dry_run=True)
 
         create_cmds = [c for c in cmds if "create" in c]
@@ -1027,7 +1056,8 @@ class TestEnsureKeycloakProvidersConfigmap:
                 return SimpleNamespace(returncode=0, stdout="existing", stderr="")
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-        with patch("subprocess.run", side_effect=fake_run):
+        with patch("subprocess.run", side_effect=fake_run), \
+             patch.object(W, "_find_nonce_mapper_jar", return_value=None):
             W.ensure_keycloak_providers_configmap("metranova", "metranova-auth")
 
         assert names_checked == ["keycloak-providers"]
@@ -2807,6 +2837,42 @@ class TestPatchAuthDomain:
         assert "https://old.example.com/oauth2/callback" not in updated_client["redirectUris"]
         assert "https://old.example.com/*" not in updated_client["redirectUris"]
         assert len(updated_client["redirectUris"]) == 2
+
+    def test_ch_nonce_mapper_added_when_missing(self):
+        """ChNonceMapper is added to envoy-proxy when not already present."""
+        kc = MagicMock()
+        kc.get_client_by_client_id.return_value = {"id": "client-uuid", "secret": "old"}
+        # GET protocol-mappers returns empty list (mapper not present)
+        kc._request.side_effect = lambda method, path, *a, **kw: (
+            [] if method == "GET" and "protocol-mappers" in path else
+            {"id": "11111111-0000-0000-0000-000000000001", "config": {}}
+        )
+
+        with patch("subprocess.run", return_value=SimpleNamespace(returncode=0, stdout=self._ENVOY_CM_JSON, stderr="")), \
+             patch.object(W, "kubectl_get_secret_field", return_value=""):
+            W.patch_auth_domain("metranova", "metranova-auth", "new.example.com", kc=kc)
+
+        post_calls = [c for c in kc._request.call_args_list if c[0][0] == "POST" and "protocol-mappers" in c[0][1]]
+        assert post_calls, "Expected a POST to add ch-nonce protocol mapper"
+        mapper_body = post_calls[0][0][2]
+        assert mapper_body["protocolMapper"] == "metranova-ch-nonce-mapper"
+
+    def test_ch_nonce_mapper_skipped_when_present(self):
+        """ChNonceMapper is not added again if already configured."""
+        kc = MagicMock()
+        kc.get_client_by_client_id.return_value = {"id": "client-uuid", "secret": "old"}
+        kc._request.side_effect = lambda method, path, *a, **kw: (
+            [{"name": "ch-nonce", "protocolMapper": "metranova-ch-nonce-mapper"}]
+            if method == "GET" and "protocol-mappers" in path else
+            {"id": "11111111-0000-0000-0000-000000000001", "config": {}}
+        )
+
+        with patch("subprocess.run", return_value=SimpleNamespace(returncode=0, stdout=self._ENVOY_CM_JSON, stderr="")), \
+             patch.object(W, "kubectl_get_secret_field", return_value=""):
+            W.patch_auth_domain("metranova", "metranova-auth", "new.example.com", kc=kc)
+
+        post_calls = [c for c in kc._request.call_args_list if c[0][0] == "POST" and "protocol-mappers" in c[0][1]]
+        assert not post_calls, "ch-nonce mapper should not be added again when already present"
 
     def test_client_secret_synced(self):
         kc = MagicMock()

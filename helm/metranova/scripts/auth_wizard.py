@@ -1007,6 +1007,27 @@ def patch_auth_domain(namespace: str, release: str, domain: str, kc: "KeycloakCl
         except Exception as exc:
             errors.append(f"KC redirect URI update failed: {exc}")
 
+    # 1b. Ensure ChNonceMapper protocol mapper is on envoy-proxy — it writes the
+    #     per-login nonce to LDAP employeeNumber so the auth-proxy can look it up.
+    #     Idempotent: skips if already present.
+    if kc:
+        try:
+            client = kc.get_client_by_client_id("envoy-proxy")
+            if not client:
+                raise RuntimeError("envoy-proxy client not found — cannot ensure ch-nonce mapper")
+            client_uuid = client["id"]
+            existing_mappers = kc._request("GET", f"/clients/{client_uuid}/protocol-mappers/models") or []
+            if not any(m.get("protocolMapper") == "metranova-ch-nonce-mapper" for m in existing_mappers):
+                kc._request("POST", f"/clients/{client_uuid}/protocol-mappers/models", {
+                    "name": "ch-nonce",
+                    "protocol": "openid-connect",
+                    "protocolMapper": "metranova-ch-nonce-mapper",
+                    "consentRequired": False,
+                    "config": {},
+                })
+        except Exception as exc:
+            errors.append(f"KC ch-nonce mapper setup failed: {exc}")
+
     # 2. Sync envoy-proxy client secret — realm JSON imports a placeholder; the real
     #    secret lives in the cluster k8s secret and must be written back into KC.
     #    Also before the KC restart in step 3.
@@ -1199,26 +1220,58 @@ def _repo_root() -> str:
         os.path.dirname(os.path.abspath(__file__)))))
 
 
-def ensure_keycloak_providers_configmap(namespace: str, release: str, dry_run: bool = False):
-    """Create the keycloak-providers ConfigMap if it doesn't exist.
+def _find_nonce_mapper_jar() -> str | None:
+    """Return path to keycloak-ch-nonce-mapper.jar relative to this script, or None."""
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        # stack/helm/metranova/scripts/ → auth/keycloak-ch-nonce-mapper/target/
+        os.path.join(script_dir, "..", "..", "..", "..", "auth",
+                     "keycloak-ch-nonce-mapper", "target", "keycloak-ch-nonce-mapper.jar"),
+        os.path.join(script_dir, "..", "..", "..", "auth",
+                     "keycloak-ch-nonce-mapper", "target", "keycloak-ch-nonce-mapper.jar"),
+    ]
+    for p in candidates:
+        p = os.path.normpath(p)
+        if os.path.isfile(p):
+            return p
+    return None
 
-    Keycloak mounts this ConfigMap as a volume for custom provider JARs.
-    It must exist before the pod starts or the pod stays Pending indefinitely.
-    An empty ConfigMap is valid — providers are optional.
+
+def ensure_keycloak_providers_configmap(namespace: str, release: str, dry_run: bool = False):
+    """Create or update the keycloak-providers ConfigMap with the ChNonceMapper JAR.
+
+    Keycloak mounts this ConfigMap as a volume at /opt/keycloak/providers.
+    The JAR must be present for the ChNonceMapper SPI to load and write LDAP nonces.
     """
+    import base64
     cm_name = "keycloak-providers"
+    jar_path = _find_nonce_mapper_jar()
+
     r = subprocess.run(
-        ["kubectl", "get", "configmap", cm_name, "-n", namespace],
+        ["kubectl", "get", "configmap", cm_name, "-n", namespace,
+         "--context", _kubectl_context()],
         capture_output=True, text=True,
     )
-    if r.returncode == 0:
-        return  # already exists
+    cm_exists = r.returncode == 0
+
     if dry_run:
         return
-    subprocess.run(
-        ["kubectl", "create", "configmap", cm_name, "-n", namespace],
-        capture_output=True, text=True,
-    )
+
+    if not cm_exists:
+        subprocess.run(
+            ["kubectl", "create", "configmap", cm_name, "-n", namespace,
+             "--context", _kubectl_context()],
+            capture_output=True, text=True,
+        )
+
+    if jar_path:
+        jar_b64 = base64.b64encode(open(jar_path, "rb").read()).decode()
+        patch = '{"binaryData":{"keycloak-ch-nonce-mapper.jar":"' + jar_b64 + '"}}'
+        subprocess.run(
+            ["kubectl", "patch", "configmap", cm_name, "-n", namespace,
+             "--context", _kubectl_context(), "--type", "merge", "-p", patch],
+            capture_output=True, text=True,
+        )
 
 
 def apply_secrets(groups: dict, namespace: str, release: str,
