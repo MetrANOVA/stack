@@ -316,6 +316,15 @@
           "format": "table",
           "refId": "A"
         }
+      ],
+      "transformations": [
+        {
+          "id": "rowsToFields",
+          "options": {
+            "nameField": "protocol",
+            "valueField": "total_bits"
+          }
+        }
       ]
     },
     {
