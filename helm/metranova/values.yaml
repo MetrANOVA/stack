@@ -746,7 +746,7 @@ api:
 
 # Grafana subchart values.
 grafana:
-  enabled: true
+  enabled: false
 
   service:
     type: ClusterIP
@@ -831,7 +831,7 @@ grafanaAdminSecret:
 auth:
   enabled: false
 
-  domain: ""
+  domain: "34-74-122-43.sslip.io"
   realm: metranova
   idpHint: ""  # Set to IdP alias (e.g. "globus") to bypass Keycloak login form
 
