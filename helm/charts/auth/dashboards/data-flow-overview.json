@@ -322,7 +322,7 @@
       "id": 4,
       "title": "Top Source ASes",
       "description": "Highest-volume source autonomous systems",
-      "type": "barchart",
+      "type": "bargauge",
       "datasource": {
         "type": "grafana-clickhouse-datasource",
         "uid": "metranova-clickhouse"
@@ -336,7 +336,7 @@
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "palette-classic"
+            "mode": "continuous-BlYlRd"
           },
           "unit": "decbytes"
         },
@@ -350,18 +350,10 @@
               {
                 "id": "displayName",
                 "value": "Traffic"
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "src_as"
-            },
-            "properties": [
+              },
               {
-                "id": "displayName",
-                "value": "Source AS"
+                "id": "unit",
+                "value": "decbytes"
               }
             ]
           }
@@ -369,15 +361,19 @@
       },
       "options": {
         "orientation": "horizontal",
-        "barWidth": 0.7,
-        "groupWidth": 0.7,
+        "displayMode": "gradient",
+        "valueMode": "color",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/^total_bits$/",
+          "values": true
+        },
+        "showUnfilled": true,
         "tooltip": {
           "mode": "single"
-        },
-        "legend": {
-          "displayMode": "hidden"
-        },
-        "xField": "src_as"
+        }
       },
       "targets": [
         {
