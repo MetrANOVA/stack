@@ -51,8 +51,8 @@ data:
         type: grafana-clickhouse-datasource
         uid: metranova-clickhouse
         jsonData:
-          host: {{ .Values.clickhouse.host }}
-          port: {{ .Values.clickhouse.port }}
+          host: {{ $fullname }}-clickhouse-auth-proxy
+          port: 8001
           protocol: http
           defaultDatabase: metranova
           username: grafana
