@@ -262,7 +262,7 @@
             "type": "grafana-clickhouse-datasource",
             "uid": "metranova-clickhouse"
           },
-          "rawSql": "SELECT\n  ifNull(src_as_ref, toString(src_as_id)) AS src_as,\n  ifNull(dst_as_ref, toString(dst_as_id)) AS dst_as,\n  sum(bit_count) AS total_bits,\n  count() AS flow_count\nFROM metranova.data_flow\nWHERE $__timeFilter(insert_time)\n  AND src_as_id != 0\n  AND dst_as_id != 0\nGROUP BY src_as, dst_as\nORDER BY total_bits DESC\nLIMIT 20",
+          "rawSql": "SELECT\n  toString(src_as_id) AS src_as,\n  toString(dst_as_id) AS dst_as,\n  sum(bit_count) AS total_bits,\n  count() AS flow_count\nFROM metranova.data_flow\nWHERE $__timeFilter(insert_time)\n  AND src_as_id != 0\n  AND dst_as_id != 0\nGROUP BY src_as, dst_as\nORDER BY total_bits DESC\nLIMIT 20",
           "format": "table",
           "refId": "A"
         }
@@ -400,7 +400,7 @@
             "type": "grafana-clickhouse-datasource",
             "uid": "metranova-clickhouse"
           },
-          "rawSql": "SELECT\n  ifNull(src_as_ref, toString(src_as_id)) AS src_as,\n  sum(bit_count) AS total_bits\nFROM metranova.data_flow\nWHERE $__timeFilter(insert_time)\n  AND src_as_id != 0\nGROUP BY src_as\nORDER BY total_bits DESC\nLIMIT 15",
+          "rawSql": "SELECT\n  toString(src_as_id) AS src_as,\n  sum(bit_count) AS total_bits\nFROM metranova.data_flow\nWHERE $__timeFilter(insert_time)\n  AND src_as_id != 0\nGROUP BY src_as\nORDER BY total_bits DESC\nLIMIT 15",
           "format": "table",
           "refId": "A"
         }
