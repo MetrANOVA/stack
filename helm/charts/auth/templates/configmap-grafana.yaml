@@ -41,6 +41,9 @@ data:
     auto_assign_org = true
     auto_assign_org_role = Viewer
 
+    [dataproxy]
+    send_user_header = true
+
     [plugins]
     allow_loading_unsigned_plugins = grafana-clickhouse-datasource
 
@@ -55,9 +58,6 @@ data:
           port: 8001
           protocol: http
           defaultDatabase: metranova
-          username: grafana
-          sendUserHeader: true
-        secureJsonData:
-          password: "${CH_GRAFANA_PASSWORD}"
+          forwardGrafanaHeaders: true
         isDefault: true
         editable: false
