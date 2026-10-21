@@ -168,7 +168,11 @@ data:
                       prefix: /grafana/
                     route:
                       cluster: grafana
-                      prefix_rewrite: /
+                    request_headers_to_add:
+                      - header:
+                          key: X-Forwarded-Proto
+                          value: https
+                        keep_empty_value: false
                   - match:
                       prefix: /clickhouse
                     route:
