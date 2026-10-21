@@ -138,7 +138,7 @@
             "type": "grafana-clickhouse-datasource",
             "uid": "metranova-clickhouse"
           },
-          "rawSql": "SELECT\n  toStartOfInterval(insert_time, INTERVAL $__interval) AS time,\n  sum(bit_count) / ($__interval_ms / 1000) AS bits_per_sec,\n  count() / ($__interval_ms / 1000) AS flows_per_sec\nFROM metranova.data_flow\nWHERE $__timeFilter(insert_time)\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  toStartOfInterval(insert_time, INTERVAL $__interval_s SECOND) AS time,\n  sum(bit_count) / $__interval_s AS bits_per_sec,\n  count() / $__interval_s AS flows_per_sec\nFROM metranova.data_flow\nWHERE $__timeFilter(insert_time)\nGROUP BY time\nORDER BY time",
           "format": "timeSeries",
           "refId": "A"
         }
