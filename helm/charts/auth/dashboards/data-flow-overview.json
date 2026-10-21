@@ -1,0 +1,301 @@
+{
+  "__inputs": [],
+  "__requires": [
+    { "type": "grafana", "id": "grafana", "name": "Grafana", "version": "10.0.0" },
+    { "type": "datasource", "id": "grafana-clickhouse-datasource", "name": "ClickHouse", "version": "4.0.0" },
+    { "type": "panel", "id": "timeseries", "name": "Time series", "version": "" },
+    { "type": "panel", "id": "table", "name": "Table", "version": "" },
+    { "type": "panel", "id": "piechart", "name": "Pie chart", "version": "" },
+    { "type": "panel", "id": "barchart", "name": "Bar chart", "version": "" },
+    { "type": "panel", "id": "stat", "name": "Stat", "version": "" }
+  ],
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "id": 1,
+      "title": "Traffic Rate",
+      "description": "Bits per second and flow rate over time",
+      "type": "timeseries",
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "metranova-clickhouse" },
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 8 },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "spanNulls": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "bits_per_sec" },
+            "properties": [
+              { "id": "displayName", "value": "Bits/sec" },
+              { "id": "unit", "value": "bps" },
+              { "id": "custom.axisPlacement", "value": "right" }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "flows_per_sec" },
+            "properties": [
+              { "id": "displayName", "value": "Flows/sec" },
+              { "id": "unit", "value": "short" },
+              { "id": "custom.axisPlacement", "value": "left" }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "desc" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "metranova-clickhouse" },
+          "rawSql": "SELECT\n  toStartOfInterval(insert_time, INTERVAL $__interval) AS time,\n  sum(bit_count) / ($__interval_ms / 1000) AS bits_per_sec,\n  count() / ($__interval_ms / 1000) AS flows_per_sec\nFROM metranova.data_flow\nWHERE $__timeFilter(insert_time)\nGROUP BY time\nORDER BY time",
+          "format": "time_series",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "AS-to-AS Top Talkers",
+      "description": "Top 20 autonomous system pairs by traffic volume",
+      "type": "table",
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "metranova-clickhouse" },
+      "gridPos": { "x": 0, "y": 8, "w": 14, "h": 10 },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1000000000 },
+              { "color": "red", "value": 10000000000 }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "total_bits" },
+            "properties": [
+              { "id": "displayName", "value": "Total Traffic" },
+              { "id": "unit", "value": "decbytes" },
+              { "id": "custom.displayMode", "value": "color-background" }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "flow_count" },
+            "properties": [
+              { "id": "displayName", "value": "Flows" },
+              { "id": "unit", "value": "short" }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "src_as" },
+            "properties": [ { "id": "displayName", "value": "Source AS" } ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "dst_as" },
+            "properties": [ { "id": "displayName", "value": "Destination AS" } ]
+          }
+        ]
+      },
+      "options": {
+        "sortBy": [{ "displayName": "Total Traffic", "desc": true }],
+        "footer": { "show": false }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "metranova-clickhouse" },
+          "rawSql": "SELECT\n  ifNull(src_as_ref, toString(src_as_id)) AS src_as,\n  ifNull(dst_as_ref, toString(dst_as_id)) AS dst_as,\n  sum(bit_count) AS total_bits,\n  count() AS flow_count\nFROM metranova.data_flow\nWHERE $__timeFilter(insert_time)\n  AND src_as_id != 0\n  AND dst_as_id != 0\nGROUP BY src_as, dst_as\nORDER BY total_bits DESC\nLIMIT 20",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Protocol Distribution",
+      "description": "Traffic breakdown by IP protocol",
+      "type": "piechart",
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "metranova-clickhouse" },
+      "gridPos": { "x": 14, "y": 8, "w": 10, "h": 10 },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "unit": "decbytes"
+        },
+        "overrides": []
+      },
+      "options": {
+        "pieType": "pie",
+        "tooltip": { "mode": "single" },
+        "legend": { "displayMode": "table", "placement": "right", "values": ["value", "percent"] }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "metranova-clickhouse" },
+          "rawSql": "SELECT\n  protocol,\n  sum(bit_count) AS total_bits\nFROM metranova.data_flow\nWHERE $__timeFilter(insert_time)\nGROUP BY protocol\nORDER BY total_bits DESC",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Top Source ASes",
+      "description": "Highest-volume source autonomous systems",
+      "type": "barchart",
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "metranova-clickhouse" },
+      "gridPos": { "x": 0, "y": 18, "w": 12, "h": 8 },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "unit": "decbytes"
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "total_bits" },
+            "properties": [ { "id": "displayName", "value": "Traffic" } ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "src_as" },
+            "properties": [ { "id": "displayName", "value": "Source AS" } ]
+          }
+        ]
+      },
+      "options": {
+        "orientation": "horizontal",
+        "barWidth": 0.7,
+        "groupWidth": 0.7,
+        "tooltip": { "mode": "single" },
+        "legend": { "displayMode": "hidden" },
+        "xField": "src_as"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "metranova-clickhouse" },
+          "rawSql": "SELECT\n  ifNull(src_as_ref, toString(src_as_id)) AS src_as,\n  sum(bit_count) AS total_bits\nFROM metranova.data_flow\nWHERE $__timeFilter(insert_time)\n  AND src_as_id != 0\nGROUP BY src_as\nORDER BY total_bits DESC\nLIMIT 15",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Top Devices",
+      "description": "Flow exporters ranked by flow count and traffic",
+      "type": "table",
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "metranova-clickhouse" },
+      "gridPos": { "x": 12, "y": 18, "w": 12, "h": 8 },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 100000 },
+              { "color": "red", "value": 1000000 }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "device" },
+            "properties": [ { "id": "displayName", "value": "Device" } ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "flow_count" },
+            "properties": [
+              { "id": "displayName", "value": "Flows" },
+              { "id": "unit", "value": "short" },
+              { "id": "custom.displayMode", "value": "color-background" }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "total_bits" },
+            "properties": [
+              { "id": "displayName", "value": "Traffic" },
+              { "id": "unit", "value": "decbytes" }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "sortBy": [{ "displayName": "Flows", "desc": true }],
+        "footer": { "show": false }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "metranova-clickhouse" },
+          "rawSql": "SELECT\n  ifNull(device_ref, device_id) AS device,\n  count() AS flow_count,\n  sum(bit_count) AS total_bits\nFROM metranova.data_flow\nWHERE $__timeFilter(insert_time)\nGROUP BY device\nORDER BY flow_count DESC\nLIMIT 10",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "IP Version Split",
+      "description": "Flow and traffic breakdown by IP version",
+      "type": "stat",
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "metranova-clickhouse" },
+      "gridPos": { "x": 0, "y": 26, "w": 24, "h": 4 },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [ { "color": "green", "value": null } ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "total_bits" },
+            "properties": [ { "id": "unit", "value": "decbytes" } ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "flow_count" },
+            "properties": [ { "id": "unit", "value": "short" } ]
+          }
+        ]
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["sum"], "fields": "", "values": true },
+        "orientation": "horizontal",
+        "textMode": "value_and_name",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "metranova-clickhouse" },
+          "rawSql": "SELECT\n  if(ip_version = 6, 'IPv6', 'IPv4') AS version,\n  count() AS flow_count,\n  sum(bit_count) AS total_bits\nFROM metranova.data_flow\nWHERE $__timeFilter(insert_time)\nGROUP BY version\nORDER BY version",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "tags": ["metranova", "network", "flows"],
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "MetrANOVA Data Flow Overview",
+  "uid": "metranova-data-flow",
+  "version": 1
+}

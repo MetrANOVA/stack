@@ -1,0 +1,20 @@
+{{- $fullname := include "metranova-auth.fullname" . -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $fullname }}-grafana-dashboards
+  labels:
+    {{- include "metranova-auth.labels" . | nindent 4 }}
+data:
+  dashboard-provisioning.yaml: |
+    apiVersion: 1
+    providers:
+      - name: metranova
+        type: file
+        disableDeletion: true
+        updateIntervalSeconds: 30
+        allowUiUpdates: false
+        options:
+          path: /etc/grafana/provisioning/dashboards
+  data-flow-overview.json: |
+{{ .Files.Get "dashboards/data-flow-overview.json" | indent 4 }}

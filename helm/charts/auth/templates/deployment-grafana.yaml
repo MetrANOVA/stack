@@ -70,6 +70,12 @@ spec:
             - name: grafana-provisioning
               mountPath: /etc/grafana/provisioning/datasources
               readOnly: true
+            - name: grafana-dashboards-provisioning
+              mountPath: /etc/grafana/provisioning/dashboards
+              readOnly: true
+            - name: grafana-dashboards
+              mountPath: /etc/grafana/provisioning/dashboards/metranova
+              readOnly: true
             {{- if .Values.grafana.persistence.enabled }}
             - name: grafana-data
               mountPath: /var/lib/grafana
@@ -84,6 +90,18 @@ spec:
             items:
               - key: clickhouse.yaml
                 path: clickhouse.yaml
+        - name: grafana-dashboards-provisioning
+          configMap:
+            name: {{ include "metranova-auth.fullname" . }}-grafana-dashboards
+            items:
+              - key: dashboard-provisioning.yaml
+                path: dashboard-provisioning.yaml
+        - name: grafana-dashboards
+          configMap:
+            name: {{ include "metranova-auth.fullname" . }}-grafana-dashboards
+            items:
+              - key: data-flow-overview.json
+                path: data-flow-overview.json
         {{- if .Values.grafana.persistence.enabled }}
         - name: grafana-data
           persistentVolumeClaim:
