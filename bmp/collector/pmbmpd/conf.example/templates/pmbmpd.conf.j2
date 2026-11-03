@@ -1,0 +1,18 @@
+
+! Adds debugging output to logs. Disable in production.
+debug: false
+
+! Output timestamps as epoch as opposed to strings we need to parse
+timestamps_since_epoch: true
+
+! Add custom labels and tags
+bmp_daemon_tag_map: /etc/pmacct/pretag.map
+
+! BMP configuration
+!
+bmp_daemon_port: 1790
+bmp_daemon_max_peers: 200
+bmp_daemon_msglog_output: json
+
+bmp_daemon_msglog_kafka_topic: {{ kafka_topic }}
+bmp_daemon_msglog_kafka_config_file: /etc/pmacct/kafka.csv

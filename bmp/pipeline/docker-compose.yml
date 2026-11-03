@@ -1,0 +1,83 @@
+services:
+  pipeline-init:
+    image: python:3.11-slim
+    container_name: pipeline-init
+    entrypoint:
+      - /bin/bash
+      - -lc
+      - >-
+        pip install --no-cache-dir jinja2 &&
+        python /scripts/render_configs.py
+    volumes:
+      - ./conf:/app/conf
+      - ./scripts:/scripts:ro
+    restart: "no"
+
+  data_bmp:
+    image: ghcr.io/metranova/pipeline:andy-bmp-routemon
+    depends_on:
+      pipeline-init:
+        condition: service_completed_successfully
+    env_file:
+      - conf/envs/base.env
+      - conf/envs/data_bmp.env
+    volumes:
+      - ./caches:/app/caches:ro
+      - ./conf:/app/conf:ro
+      - ./conf/kafka/ca.crt:/etc/kafka/ca.crt:ro
+    restart: always
+    deploy:
+      mode: replicated
+      replicas: ${PIPELINE_REPLICAS:-1}
+
+  cache_rootbeer:
+    image: ghcr.io/metranova/pipeline:andy-bmp-routemon
+    depends_on:
+      pipeline-init:
+        condition: service_completed_successfully
+    env_file:
+      - conf/envs/base.env
+      - conf/envs/cache_rootbeer.env
+    volumes:
+      - ./caches:/app/caches:rw
+      - ./conf:/app/conf:ro
+    restart: always
+
+  cache_ip_trie:
+    image: ghcr.io/metranova/pipeline:andy-bmp-routemon
+    depends_on:
+      pipeline-init:
+        condition: service_completed_successfully
+    env_file:
+      - conf/envs/base.env
+      - conf/envs/cache_ip_trie.env
+    volumes:
+      - ./caches:/app/caches:rw
+      - ./conf:/app/conf:ro
+    restart: always
+
+  metadata_ip_geo:
+    image: ghcr.io/metranova/pipeline:andy-bmp-routemon
+    depends_on:
+      pipeline-init:
+        condition: service_completed_successfully
+    env_file:
+      - conf/envs/base.env
+      - conf/envs/metadata_ip_geo.env
+    volumes:
+      - ./caches:/app/caches:rw
+      - ./conf:/app/conf:ro
+    restart: always
+
+  metadata_caida_org_as:
+    image: ghcr.io/metranova/pipeline:andy-bmp-routemon
+    depends_on:
+      pipeline-init:
+        condition: service_completed_successfully
+    env_file:
+      - conf/envs/base.env
+      - conf/envs/metadata_caida_org_as.env
+    volumes:
+      - ./caches:/app/caches:rw
+      - ./conf:/app/conf:ro
+    restart: always
