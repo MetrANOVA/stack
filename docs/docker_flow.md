@@ -145,24 +145,28 @@ make
 
 By default, both flow collectors (nfacctd and sfacctd) are enabled. If you only need one protocol, you can disable the unused collector.
 
-Edit `docker/config.yml` and locate the collectors section:
+Edit `docker/config.yml` and locate the `collectors` list under the flow stack:
 
 ```yaml
-collectors:
-  nfacctd:
-    enabled: true  # Set to false to disable NetFlow/IPFIX collection
-  sfacctd:
-    enabled: true  # Set to false to disable sFlow collection
+stacks:
+  - type: flow
+    collectors:
+      - type: nfacctd
+        enabled: true   # Set to false to disable NetFlow/IPFIX collection
+      - type: sfacctd
+        enabled: true   # Set to false to disable sFlow collection
 ```
 
 **Example: IPFIX-only deployment**
 
 ```yaml
-collectors:
-  nfacctd:
-    enabled: true
-  sfacctd:
-    enabled: false  # Disable sFlow collector
+stacks:
+  - type: flow
+    collectors:
+      - type: nfacctd
+        enabled: true
+      - type: sfacctd
+        enabled: false  # Disable sFlow collector
 ```
 
 After making changes, rebuild the configuration:
@@ -236,7 +240,7 @@ MetrANOVA can automatically enrich flow data with geographic information using M
 
 ### Configure Credentials
 
-Edit `flow/pipeline/conf/envs/metadata_ip_geo.env` and add your credentials:
+Edit `shared/pipeline/conf/envs/metadata_ip_geo.env` and add your credentials:
 
 ```bash
 IP_GEO_CSV_CONSUMER_MAXMIND_ACCOUNT_ID=123456
@@ -264,19 +268,28 @@ docker compose ps
 ```
 
 You should see services including:
-- kafka
-- clickhouse
-- nfacctd (if enabled)
-- sfacctd (if enabled)
-- flow-pipeline (multiple containers for different pipeline stages):
+- `kafka`
+- `clickhouse`
+- `nfacctd` (if enabled)
+- `sfacctd` (if enabled)
+- Flow pipeline:
   - **data_flow** - Main pipeline processing flow data records (scalable with replicas). Each worker handles roughly 8k flows per second.
+- Shared pipeline services:
+  - **cache_ip_trie** - Maintains IP prefix trie cache for fast lookups
   - **metadata_caida_org_as** - Fetches and processes CAIDA ASN and organization data
   - **metadata_file_export** - Exports device/interface/circuit metadata from YAML files to ClickHouse
   - **metadata_ip_geo** - Downloads and processes MaxMind GeoIP data for IP geolocation
   - **metadata_scireg** - Fetches Science Registry metadata for research networks
-  - **metadata_cric** - Fetches CRIC metadata for LHC computing infrastructure (optional, LHC profile only)
-  - **cache_ip_trie** - Maintains IP prefix trie cache for fast lookups
-- grafana
+  - **metadata_cric** - Fetches CRIC metadata for LHC computing infrastructure (optional, `lhc` profile only — see below)
+- `grafana`
+
+### Optional: LHC Profile
+
+The `metadata_cric` service, which fetches metadata from the WLCG/LHC CRIC registry for LHC computing infrastructure, is disabled by default. To enable it, start the stack with the `lhc` profile:
+
+```bash
+docker compose --profile lhc up -d
+```
 
 ### View Logs
 
