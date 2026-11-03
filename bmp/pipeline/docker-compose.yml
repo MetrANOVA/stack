@@ -43,5 +43,7 @@ services:
     volumes:
       - ./caches:/app/caches:rw
       - ./conf:/app/conf:ro
+    profiles:
+      - rootbeer
     restart: always
 
