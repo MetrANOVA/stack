@@ -49,43 +49,27 @@ def remove_dir_if_exists(path: Path) -> None:
 		shutil.rmtree(path)
 
 
-SHARED_PIPELINE_IMAGE = "ghcr.io/metranova/pipeline:latest"
-
-# Maps service name -> env files it loads (relative to shared/pipeline/).
-# Static env files live in conf/envs/ already; templated ones are rendered by
-# shared-pipeline-init into conf/envs/ at startup.
-SHARED_SERVICE_DEFINITIONS: Dict[str, Dict[str, Any]] = {
-	"cache_ip_trie": {
-		"env_files": ["conf/envs/base.env", "conf/envs/cache_ip_trie.env"],
-		"caches_mode": "rw",
-	},
-	"metadata_caida_org_as": {
-		"env_files": ["conf/envs/base.env", "conf/envs/metadata_caida_org_as.env"],
-		"caches_mode": "rw",
-	},
-	"metadata_cric": {
-		"env_files": ["conf/envs/base.env", "conf/envs/metadata_cric.env"],
-		"caches_mode": "rw",
-		"profiles": ["lhc"],
-	},
-	"metadata_file_export": {
-		"env_files": ["conf/envs/base.env", "conf/envs/metadata_file_export.env"],
-		"caches_mode": "rw",
-	},
-	"metadata_ip_geo": {
-		"env_files": ["conf/envs/base.env", "conf/envs/metadata_ip_geo.env"],
-		"caches_mode": "rw",
-	},
-	"metadata_scireg": {
-		"env_files": ["conf/envs/base.env", "conf/envs/metadata_scireg.env"],
-		"caches_mode": "rw",
-	},
-}
+def load_services(path: Path) -> Dict[str, Any]:
+	if not path.exists():
+		raise FileNotFoundError(f"Services file not found: {path}")
+	data = yaml.safe_load(path.read_text())
+	if not isinstance(data, dict):
+		raise ValueError("Services file must be a YAML object")
+	return data
 
 
-def generate_shared_pipeline_compose(services: Set[str], output_path: Path) -> None:
+def generate_shared_pipeline_compose(
+	services: Set[str],
+	output_path: Path,
+	shared_pipeline_cfg: Dict[str, Any],
+) -> None:
 	"""Write shared/pipeline/docker-compose.yml for the given deduplicated service set."""
-	unknown = services - SHARED_SERVICE_DEFINITIONS.keys()
+	image = shared_pipeline_cfg.get("image", "")
+	if not image:
+		raise ValueError("shared_pipeline.image is required in services.yml")
+	service_definitions: Dict[str, Any] = shared_pipeline_cfg.get("services", {}) or {}
+
+	unknown = services - service_definitions.keys()
 	if unknown:
 		raise ValueError(f"Unknown shared pipeline service(s): {', '.join(sorted(unknown))}")
 
@@ -110,9 +94,9 @@ def generate_shared_pipeline_compose(services: Set[str], output_path: Path) -> N
 	]
 
 	for svc in sorted(services):
-		defn = SHARED_SERVICE_DEFINITIONS[svc]
+		defn = service_definitions[svc]
 		lines.append(f"  {svc}:")
-		lines.append(f"    image: {SHARED_PIPELINE_IMAGE}")
+		lines.append(f"    image: {image}")
 		lines.append("    depends_on:")
 		lines.append("      shared-pipeline-init:")
 		lines.append("        condition: service_completed_successfully")
@@ -184,6 +168,9 @@ def main() -> None:
 	if not config_path.is_absolute():
 		config_path = repo_root / config_path
 	config = load_config(config_path)
+	services_path = docker_dir / "services.yml"
+	services_cfg = load_services(services_path)
+	shared_pipeline_cfg: Dict[str, Any] = services_cfg.get("shared_pipeline", {}) or {}
 
 	message_bus = config.get("message_bus", {}) or {}
 	datastore = config.get("datastore", {}) or {}
@@ -216,6 +203,7 @@ def main() -> None:
 			generate_shared_pipeline_compose(
 				shared_pipeline_services,
 				shared_pipeline_dir / "docker-compose.yml",
+				shared_pipeline_cfg,
 			)
 
 	message_bus_type = None
