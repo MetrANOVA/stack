@@ -8,7 +8,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Set
+from typing import Any, Dict, Set
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
@@ -62,8 +62,9 @@ def generate_shared_pipeline_compose(
 	services: Set[str],
 	output_path: Path,
 	shared_pipeline_cfg: Dict[str, Any],
+	template_dir: Path,
 ) -> None:
-	"""Write shared/pipeline/docker-compose.yml for the given deduplicated service set."""
+	"""Write shared/pipeline/docker-compose.yml from a Jinja template."""
 	image = shared_pipeline_cfg.get("image", "")
 	if not image:
 		raise ValueError("shared_pipeline.image is required in services.yml")
@@ -73,46 +74,22 @@ def generate_shared_pipeline_compose(
 	if unknown:
 		raise ValueError(f"Unknown shared pipeline service(s): {', '.join(sorted(unknown))}")
 
-	lines: List[str] = ["services:"]
-
-	# Init container — always present when there are shared services.
-	lines += [
-		"  shared-pipeline-init:",
-		"    image: python:3.11-slim",
-		"    container_name: shared-pipeline-init",
-		"    entrypoint:",
-		"      - /bin/bash",
-		"      - -lc",
-		"      - >-",
-		"        pip install --no-cache-dir jinja2 &&",
-		"        python /scripts/render_configs.py",
-		"    volumes:",
-		"      - ./conf:/app/conf",
-		"      - ./scripts:/scripts:ro",
-		'    restart: "no"',
-		"",
-	]
-
-	for svc in sorted(services):
-		defn = service_definitions[svc]
-		lines.append(f"  {svc}:")
-		lines.append(f"    image: {image}")
-		lines.append("    depends_on:")
-		lines.append("      shared-pipeline-init:")
-		lines.append("        condition: service_completed_successfully")
-		lines.append("    env_file:")
-		for ef in defn["env_files"]:
-			lines.append(f"      - {ef}")
-		caches_mode = defn["caches_mode"]
-		lines.append("    volumes:")
-		lines.append(f"      - ./caches:/app/caches:{caches_mode}")
-		lines.append("      - ./conf:/app/conf:ro")
-		if profiles := defn.get("profiles"):
-			lines.append(f"    profiles: {profiles}")
-		lines.append("    restart: always")
-		lines.append("")
-
-	output_path.write_text("\n".join(lines) + "\n")
+	env = Environment(
+		loader=FileSystemLoader(str(template_dir)),
+		autoescape=False,
+		trim_blocks=True,
+		lstrip_blocks=True,
+		undefined=StrictUndefined,
+	)
+	template = env.get_template("shared-pipeline-docker-compose.yml.j2")
+	rendered = template.render(
+		image=image,
+		services=[
+			{"name": svc, "profiles": [], **service_definitions[svc]}
+			for svc in sorted(services)
+		],
+	)
+	output_path.write_text(rendered)
 
 
 def copy_exported_creds(export_src: Path, dest_dir: Path) -> None:
@@ -204,6 +181,7 @@ def main() -> None:
 				shared_pipeline_services,
 				shared_pipeline_dir / "docker-compose.yml",
 				shared_pipeline_cfg,
+				docker_dir / "templates",
 			)
 
 	message_bus_type = None
