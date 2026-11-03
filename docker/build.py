@@ -8,7 +8,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List, Set
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
@@ -47,6 +47,96 @@ def ensure_dir(path: Path) -> None:
 def remove_dir_if_exists(path: Path) -> None:
 	if path.exists():
 		shutil.rmtree(path)
+
+
+SHARED_PIPELINE_IMAGE = "ghcr.io/metranova/pipeline:latest"
+
+# Maps service name -> env files it loads (relative to shared/pipeline/).
+# Static env files live in conf/envs/ already; templated ones are rendered by
+# shared-pipeline-init into conf/envs/ at startup.
+SHARED_SERVICE_DEFINITIONS: Dict[str, Dict[str, Any]] = {
+	"cache_ip_trie": {
+		"env_files": ["conf/envs/base.env", "conf/envs/cache_ip_trie.env"],
+		"caches_mode": "rw",
+	},
+	"metadata_caida_org_as": {
+		"env_files": ["conf/envs/base.env", "conf/envs/metadata_caida_org_as.env"],
+		"caches_mode": "rw",
+	},
+	"metadata_cric": {
+		"env_files": ["conf/envs/base.env", "conf/envs/metadata_cric.env"],
+		"caches_mode": "rw",
+		"profiles": ["lhc"],
+	},
+	"metadata_file_export": {
+		"env_files": ["conf/envs/base.env", "conf/envs/metadata_file_export.env"],
+		"caches_mode": "rw",
+	},
+	"metadata_ip_geo": {
+		"env_files": ["conf/envs/base.env", "conf/envs/metadata_ip_geo.env"],
+		"caches_mode": "rw",
+	},
+	"metadata_scireg": {
+		"env_files": ["conf/envs/base.env", "conf/envs/metadata_scireg.env"],
+		"caches_mode": "rw",
+	},
+}
+
+
+def generate_shared_pipeline_compose(services: Set[str], output_path: Path) -> None:
+	"""Write shared/pipeline/docker-compose.yml for the given deduplicated service set."""
+	unknown = services - SHARED_SERVICE_DEFINITIONS.keys()
+	if unknown:
+		raise ValueError(f"Unknown shared pipeline service(s): {', '.join(sorted(unknown))}")
+
+	lines: List[str] = ["services:"]
+
+	# Init container — always present when there are shared services.
+	lines += [
+		"  shared-pipeline-init:",
+		"    image: python:3.11-slim",
+		"    container_name: shared-pipeline-init",
+		"    entrypoint:",
+		"      - /bin/bash",
+		"      - -lc",
+		"      - >-",
+		"        pip install --no-cache-dir jinja2 &&",
+		"        python /scripts/render_configs.py",
+		"    volumes:",
+		"      - ./conf:/app/conf",
+		"      - ./scripts:/scripts:ro",
+		'    restart: "no"',
+		"",
+	]
+
+	for svc in sorted(services):
+		defn = SHARED_SERVICE_DEFINITIONS[svc]
+		lines.append(f"  {svc}:")
+		lines.append(f"    image: {SHARED_PIPELINE_IMAGE}")
+		lines.append("    depends_on:")
+		lines.append("      shared-pipeline-init:")
+		lines.append("        condition: service_completed_successfully")
+		lines.append("    env_file:")
+		for ef in defn["env_files"]:
+			lines.append(f"      - {ef}")
+		caches_mode = defn["caches_mode"]
+		lines.append("    volumes:")
+		lines.append(f"      - ./caches:/app/caches:{caches_mode}")
+		lines.append("      - ./conf:/app/conf:ro")
+		if profiles := defn.get("profiles"):
+			lines.append(f"    profiles: {profiles}")
+		lines.append("    restart: always")
+		lines.append("")
+
+	output_path.write_text("\n".join(lines) + "\n")
+
+
+def copy_exported_creds(export_src: Path, dest_dir: Path) -> None:
+	"""Copy all files from an export dir into dest_dir, creating it if needed."""
+	ensure_dir(dest_dir)
+	for item in export_src.iterdir():
+		if item.is_file():
+			shutil.copy2(item, dest_dir / item.name)
 
 
 def render_compose(template_dir: Path, config: Dict[str, Any], output_path: Path) -> None:
@@ -100,11 +190,33 @@ def main() -> None:
 	stacks = config.get("stacks", []) or []
 	dashboard = config.get("dashboard", {}) or {}
 
+	# Collect the union of shared pipeline services across all enabled stacks.
+	shared_pipeline_services: Set[str] = set()
+	for stack in stacks:
+		pipeline = stack.get("pipeline", {}) or {}
+		if pipeline.get("enabled"):
+			for svc in pipeline.get("shared_services", []) or []:
+				shared_pipeline_services.add(svc)
+
 	conf_d = docker_dir / "conf.d"
 	ensure_dir(conf_d)
 
+	shared_pipeline_dir = repo_root / "shared" / "pipeline"
+
 	if not args.clean:
-		render_compose(docker_dir / "templates", config, output_path)
+		render_compose(
+			docker_dir / "templates",
+			{**config, "shared_pipeline_services": shared_pipeline_services},
+			output_path,
+		)
+		# Generate shared/pipeline/docker-compose.yml before any `docker compose`
+		# invocation — the root compose file includes it, so Docker needs it to
+		# exist even when parsing for unrelated services (e.g. kafka-init).
+		if shared_pipeline_services:
+			generate_shared_pipeline_compose(
+				shared_pipeline_services,
+				shared_pipeline_dir / "docker-compose.yml",
+			)
 
 	message_bus_type = None
 	if message_bus.get("enabled"):
@@ -173,6 +285,23 @@ def main() -> None:
 			for item in export_dir.iterdir():
 				if item.is_file():
 					shutil.copy2(item, ds_export_dir / item.name)
+
+	# Shared pipeline — deduplicated services used by one or more stacks.
+	if shared_pipeline_services:
+		if args.clean:
+			remove_dir_if_exists(shared_pipeline_dir / "conf")
+		else:
+			copytree_if_missing(shared_pipeline_dir / "conf.example", shared_pipeline_dir / "conf")
+
+			if message_bus_type:
+				copy_exported_creds(conf_d / message_bus_type, shared_pipeline_dir / "conf" / message_bus_type)
+			if datastore_type:
+				copy_exported_creds(conf_d / datastore_type, shared_pipeline_dir / "conf" / datastore_type)
+
+			run([
+				"docker", "compose", "-f", str(output_path),
+				"run", "--rm", "shared-pipeline-init",
+			])
 
 	for stack in stacks:
 		stack_type = stack.get("type")
@@ -265,7 +394,7 @@ def main() -> None:
 					str(compose_file),
 					"run",
 					"--rm",
-					"pipeline-init",
+					f"{stack_type}-pipeline-init",
 				])
 
 	dashboard_type = None

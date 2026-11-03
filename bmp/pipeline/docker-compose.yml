@@ -1,7 +1,7 @@
 services:
-  pipeline-init:
+  bmp-pipeline-init:
     image: python:3.11-slim
-    container_name: pipeline-init
+    container_name: bmp-pipeline-init
     entrypoint:
       - /bin/bash
       - -lc
@@ -16,7 +16,9 @@ services:
   data_bmp:
     image: ghcr.io/metranova/pipeline:andy-bmp-routemon
     depends_on:
-      pipeline-init:
+      bmp-pipeline-init:
+        condition: service_completed_successfully
+      kafka-topics:
         condition: service_completed_successfully
     env_file:
       - conf/envs/base.env
@@ -33,7 +35,7 @@ services:
   cache_rootbeer:
     image: ghcr.io/metranova/pipeline:andy-bmp-routemon
     depends_on:
-      pipeline-init:
+      bmp-pipeline-init:
         condition: service_completed_successfully
     env_file:
       - conf/envs/base.env
@@ -43,41 +45,3 @@ services:
       - ./conf:/app/conf:ro
     restart: always
 
-  cache_ip_trie:
-    image: ghcr.io/metranova/pipeline:andy-bmp-routemon
-    depends_on:
-      pipeline-init:
-        condition: service_completed_successfully
-    env_file:
-      - conf/envs/base.env
-      - conf/envs/cache_ip_trie.env
-    volumes:
-      - ./caches:/app/caches:rw
-      - ./conf:/app/conf:ro
-    restart: always
-
-  metadata_ip_geo:
-    image: ghcr.io/metranova/pipeline:andy-bmp-routemon
-    depends_on:
-      pipeline-init:
-        condition: service_completed_successfully
-    env_file:
-      - conf/envs/base.env
-      - conf/envs/metadata_ip_geo.env
-    volumes:
-      - ./caches:/app/caches:rw
-      - ./conf:/app/conf:ro
-    restart: always
-
-  metadata_caida_org_as:
-    image: ghcr.io/metranova/pipeline:andy-bmp-routemon
-    depends_on:
-      pipeline-init:
-        condition: service_completed_successfully
-    env_file:
-      - conf/envs/base.env
-      - conf/envs/metadata_caida_org_as.env
-    volumes:
-      - ./caches:/app/caches:rw
-      - ./conf:/app/conf:ro
-    restart: always

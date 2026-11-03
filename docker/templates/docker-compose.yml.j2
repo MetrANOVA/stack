@@ -5,6 +5,9 @@ include:
 {% if datastore.enabled %}
   - {{ datastore.type }}/docker-compose.yml
 {% endif %}
+{% if shared_pipeline_services %}
+  - shared/pipeline/docker-compose.yml
+{% endif %}
 {% for stack in stacks %}
 {% for collector in stack.collectors | default([]) %}
 {% if collector.enabled %}

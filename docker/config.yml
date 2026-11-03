@@ -8,6 +8,23 @@ stacks:
         enabled: true
     pipeline:
       enabled: true
+      shared_services:
+        - cache_ip_trie
+        - metadata_caida_org_as
+        - metadata_cric
+        - metadata_file_export
+        - metadata_ip_geo
+        - metadata_scireg
+  - type: bmp
+    collectors:
+      - type: pmbmpd
+        enabled: true
+    pipeline:
+      enabled: true
+      shared_services:
+        - cache_ip_trie
+        - metadata_ip_geo
+        - metadata_caida_org_as
 
 message_bus:
   type: kafka
