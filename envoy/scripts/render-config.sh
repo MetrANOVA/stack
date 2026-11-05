@@ -37,9 +37,10 @@ template = jenv.get_template("envoy.yaml.j2")
 
 # Build context from env vars
 ctx = {
-    "https_port":    int(env_vars.get("ENVOY_HTTPS_PORT", "443")),
-    "grafana":       env_vars.get("ENVOY_UPSTREAM_GRAFANA", "false").lower() == "true",
-    "clickhouse":    env_vars.get("ENVOY_UPSTREAM_CLICKHOUSE", "false").lower() == "true",
+    "listen_address": env_vars.get("ENVOY_LISTEN_ADDRESS", "0.0.0.0"),
+    "https_port":     int(env_vars.get("ENVOY_HTTPS_PORT", "443")),
+    "grafana":        env_vars.get("ENVOY_UPSTREAM_GRAFANA", "false").lower() == "true",
+    "clickhouse":     env_vars.get("ENVOY_UPSTREAM_CLICKHOUSE", "false").lower() == "true",
 }
 
 output = template.render(**ctx)

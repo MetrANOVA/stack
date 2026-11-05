@@ -4,7 +4,7 @@ static_resources:
     - name: https_listener
       address:
         socket_address:
-          address: 0.0.0.0
+          address: {{ listen_address }}
           port_value: {{ https_port }}
       filter_chains:
         - filters:
