@@ -48,7 +48,7 @@ docker compose up -d
 
 Then configure your routers to send BMP data to TCP port **1790**.
 
-Access Grafana at `http://localhost:3000` (login credentials in `grafana/conf/grafana_auth.env`).
+Access Grafana at `https://localhost/` (login credentials in `grafana/conf/grafana_auth.env`).
 
 ## 4. Component Overview
 
@@ -77,6 +77,9 @@ The MetrANOVA BMP Stack consists of several integrated components:
 
 ### Visualization
 - **Grafana** - Web-based dashboards for visualizing BGP routing state and prefix data
+
+### Reverse Proxy
+- **Envoy** - Terminates external HTTPS connections and routes traffic to Grafana (at `/`) and ClickHouse (at `/clickhouse`). All external access to these services goes through Envoy; direct ports are not exposed by default.
 
 ## 5. Choosing Hardware
 
@@ -216,7 +219,7 @@ Once services are running and routers are sending BMP data, you can visualize th
 
 ### Login to Grafana
 
-1. Open your browser and navigate to: `http://localhost:3000`
+1. Open your browser and navigate to: `https://localhost/`
 2. Login credentials:
    - **Username:** `admin`
    - **Password:** Located in `grafana/conf/grafana_auth.env`
@@ -226,7 +229,13 @@ Once services are running and routers are sending BMP data, you can visualize th
 cat grafana/conf/grafana_auth.env
 ```
 
+**Note:** The Envoy proxy uses a self-signed certificate by default. Your browser will show a certificate warning — accept it to proceed, or replace the certificates in `envoy/conf/` with ones signed by a trusted CA.
+
 **Important:** Change the default password after your first login via the Grafana UI (User menu → Preferences → Change Password).
+
+### Access ClickHouse (HTTP API)
+
+The ClickHouse HTTP API is accessible via the proxy at `https://localhost/clickhouse`. The native TCP protocol (used by `clickhouse-client` and drivers) remains directly accessible on port **9440**.
 
 ### Explore Your Data
 
@@ -246,11 +255,32 @@ LIMIT 100
 
 ### Security Considerations
 
-For production deployments:
-- Place Grafana behind a reverse proxy (nginx, Apache)
-- Enable HTTPS/TLS encryption
-- Configure authentication (LDAP, OAuth, etc.)
-- Restrict network access with firewall rules
+The MetrANOVA stack includes an **Envoy reverse proxy** that terminates HTTPS and routes external traffic. By default:
+
+- **Grafana** is accessible at `https://<host>/` via the proxy; port 3000 is not directly exposed.
+- **ClickHouse HTTP API** is accessible at `https://<host>/clickhouse` via the proxy; port 8443 is not directly exposed.
+- **ClickHouse native port** (9440) is exposed directly since it uses a binary protocol that cannot go through an HTTP proxy.
+- A self-signed TLS certificate is generated automatically during `make`. Replace it with a CA-signed certificate for production use.
+
+You can customize proxy behaviour in `docker/config.yml`:
+
+```yaml
+datastore:
+  use_proxy: false   # Removes ClickHouse from the proxy; port 8443 becomes unreachable externally
+  expose_port: true  # Forwards port 8443 directly (useful when proxy is disabled)
+
+dashboard:
+  use_proxy: false   # Removes Grafana from the proxy; port 3000 becomes unreachable externally
+  expose_port: true  # Forwards port 3000 directly (useful when proxy is disabled)
+
+proxy:
+  enabled: false     # Disables Envoy entirely; set expose_port: true on each service to restore access
+```
+
+For production deployments, also consider:
+- Replacing the self-signed certificate with one from a trusted CA (Let's Encrypt, your organization's PKI)
+- Configuring Grafana authentication (LDAP, OAuth, etc.)
+- Restricting network access with firewall rules
 
 ## 12. Optional: ROOTBEER BGP Export
 
