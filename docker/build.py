@@ -153,6 +153,7 @@ def main() -> None:
 	datastore = config.get("datastore", {}) or {}
 	stacks = config.get("stacks", []) or []
 	dashboard = config.get("dashboard", {}) or {}
+	proxy = config.get("proxy", {}) or {}
 
 	# Collect the union of shared pipeline services across all enabled stacks.
 	shared_pipeline_services: Set[str] = set()
@@ -170,7 +171,12 @@ def main() -> None:
 	if not args.clean:
 		render_compose(
 			docker_dir / "templates",
-			{**config, "shared_pipeline_services": shared_pipeline_services},
+			{
+				**config,
+				"shared_pipeline_services": shared_pipeline_services,
+				# Ensure proxy always has an `enabled` key for the template.
+				"proxy": {"enabled": False, "type": None, **proxy},
+			},
 			output_path,
 		)
 		# Generate shared/pipeline/docker-compose.yml before any `docker compose`
@@ -403,6 +409,53 @@ def main() -> None:
 				"--rm",
 				f"{dashboard_type}-init",
 			])
+
+	if proxy.get("enabled"):
+		proxy_type = proxy.get("type")
+		if not proxy_type:
+			raise ValueError("proxy.type is required when enabled")
+		proxy_dir = repo_root / proxy_type
+		if not proxy_dir.exists():
+			raise FileNotFoundError(f"Proxy directory not found: {proxy_dir}")
+
+		if args.clean:
+			remove_dir_if_exists(proxy_dir / "conf")
+		else:
+			copytree_if_missing(proxy_dir / "conf.example", proxy_dir / "conf")
+
+			# Write upstream flags so envoy-config knows which backends to wire up.
+			upstream_grafana = dashboard.get("enabled") and dashboard.get("type") == "grafana"
+			upstream_clickhouse = datastore.get("enabled") and datastore.get("type") == "clickhouse"
+			proxy_env_path = proxy_dir / "conf" / "envoy.env"
+			_set_env_value(proxy_env_path, "ENVOY_UPSTREAM_GRAFANA", str(upstream_grafana).lower())
+			_set_env_value(proxy_env_path, "ENVOY_UPSTREAM_CLICKHOUSE", str(upstream_clickhouse).lower())
+
+			# Provide the ClickHouse CA so envoy can verify its TLS certificate.
+			if upstream_clickhouse and datastore_type:
+				ch_ca_src = conf_d / datastore_type / "ca.crt"
+				ch_ca_dest_dir = proxy_dir / "conf" / "clickhouse"
+				ensure_dir(ch_ca_dest_dir)
+				if ch_ca_src.exists():
+					shutil.copy2(ch_ca_src, ch_ca_dest_dir / "ca.crt")
+
+			for init_svc in ("envoy-certs", "envoy-config"):
+				run([
+					"docker", "compose", "-f", str(output_path),
+					"run", "--rm", init_svc,
+				])
+
+
+def _set_env_value(env_path: Path, key: str, value: str) -> None:
+	"""Set or append a KEY=value line in an env file."""
+	text = env_path.read_text() if env_path.exists() else ""
+	lines = text.splitlines()
+	new_line = f"{key}={value}"
+	for i, line in enumerate(lines):
+		if line.startswith(f"{key}="):
+			lines[i] = new_line
+			env_path.write_text("\n".join(lines) + "\n")
+			return
+	env_path.write_text(text.rstrip("\n") + "\n" + new_line + "\n")
 
 
 if __name__ == "__main__":

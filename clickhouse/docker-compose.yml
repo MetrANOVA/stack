@@ -20,7 +20,6 @@ services:
     env_file:
       - ./conf/clickhouse.env
     ports:
-      - "8443:8443"
       - "9440:9440"
     volumes:
       - clickhouse-data:/var/lib/clickhouse

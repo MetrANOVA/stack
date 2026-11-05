@@ -21,3 +21,6 @@ include:
 {% if dashboard.enabled %}
   - {{ dashboard.type }}/docker-compose.yml
 {% endif %}
+{% if proxy.enabled %}
+  - {{ proxy.type }}/docker-compose.yml
+{% endif %}

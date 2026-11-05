@@ -27,3 +27,7 @@ datastore:
 dashboard:
   type: grafana
   enabled: true
+
+proxy:
+  type: envoy
+  enabled: true

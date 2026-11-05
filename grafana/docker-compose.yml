@@ -20,8 +20,6 @@ services:
 
   grafana:
     image: grafana/grafana:13.0
-    ports:
-      - "3000:3000"
     env_file:
       - ./conf/grafana.env
       - ./conf/grafana_auth.env
