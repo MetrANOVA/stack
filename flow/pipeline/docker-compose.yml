@@ -24,7 +24,7 @@ services:
       - conf/envs/base.env
       - conf/envs/data_flow.env
     volumes:
-      - ./caches:/app/caches:ro
+      - ../../shared/pipeline/caches:/app/caches:ro
       - ./conf:/app/conf:ro
       - ./conf/kafka/ca.crt:/etc/kafka/ca.crt:ro
     restart: always

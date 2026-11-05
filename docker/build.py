@@ -299,7 +299,16 @@ def main() -> None:
 		if args.clean:
 			remove_dir_if_exists(shared_pipeline_dir / "conf")
 		else:
+			is_first_run = not (shared_pipeline_dir / "conf").exists()
 			copytree_if_missing(shared_pipeline_dir / "conf.example", shared_pipeline_dir / "conf")
+			if is_first_run and sys.platform.startswith("linux"):
+				try:
+					subprocess.run(
+						["chown", "-R", "1000:1000", str(shared_pipeline_dir / "caches")],
+						check=True,
+					)
+				except Exception:
+					pass
 
 			if message_bus_type:
 				copy_exported_creds(conf_d / message_bus_type, shared_pipeline_dir / "conf" / message_bus_type)
@@ -363,16 +372,7 @@ def main() -> None:
 			if args.clean:
 				remove_dir_if_exists(pipeline_dir / "conf")
 			else:
-				is_first_run = not (pipeline_dir / "conf").exists()
 				copytree_if_missing(pipeline_dir / "conf.example", pipeline_dir / "conf")
-				if is_first_run and sys.platform.startswith("linux"):
-					try:
-						subprocess.run(
-							["chown", "-R", "1000:1000", str(pipeline_dir / "caches")],
-							check=True,
-						)
-					except Exception:
-						pass
 
 				if message_bus_type:
 					export_src_dir = conf_d / message_bus_type
