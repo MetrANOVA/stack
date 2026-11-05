@@ -1,4 +1,46 @@
 services:
+  # Obtains a Let's Encrypt certificate via HTTP-01 standalone challenge.
+  # Only run by build.py when proxy.letsencrypt.enabled is true.
+  certbot-init:
+    image: certbot/certbot:latest
+    container_name: certbot-init
+    ports:
+      - "80:80"
+    env_file:
+      - ./conf/envoy.env
+    volumes:
+      - certbot-data:/etc/letsencrypt
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        exec certbot certonly \
+          --standalone \
+          --non-interactive \
+          --agree-tos \
+          --register-unsafely-without-email \
+          --keep-until-expiring \
+          -d "$ENVOY_LETSENCRYPT_HOSTNAME"
+    restart: "no"
+
+  # Copies Let's Encrypt certs into the shared envoy-data volume.
+  # Only run by build.py when proxy.letsencrypt.enabled is true.
+  envoy-letsencrypt:
+    image: envoyproxy/envoy:v1.33-latest
+    container_name: envoy-letsencrypt
+    user: "0:0"
+    entrypoint: ["/bin/bash", "-lc", "/scripts/install-letsencrypt-certs.sh"]
+    env_file:
+      - ./conf/envoy.env
+    environment:
+      ENVOY_CONF_FILE: /config/envoy.env
+    volumes:
+      - envoy-data:/srv/envoy
+      - certbot-data:/etc/letsencrypt:ro
+      - ./conf:/config:ro
+      - ./scripts:/scripts:ro
+    restart: "no"
+
   envoy-certs:
     image: envoyproxy/envoy:v1.33-latest
     container_name: envoy-certs
@@ -52,3 +94,4 @@ services:
 
 volumes:
   envoy-data:
+  certbot-data:

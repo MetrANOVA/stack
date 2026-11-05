@@ -474,6 +474,16 @@ def main() -> None:
 			_set_env_value(proxy_env_path, "ENVOY_UPSTREAM_GRAFANA", str(upstream_grafana).lower())
 			_set_env_value(proxy_env_path, "ENVOY_UPSTREAM_CLICKHOUSE", str(upstream_clickhouse).lower())
 
+			# Let's Encrypt configuration.
+			le_cfg = proxy.get("letsencrypt", {}) or {}
+			le_enabled = le_cfg.get("enabled", False)
+			le_hostname = le_cfg.get("hostname", "")
+			if le_enabled and not le_hostname:
+				raise ValueError("proxy.letsencrypt.hostname is required when letsencrypt is enabled")
+			_set_env_value(proxy_env_path, "ENVOY_LETSENCRYPT_ENABLED", str(le_enabled).lower())
+			if le_hostname:
+				_set_env_value(proxy_env_path, "ENVOY_LETSENCRYPT_HOSTNAME", le_hostname)
+
 			# Provide the ClickHouse CA so envoy can verify its TLS certificate.
 			if upstream_clickhouse and datastore_type:
 				ch_ca_src = conf_d / datastore_type / "ca.crt"
@@ -481,6 +491,17 @@ def main() -> None:
 				ensure_dir(ch_ca_dest_dir)
 				if ch_ca_src.exists():
 					shutil.copy2(ch_ca_src, ch_ca_dest_dir / "ca.crt")
+
+			# When Let's Encrypt is enabled, run certbot first to obtain the
+			# certificate, then copy it into the envoy-data volume.
+			# envoy-certs runs next and skips self-signed generation because the
+			# cert files are already populated.
+			if le_enabled:
+				for init_svc in ("certbot-init", "envoy-letsencrypt"):
+					run([
+						"docker", "compose", "-f", str(output_path),
+						"run", "--rm", init_svc,
+					])
 
 			for init_svc in ("envoy-certs", "envoy-config"):
 				run([
@@ -490,12 +511,17 @@ def main() -> None:
 
 
 def _set_env_value(env_path: Path, key: str, value: str) -> None:
-	"""Set or append a KEY=value line in an env file."""
+	"""Set or append a KEY=value line in an env file.
+
+	Replaces an existing active line (KEY=...) or a commented-out placeholder
+	(# KEY=... or #KEY=...) if found; otherwise appends.
+	"""
 	text = env_path.read_text() if env_path.exists() else ""
 	lines = text.splitlines()
 	new_line = f"{key}={value}"
 	for i, line in enumerate(lines):
-		if line.startswith(f"{key}="):
+		stripped = line.lstrip("#").lstrip()
+		if stripped.startswith(f"{key}="):
 			lines[i] = new_line
 			env_path.write_text("\n".join(lines) + "\n")
 			return

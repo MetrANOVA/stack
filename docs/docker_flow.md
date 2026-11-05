@@ -357,16 +357,9 @@ Once services are running and devices are sending flow data, you can visualize t
 1. Open your browser and navigate to: `https://localhost/`
 2. Login credentials:
    - **Username:** `admin`
-   - **Password:** Located in `grafana/conf/grafana_auth.env`
-
-**Retrieve the password:**
-```bash
-cat grafana/conf/grafana_auth.env
-```
+   - **Password:** Generated during `make` and stored in `grafana/conf/grafana_auth.env`
 
 **Note:** The Envoy proxy uses a self-signed certificate by default. Your browser will show a certificate warning — accept it to proceed, or replace the certificates in `envoy/conf/` with ones signed by a trusted CA.
-
-**Important:** Change the default password after your first login via the Grafana UI (User menu → Preferences → Change Password).
 
 ### Access ClickHouse (HTTP API)
 
@@ -396,7 +389,7 @@ The MetrANOVA stack includes an **Envoy reverse proxy** that terminates HTTPS an
 - **Grafana** is accessible at `https://<host>/` via the proxy; port 3000 is not directly exposed.
 - **ClickHouse HTTP API** is accessible at `https://<host>/clickhouse` via the proxy; port 8443 is not directly exposed.
 - **ClickHouse native port** (9440) is exposed directly since it uses a binary protocol that cannot go through an HTTP proxy.
-- A self-signed TLS certificate is generated automatically during `make`. Replace it with a CA-signed certificate for production use.
+- A self-signed TLS certificate is generated automatically during `make`. Your browser will show a certificate warning — accept it to proceed, or use Let's Encrypt (see below) or replace the certificates in `envoy/conf/` with ones signed by a trusted CA.
 
 You can customize proxy behaviour in `docker/config.yml`:
 
@@ -413,8 +406,30 @@ proxy:
   enabled: false     # Disables Envoy entirely; set expose_port: true on each service to restore access
 ```
 
+#### Let's Encrypt TLS Certificates
+
+For public-facing deployments, you can configure automatic certificate issuance via Let's Encrypt using the HTTP-01 challenge. Enable it in `docker/config.yml`:
+
+```yaml
+proxy:
+  type: envoy
+  enabled: true
+  letsencrypt:
+    enabled: true
+    hostname: metrics.example.com  # Must resolve publicly to this host on port 80
+```
+
+When `letsencrypt.enabled` is `true`, running `make` will:
+1. Run `certbot` (HTTP-01 standalone mode) on port 80 to obtain a certificate from Let's Encrypt
+2. Install the certificate into the Envoy configuration
+3. Skip self-signed certificate generation
+
+**Requirements:**
+- Port 80 must be reachable from the internet when `make` runs
+- `hostname` must have a DNS record pointing to this host
+- Certbot stores certificates in a Docker volume (`certbot-data`) and re-uses them on subsequent `make` runs if they are not yet due for renewal
+
 For production deployments, also consider:
-- Replacing the self-signed certificate with one from a trusted CA (Let's Encrypt, your organization's PKI)
 - Configuring Grafana authentication (LDAP, OAuth, etc.)
 - Restricting network access with firewall rules
 

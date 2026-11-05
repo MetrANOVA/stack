@@ -35,3 +35,6 @@ dashboard:
 proxy:
   type: envoy
   enabled: true
+  # letsencrypt:
+  #   enabled: false   # Set true to obtain a Let's Encrypt certificate via HTTP-01 challenge
+  #   hostname: ""     # Required when enabled: public hostname that resolves to this host (e.g. metrics.example.com)
