@@ -100,6 +100,22 @@ def copy_exported_creds(export_src: Path, dest_dir: Path) -> None:
 			shutil.copy2(item, dest_dir / item.name)
 
 
+def render_service_compose(service_dir: Path, context: Dict[str, Any]) -> None:
+	"""Render <service>/docker-compose.yml from <service>/templates/docker-compose.yml.j2."""
+	template_path = service_dir / "templates" / "docker-compose.yml.j2"
+	if not template_path.exists():
+		raise FileNotFoundError(f"No compose template found: {template_path}")
+	env = Environment(
+		loader=FileSystemLoader(str(service_dir / "templates")),
+		autoescape=False,
+		trim_blocks=True,
+		lstrip_blocks=True,
+		undefined=StrictUndefined,
+	)
+	template = env.get_template("docker-compose.yml.j2")
+	(service_dir / "docker-compose.yml").write_text(template.render(**context))
+
+
 def render_compose(template_dir: Path, config: Dict[str, Any], output_path: Path) -> None:
 	env = Environment(
 		loader=FileSystemLoader(str(template_dir)),
@@ -189,6 +205,26 @@ def main() -> None:
 				shared_pipeline_cfg,
 				docker_dir / "templates",
 			)
+
+		# Generate service-level compose files that the root compose includes.
+		# These must exist before the first `docker compose` invocation.
+		proxy_enabled = proxy.get("enabled", False)
+		if datastore.get("enabled"):
+			_ds_type = datastore.get("type")
+			if _ds_type:
+				_ds_dir = repo_root / _ds_type
+				_proxy_covers = proxy_enabled and datastore.get("use_proxy", True)
+				render_service_compose(_ds_dir, {
+					"expose_port": datastore.get("expose_port", not _proxy_covers),
+				})
+		if dashboard.get("enabled"):
+			_db_type = dashboard.get("type")
+			if _db_type:
+				_db_dir = repo_root / _db_type
+				_proxy_covers = proxy_enabled and dashboard.get("use_proxy", True)
+				render_service_compose(_db_dir, {
+					"expose_port": dashboard.get("expose_port", not _proxy_covers),
+				})
 
 	message_bus_type = None
 	if message_bus.get("enabled"):
@@ -380,7 +416,6 @@ def main() -> None:
 
 		if args.clean:
 			remove_dir_if_exists(dashboard_dir / "conf")
-			#remove dashboard_dir / "provisioning/datasources/*.yaml" if exists
 			datasources_dir = dashboard_dir / "provisioning" / "datasources"
 			if datasources_dir.exists():
 				for item in datasources_dir.iterdir():
@@ -423,9 +458,18 @@ def main() -> None:
 		else:
 			copytree_if_missing(proxy_dir / "conf.example", proxy_dir / "conf")
 
-			# Write upstream flags so envoy-config knows which backends to wire up.
-			upstream_grafana = dashboard.get("enabled") and dashboard.get("type") == "grafana"
-			upstream_clickhouse = datastore.get("enabled") and datastore.get("type") == "clickhouse"
+			# A service is wired into the proxy only when it is enabled and has
+			# not opted out via dashboard/datastore.use_proxy: false.
+			upstream_grafana = (
+				dashboard.get("enabled")
+				and dashboard.get("type") == "grafana"
+				and dashboard.get("use_proxy", True)
+			)
+			upstream_clickhouse = (
+				datastore.get("enabled")
+				and datastore.get("type") == "clickhouse"
+				and datastore.get("use_proxy", True)
+			)
 			proxy_env_path = proxy_dir / "conf" / "envoy.env"
 			_set_env_value(proxy_env_path, "ENVOY_UPSTREAM_GRAFANA", str(upstream_grafana).lower())
 			_set_env_value(proxy_env_path, "ENVOY_UPSTREAM_CLICKHOUSE", str(upstream_clickhouse).lower())

@@ -23,10 +23,14 @@ message_bus:
 datastore:
   type: clickhouse
   enabled: true
+  # use_proxy: true    # Set false to exclude ClickHouse from the proxy (port 8443 unreachable externally)
+  # expose_port: false # Set true to forward port 8443 directly (default: false when use_proxy is true)
 
 dashboard:
   type: grafana
   enabled: true
+  # use_proxy: true    # Set false to exclude Grafana from the proxy (port 3000 unreachable externally)
+  # expose_port: false # Set true to forward port 3000 directly (default: false when use_proxy is true)
 
 proxy:
   type: envoy
