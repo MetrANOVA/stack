@@ -74,6 +74,12 @@ probes:
 # Extra environment variables injected verbatim into the container
 extraEnv: []
 
+# Extra volumes to be added to the Pod
+extraVolumes: []
+
+# Extra volume mounts to be added to the container
+extraVolumeMounts: []
+
 # ── Application settings ───────────────────────────────────────────────────────
 adminApi:
   host: "0.0.0.0"
