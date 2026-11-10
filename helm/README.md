@@ -2,6 +2,16 @@
 
 This directory contains Helm charts for the MetrANOVA stack.
 
+## Chart Configuration Hooks
+
+The `api` chart supports the following hooks for advanced configuration:
+
+- `extraEnv`: Inject additional environment variables into the API container.
+- `extraVolumes`: Define additional volumes for the API Pod.
+- `extraVolumeMounts`: Mount additional volumes into the API container.
+
+These hooks allow mounting deployment base configurations and TLS files as read-only for Telegraf validation.
+
 Published Helm repository:
 
 - `https://metranova.github.io/stack`
