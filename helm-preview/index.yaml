@@ -1,0 +1,50 @@
+apiVersion: v1
+entries:
+  metranova:
+  - apiVersion: v2
+    appVersion: "1.0"
+    created: "2026-11-10T18:03:25.950744415Z"
+    dependencies:
+    - condition: clickhouse.enabled
+      name: clickhouse
+      repository: file://../charts/clickhouse
+      version: 0.2.1-build.128
+    - condition: kafka.enabled
+      name: kafka
+      repository: file://../charts/kafka
+      version: 0.2.1-build.128
+    - condition: telegraf.enabled
+      name: telegraf
+      repository: file://../charts/telegraf
+      version: 0.2.1-build.128
+    - condition: pmacct.enabled
+      name: pmacct
+      repository: file://../charts/pmacct
+      version: 0.2.1-build.128
+    - alias: snmpPipeline
+      condition: snmpPipeline.enabled
+      name: metranova-snmp-pipeline
+      repository: file://../charts/snmp-pipeline
+      version: 0.2.1-build.128
+    - alias: flowPipeline
+      condition: flowPipeline.enabled
+      name: metranova-flow-pipeline
+      repository: file://../charts/flow-pipeline
+      version: 0.2.1-build.128
+    - alias: api
+      condition: api.enabled
+      name: metranova-api
+      repository: file://../charts/api
+      version: 0.2.1-bestaple-api-validation.1
+    - condition: grafana.enabled
+      name: grafana
+      repository: https://grafana.github.io/helm-charts
+      version: 10.5.15
+    description: Umbrella chart that deploys the MetrANOVA stack components
+    digest: c5b0a2477e517eaf61999cb9357cffd8950af0ca65bb7c2f78a1623fe1f232e9
+    name: metranova
+    type: application
+    urls:
+    - https://github.com/MetrANOVA/stack/releases/download/metranova-0.2.1-bestaple-api-validation.1/metranova-0.2.1-bestaple-api-validation.1.tgz
+    version: 0.2.1-bestaple-api-validation.1
+generated: "2026-11-10T18:03:25.935138351Z"

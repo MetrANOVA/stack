@@ -12,6 +12,19 @@ The `api` chart supports the following hooks for advanced configuration:
 
 These hooks allow mounting deployment base configurations and TLS files as read-only for Telegraf validation.
 
+### Isolated API validation preview
+
+The `bestaple-api-validation-021` branch exposes an isolated Helm index at
+`https://raw.githubusercontent.com/MetrANOVA/stack/bestaple-api-validation-021/helm-preview`.
+It does not modify the shared Helm index or upstream main.
+
+The `0.2.1-bestaple-api-validation.1` umbrella prerelease starts from the
+published `metranova-0.2.1-build.128.tgz`. Its only component changes are these
+API deployment/values hooks. All other component files and versions, including
+Grafana `10.5.15`, remain identical to that published artifact. The API component
+version and umbrella dependency metadata are updated for this isolated release.
+The source baseline is `a76dc2d8acd6fe39bbc42082f0f85d4900d60f23`.
+
 Published Helm repository:
 
 - `https://metranova.github.io/stack`
