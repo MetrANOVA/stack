@@ -20,6 +20,9 @@ services:
     depends_on:
       telegraf-init:
         condition: service_completed_successfully
+    env_file:
+      - conf/telegraf.env
     volumes:
+      - ./conf/telegraf.conf:/etc/telegraf/telegraf.conf:ro
       - ./conf/telegraf.d:/etc/telegraf/telegraf.d:ro
       - ./conf/kafka/ca.crt:/etc/telegraf_certs/kafka_ca.crt:ro
