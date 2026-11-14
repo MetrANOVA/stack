@@ -1,13 +1,31 @@
 services:
 
+  snmp-pipeline-init:
+    image: python:3.11-slim
+    container_name: snmp-pipeline-init
+    entrypoint:
+      - /bin/bash
+      - -lc
+      - >-
+        pip install --no-cache-dir jinja2 &&
+        python /scripts/render_configs.py
+    volumes:
+      - ./conf:/app/conf
+      - ./scripts:/scripts:ro
+    restart: "no"
+
   data_snmp:
     image: ghcr.io/metranova/pipeline:andy-telegraf-cleanup
+    depends_on:
+      snmp-pipeline-init:
+        condition: service_completed_successfully
     env_file:
       - conf/envs/base.env
       - conf/envs/data_snmp.env
     volumes:
       - ./caches:/app/caches:ro
       - ./conf:/app/conf:ro
+      - ./conf/kafka/ca.crt:/etc/kafka/ca.crt:ro
     restart: always
     deploy:
       mode: replicated
