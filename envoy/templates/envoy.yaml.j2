@@ -1,6 +1,37 @@
 static_resources:
 
   listeners:
+{% if http_redirect %}
+    - name: http_redirect_listener
+      address:
+        socket_address:
+          address: {{ listen_address }}
+          port_value: {{ http_port }}
+      filter_chains:
+        - filters:
+            - name: envoy.filters.network.http_connection_manager
+              typed_config:
+                "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                stat_prefix: ingress_http
+                route_config:
+                  name: redirect_route
+                  virtual_hosts:
+                    - name: redirect
+                      domains: ["*"]
+                      routes:
+                        - match:
+                            prefix: "/"
+                          redirect:
+                            https_redirect: true
+{% if https_port != 443 %}
+                            port_redirect: {{ https_port }}
+{% endif %}
+                http_filters:
+                  - name: envoy.filters.http.router
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+
+{% endif %}
     - name: https_listener
       address:
         socket_address:

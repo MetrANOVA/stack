@@ -44,6 +44,7 @@ services:
         condition: service_completed_successfully
     ports:
       - "${ENVOY_HTTPS_PORT:-443}:${ENVOY_HTTPS_PORT:-443}"
+      - "${ENVOY_HTTP_PORT:-80}:${ENVOY_HTTP_PORT:-80}"
     volumes:
       - envoy-data:/srv/envoy
       - ./conf/clickhouse:/srv/clickhouse:ro
