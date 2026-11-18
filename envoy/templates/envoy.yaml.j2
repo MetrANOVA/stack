@@ -57,6 +57,18 @@ static_resources:
                             prefix_rewrite: "/"
                             timeout: 300s
 {% endif %}
+{% if grafana and grafana_cache %}
+                        - match:
+                            prefix: "/public-dashboards/"
+                          route:
+                            cluster: grafana
+                            timeout: 60s
+                          response_headers_to_add:
+                            - header:
+                                key: Cache-Control
+                                value: "public, max-age={{ grafana_cache_ttl }}"
+                              keep_empty_value: false
+{% endif %}
 {% if grafana %}
                         - match:
                             prefix: "/"
@@ -65,6 +77,12 @@ static_resources:
                             timeout: 60s
 {% endif %}
                 http_filters:
+{% if grafana and grafana_cache %}
+                  - name: envoy.filters.http.cache
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.cache.v3.CacheConfig
+                      typed_extension_protocol_options: {}
+{% endif %}
                   - name: envoy.filters.http.router
                     typed_config:
                       "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router

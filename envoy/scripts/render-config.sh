@@ -43,6 +43,8 @@ ctx = {
     "clickhouse":      env_vars.get("ENVOY_UPSTREAM_CLICKHOUSE", "false").lower() == "true",
     "http_redirect":   env_vars.get("ENVOY_HTTP_REDIRECT", "false").lower() == "true",
     "http_port":       int(env_vars.get("ENVOY_HTTP_PORT", "80")),
+    "grafana_cache":   env_vars.get("ENVOY_GRAFANA_CACHE_PUBLIC_DASHBOARDS", "false").lower() == "true",
+    "grafana_cache_ttl": int(env_vars.get("ENVOY_GRAFANA_CACHE_TTL", "60")),
 }
 
 output = template.render(**ctx)
