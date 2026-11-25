@@ -1,0 +1,91 @@
+[[outputs.kafka]]
+  ## URLs of kafka brokers
+  brokers = ["{{ kafka_broker }}"]
+  ## Kafka topic for producer messages
+  topic = "{{ kafka_topic }}"
+
+  ## Optional Client id
+  client_id = "metranova_snmp_telegraf"
+
+  ## Telegraf will send metrics to outputs in batches of at most
+  ## metric_batch_size metrics.
+  ## This controls the size of writes that Telegraf sends to output plugins.
+  metric_batch_size = 500
+
+  ## Maximum number of unwritten metrics per output.  Increasing this value
+  ## allows for longer periods of output downtime without dropping metrics at the
+  ## cost of higher maximum memory usage.
+  metric_buffer_limit = 20000000
+
+  ## The routing tag specifies a tagkey on the metric whose value is used as
+  ## the message key.  The message key is used to determine which partition to
+  ## send the message to.  This tag is prefered over the routing_key option.
+  ## Example: Send all output from same device to same partition
+  ## Sets to custom routing tag - want to be as random as possible while preserving order, particularly for things that need rate calcs
+  # routing_tag = "routing_tag"
+
+  ## The routing key is set as the message key and used to determine which
+  ## partition to send the message to.  This value is only used when no
+  ## routing_tag is set or as a fallback when the tag specified in routing tag
+  ## is not found.
+  ##
+  ## If set to "random", a random value will be generated for each message.
+  ##
+  ## When unset, no message key is added and each message is routed to a random
+  ## partition.
+  ##
+  ##   ex: routing_key = "random"
+  ##       routing_key = "telegraf"
+  # routing_key = ""
+
+  ## Compression codec represents the various compression codecs recognized by
+  ## Kafka in messages.
+  ##  0 : None
+  ##  1 : Gzip
+  ##  2 : Snappy
+  ##  3 : LZ4
+  ##  4 : ZSTD
+   # compression_codec = 0
+   
+  ## Idempotent Writes
+  ## If enabled, exactly one copy of each message is written.
+  # idempotent_writes = false
+
+  ##  RequiredAcks is used in Produce Requests to tell the broker how many
+  ##  replica acknowledgements it must see before responding
+  ##   0 : the producer never waits for an acknowledgement from the broker.
+  ##       This option provides the lowest latency but the weakest durability
+  ##       guarantees (some data will be lost when a server fails).
+  ##   1 : the producer gets an acknowledgement after the leader replica has
+  ##       received the data. This option provides better durability as the
+  ##       client waits until the server acknowledges the request as successful
+  ##       (only messages that were written to the now-dead leader but not yet
+  ##       replicated will be lost).
+  ##   -1: the producer gets an acknowledgement after all in-sync replicas have
+  ##       received the data. This option provides the best durability, we
+  ##       guarantee that no messages will be lost as long as at least one in
+  ##       sync replica remains.
+  required_acks = 1
+
+  ## The maximum number of times to retry sending a metric before failing
+  ## until the next flush. This is how many times it tries per flush interval
+  ## NOT how many time it will try total. metric_buffer_limit has more bearing on
+  ## how long a message stays around.
+  max_retry = 3
+
+  ## SASL authentication
+  sasl_username = "collector"
+  sasl_password = "{{ kafka_collector_password }}"
+  sasl_mechanism = "PLAIN"
+
+  ## Optional TLS Config
+  tls_ca = "/etc/telegraf_certs/kafka_ca.crt"
+
+  ## Use TLS but skip chain & host verification
+  ## insecure_skip_verify = true
+
+  ## Data format to output.
+  ## Each data format has its own unique set of configuration options, read
+  ## more about them here:
+  ## https://github.com/influxdata/telegraf/blob/master/docs/DATA_FORMATS_OUTPUT.md
+  data_format = "json"

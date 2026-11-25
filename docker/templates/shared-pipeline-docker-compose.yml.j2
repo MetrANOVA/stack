@@ -1,0 +1,34 @@
+services:
+  shared-pipeline-init:
+    image: python:3.11-slim
+    container_name: shared-pipeline-init
+    entrypoint:
+      - /bin/bash
+      - -lc
+      - >-
+        pip install --no-cache-dir jinja2 &&
+        python /scripts/render_configs.py
+    volumes:
+      - ./conf:/app/conf
+      - ./scripts:/scripts:ro
+    restart: "no"
+
+{% for svc in services %}
+  {{ svc.name }}:
+    image: {{ image }}
+    depends_on:
+      shared-pipeline-init:
+        condition: service_completed_successfully
+    env_file:
+{% for ef in svc.env_files %}
+      - {{ ef }}
+{% endfor %}
+    volumes:
+      - ./caches:/app/caches:{{ svc.caches_mode }}
+      - ./conf:/app/conf:ro
+{% if svc.profiles %}
+    profiles: {{ svc.profiles }}
+{% endif %}
+    restart: always
+
+{% endfor %}

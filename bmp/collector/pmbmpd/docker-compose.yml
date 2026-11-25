@@ -1,0 +1,27 @@
+services:
+
+  pmbmpd-init:
+    image: python:3.11-slim
+    container_name: pmbmpd-init
+    entrypoint:
+      - /bin/bash
+      - -lc
+      - >-
+        pip install --no-cache-dir jinja2 &&
+        python /scripts/render_configs.py
+    volumes:
+      - ./conf:/etc/pmacct
+      - ./scripts:/scripts:ro
+    restart: "no"
+
+  pmbmpd:
+    image: pmacct/pmbmpd:v1.8.0
+    restart: always
+    depends_on:
+      pmbmpd-init:
+        condition: service_completed_successfully
+    ports:
+      - "1790:1790"
+    volumes:
+      - ./conf:/etc/pmacct:ro
+      - ./conf/kafka/ca.crt:/etc/pmacct_certificates/ca.crt:ro

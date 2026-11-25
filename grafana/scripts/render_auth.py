@@ -54,7 +54,6 @@ def main() -> None:
     output_path.write_text(rendered)
     os.chmod(output_path, 0o600)  # Restrict permissions
     print(f"Rendered grafana_auth.env.j2 -> {output_path}")
-    print(f"Generated admin password: {password}")
 
 
 if __name__ == "__main__":

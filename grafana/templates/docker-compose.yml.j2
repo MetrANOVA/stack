@@ -20,11 +20,13 @@ services:
 
   grafana:
     image: grafana/grafana:13.0
-    ports:
-      - "3000:3000"
     env_file:
       - ./conf/grafana.env
       - ./conf/grafana_auth.env
+{% if expose_port %}
+    ports:
+      - "3000:3000"
+{% endif %}
     volumes:
       - grafana-data:/var/lib/grafana
       - ./dashboards:/var/lib/metranova/grafana/dashboards:ro

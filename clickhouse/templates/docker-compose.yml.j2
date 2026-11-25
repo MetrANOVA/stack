@@ -20,8 +20,10 @@ services:
     env_file:
       - ./conf/clickhouse.env
     ports:
-      - "8443:8443"
       - "9440:9440"
+{% if expose_port %}
+      - "8443:8443"
+{% endif %}
     volumes:
       - clickhouse-data:/var/lib/clickhouse
       - clickhouse-secrets:/var/lib/clickhouse/certs

@@ -8,7 +8,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Set
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
@@ -47,6 +47,73 @@ def ensure_dir(path: Path) -> None:
 def remove_dir_if_exists(path: Path) -> None:
 	if path.exists():
 		shutil.rmtree(path)
+
+
+def load_services(path: Path) -> Dict[str, Any]:
+	if not path.exists():
+		raise FileNotFoundError(f"Services file not found: {path}")
+	data = yaml.safe_load(path.read_text())
+	if not isinstance(data, dict):
+		raise ValueError("Services file must be a YAML object")
+	return data
+
+
+def generate_shared_pipeline_compose(
+	services: Set[str],
+	output_path: Path,
+	shared_pipeline_cfg: Dict[str, Any],
+	template_dir: Path,
+) -> None:
+	"""Write shared/pipeline/docker-compose.yml from a Jinja template."""
+	image = shared_pipeline_cfg.get("image", "")
+	if not image:
+		raise ValueError("shared_pipeline.image is required in services.yml")
+	service_definitions: Dict[str, Any] = shared_pipeline_cfg.get("services", {}) or {}
+
+	unknown = services - service_definitions.keys()
+	if unknown:
+		raise ValueError(f"Unknown shared pipeline service(s): {', '.join(sorted(unknown))}")
+
+	env = Environment(
+		loader=FileSystemLoader(str(template_dir)),
+		autoescape=False,
+		trim_blocks=True,
+		lstrip_blocks=True,
+		undefined=StrictUndefined,
+	)
+	template = env.get_template("shared-pipeline-docker-compose.yml.j2")
+	rendered = template.render(
+		image=image,
+		services=[
+			{"name": svc, "profiles": [], **service_definitions[svc]}
+			for svc in sorted(services)
+		],
+	)
+	output_path.write_text(rendered)
+
+
+def copy_exported_creds(export_src: Path, dest_dir: Path) -> None:
+	"""Copy all files from an export dir into dest_dir, creating it if needed."""
+	ensure_dir(dest_dir)
+	for item in export_src.iterdir():
+		if item.is_file():
+			shutil.copy2(item, dest_dir / item.name)
+
+
+def render_service_compose(service_dir: Path, context: Dict[str, Any]) -> None:
+	"""Render <service>/docker-compose.yml from <service>/templates/docker-compose.yml.j2."""
+	template_path = service_dir / "templates" / "docker-compose.yml.j2"
+	if not template_path.exists():
+		raise FileNotFoundError(f"No compose template found: {template_path}")
+	env = Environment(
+		loader=FileSystemLoader(str(service_dir / "templates")),
+		autoescape=False,
+		trim_blocks=True,
+		lstrip_blocks=True,
+		undefined=StrictUndefined,
+	)
+	template = env.get_template("docker-compose.yml.j2")
+	(service_dir / "docker-compose.yml").write_text(template.render(**context))
 
 
 def render_compose(template_dir: Path, config: Dict[str, Any], output_path: Path) -> None:
@@ -94,17 +161,70 @@ def main() -> None:
 	if not config_path.is_absolute():
 		config_path = repo_root / config_path
 	config = load_config(config_path)
+	services_path = docker_dir / "services.yml"
+	services_cfg = load_services(services_path)
+	shared_pipeline_cfg: Dict[str, Any] = services_cfg.get("shared_pipeline", {}) or {}
 
 	message_bus = config.get("message_bus", {}) or {}
 	datastore = config.get("datastore", {}) or {}
 	stacks = config.get("stacks", []) or []
 	dashboard = config.get("dashboard", {}) or {}
+	proxy = config.get("proxy", {}) or {}
+
+	# Collect the union of shared pipeline services across all enabled stacks.
+	shared_pipeline_services: Set[str] = set()
+	for stack in stacks:
+		pipeline = stack.get("pipeline", {}) or {}
+		if pipeline.get("enabled"):
+			for svc in pipeline.get("shared_services", []) or []:
+				shared_pipeline_services.add(svc)
 
 	conf_d = docker_dir / "conf.d"
 	ensure_dir(conf_d)
 
+	shared_pipeline_dir = repo_root / "shared" / "pipeline"
+
 	if not args.clean:
-		render_compose(docker_dir / "templates", config, output_path)
+		render_compose(
+			docker_dir / "templates",
+			{
+				**config,
+				"shared_pipeline_services": shared_pipeline_services,
+				# Ensure proxy always has an `enabled` key for the template.
+				"proxy": {"enabled": False, "type": None, **proxy},
+			},
+			output_path,
+		)
+		# Generate shared/pipeline/docker-compose.yml before any `docker compose`
+		# invocation — the root compose file includes it, so Docker needs it to
+		# exist even when parsing for unrelated services (e.g. kafka-init).
+		if shared_pipeline_services:
+			generate_shared_pipeline_compose(
+				shared_pipeline_services,
+				shared_pipeline_dir / "docker-compose.yml",
+				shared_pipeline_cfg,
+				docker_dir / "templates",
+			)
+
+		# Generate service-level compose files that the root compose includes.
+		# These must exist before the first `docker compose` invocation.
+		proxy_enabled = proxy.get("enabled", False)
+		if datastore.get("enabled"):
+			_ds_type = datastore.get("type")
+			if _ds_type:
+				_ds_dir = repo_root / _ds_type
+				_proxy_covers = proxy_enabled and datastore.get("use_proxy", True)
+				render_service_compose(_ds_dir, {
+					"expose_port": datastore.get("expose_port", not _proxy_covers),
+				})
+		if dashboard.get("enabled"):
+			_db_type = dashboard.get("type")
+			if _db_type:
+				_db_dir = repo_root / _db_type
+				_proxy_covers = proxy_enabled and dashboard.get("use_proxy", True)
+				render_service_compose(_db_dir, {
+					"expose_port": dashboard.get("expose_port", not _proxy_covers),
+				})
 
 	message_bus_type = None
 	if message_bus.get("enabled"):
@@ -174,6 +294,32 @@ def main() -> None:
 				if item.is_file():
 					shutil.copy2(item, ds_export_dir / item.name)
 
+	# Shared pipeline — deduplicated services used by one or more stacks.
+	if shared_pipeline_services:
+		if args.clean:
+			remove_dir_if_exists(shared_pipeline_dir / "conf")
+		else:
+			is_first_run = not (shared_pipeline_dir / "conf").exists()
+			copytree_if_missing(shared_pipeline_dir / "conf.example", shared_pipeline_dir / "conf")
+			if is_first_run and sys.platform.startswith("linux"):
+				try:
+					subprocess.run(
+						["chown", "-R", "1000:1000", str(shared_pipeline_dir / "caches")],
+						check=True,
+					)
+				except Exception:
+					pass
+
+			if message_bus_type:
+				copy_exported_creds(conf_d / message_bus_type, shared_pipeline_dir / "conf" / message_bus_type)
+			if datastore_type:
+				copy_exported_creds(conf_d / datastore_type, shared_pipeline_dir / "conf" / datastore_type)
+
+			run([
+				"docker", "compose", "-f", str(output_path),
+				"run", "--rm", "shared-pipeline-init",
+			])
+
 	for stack in stacks:
 		stack_type = stack.get("type")
 		if not stack_type:
@@ -226,16 +372,7 @@ def main() -> None:
 			if args.clean:
 				remove_dir_if_exists(pipeline_dir / "conf")
 			else:
-				is_first_run = not (pipeline_dir / "conf").exists()
 				copytree_if_missing(pipeline_dir / "conf.example", pipeline_dir / "conf")
-				if is_first_run and sys.platform.startswith("linux"):
-					try:
-						subprocess.run(
-							["chown", "-R", "1000:1000", str(pipeline_dir / "caches")],
-							check=True,
-						)
-					except Exception:
-						pass
 
 				if message_bus_type:
 					export_src_dir = conf_d / message_bus_type
@@ -265,7 +402,7 @@ def main() -> None:
 					str(compose_file),
 					"run",
 					"--rm",
-					"pipeline-init",
+					f"{stack_type}-pipeline-init",
 				])
 
 	dashboard_type = None
@@ -279,7 +416,6 @@ def main() -> None:
 
 		if args.clean:
 			remove_dir_if_exists(dashboard_dir / "conf")
-			#remove dashboard_dir / "provisioning/datasources/*.yaml" if exists
 			datasources_dir = dashboard_dir / "provisioning" / "datasources"
 			if datasources_dir.exists():
 				for item in datasources_dir.iterdir():
@@ -308,6 +444,62 @@ def main() -> None:
 				"--rm",
 				f"{dashboard_type}-init",
 			])
+
+	if proxy.get("enabled"):
+		proxy_type = proxy.get("type")
+		if not proxy_type:
+			raise ValueError("proxy.type is required when enabled")
+		proxy_dir = repo_root / proxy_type
+		if not proxy_dir.exists():
+			raise FileNotFoundError(f"Proxy directory not found: {proxy_dir}")
+
+		if args.clean:
+			remove_dir_if_exists(proxy_dir / "conf")
+		else:
+			copytree_if_missing(proxy_dir / "conf.example", proxy_dir / "conf")
+
+			# A service is wired into the proxy only when it is enabled and has
+			# not opted out via dashboard/datastore.use_proxy: false.
+			upstream_grafana = (
+				dashboard.get("enabled")
+				and dashboard.get("type") == "grafana"
+				and dashboard.get("use_proxy", True)
+			)
+			upstream_clickhouse = (
+				datastore.get("enabled")
+				and datastore.get("type") == "clickhouse"
+				and datastore.get("use_proxy", True)
+			)
+			proxy_env_path = proxy_dir / "conf" / "envoy.env"
+			_set_env_value(proxy_env_path, "ENVOY_UPSTREAM_GRAFANA", str(upstream_grafana).lower())
+			_set_env_value(proxy_env_path, "ENVOY_UPSTREAM_CLICKHOUSE", str(upstream_clickhouse).lower())
+
+			# Provide the ClickHouse CA so envoy can verify its TLS certificate.
+			if upstream_clickhouse and datastore_type:
+				ch_ca_src = conf_d / datastore_type / "ca.crt"
+				ch_ca_dest_dir = proxy_dir / "conf" / "clickhouse"
+				ensure_dir(ch_ca_dest_dir)
+				if ch_ca_src.exists():
+					shutil.copy2(ch_ca_src, ch_ca_dest_dir / "ca.crt")
+
+			for init_svc in ("envoy-certs", "envoy-config"):
+				run([
+					"docker", "compose", "-f", str(output_path),
+					"run", "--rm", init_svc,
+				])
+
+
+def _set_env_value(env_path: Path, key: str, value: str) -> None:
+	"""Set or append a KEY=value line in an env file."""
+	text = env_path.read_text() if env_path.exists() else ""
+	lines = text.splitlines()
+	new_line = f"{key}={value}"
+	for i, line in enumerate(lines):
+		if line.startswith(f"{key}="):
+			lines[i] = new_line
+			env_path.write_text("\n".join(lines) + "\n")
+			return
+	env_path.write_text(text.rstrip("\n") + "\n" + new_line + "\n")
 
 
 if __name__ == "__main__":

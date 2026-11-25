@@ -1,0 +1,35 @@
+shared_pipeline:
+  image: ghcr.io/metranova/pipeline:latest
+  services:
+    cache_ip_trie:
+      env_files:
+        - conf/envs/base.env
+        - conf/envs/cache_ip_trie.env
+      caches_mode: rw
+    metadata_caida_org_as:
+      env_files:
+        - conf/envs/base.env
+        - conf/envs/metadata_caida_org_as.env
+      caches_mode: rw
+    metadata_cric:
+      env_files:
+        - conf/envs/base.env
+        - conf/envs/metadata_cric.env
+      caches_mode: rw
+      profiles:
+        - lhc
+    metadata_file_export:
+      env_files:
+        - conf/envs/base.env
+        - conf/envs/metadata_file_export.env
+      caches_mode: rw
+    metadata_ip_geo:
+      env_files:
+        - conf/envs/base.env
+        - conf/envs/metadata_ip_geo.env
+      caches_mode: rw
+    metadata_scireg:
+      env_files:
+        - conf/envs/base.env
+        - conf/envs/metadata_scireg.env
+      caches_mode: rw

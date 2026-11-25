@@ -1,39 +1,32 @@
 services:
 
+  snmp-pipeline-init:
+    image: python:3.11-slim
+    container_name: snmp-pipeline-init
+    entrypoint:
+      - /bin/bash
+      - -lc
+      - >-
+        pip install --no-cache-dir jinja2 &&
+        python /scripts/render_configs.py
+    volumes:
+      - ./conf:/app/conf
+      - ./scripts:/scripts:ro
+    restart: "no"
+
   data_snmp:
     image: ghcr.io/metranova/pipeline:latest
+    depends_on:
+      snmp-pipeline-init:
+        condition: service_completed_successfully
     env_file:
       - conf/envs/base.env
       - conf/envs/data_snmp.env
     volumes:
       - ./caches:/app/caches:ro
       - ./conf:/app/conf:ro
+      - ./conf/kafka/ca.crt:/etc/kafka/ca.crt:ro
     restart: always
     deploy:
       mode: replicated
       replicas: ${PIPELINE_REPLICAS:-1}
-  
-  metadata_caida_org_as:
-    image: ghcr.io/metranova/pipeline:latest
-    env_file:
-      - conf/envs/base.env
-      - conf/envs/metadata_caida_org_as.env
-    volumes:
-      - ./caches:/app/caches:rw
-      - ./conf:/app/conf:ro
-    restart: always
-  
-  metadata_file_export:
-    image: ghcr.io/metranova/pipeline:latest
-    env_file:
-      - conf/envs/base.env
-      - conf/envs/metadata_file_export.env
-    volumes:
-      - ./caches:/app/caches:rw
-      - ./conf:/app/conf:ro
-    restart: always
-
-  redis:
-    image: redis:8.2.1
-    ports:
-      - "6379:6379"

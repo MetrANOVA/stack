@@ -1,0 +1,10 @@
+include:
+  - kafka/docker-compose.yml
+  - clickhouse/docker-compose.yml
+  - shared/pipeline/docker-compose.yml
+  - flow/collector/nfacctd/docker-compose.yml
+  - flow/collector/sfacctd/docker-compose.yml
+  - flow/pipeline/docker-compose.yml
+  - bmp/collector/pmbmpd/docker-compose.yml
+  - bmp/pipeline/docker-compose.yml
+  - grafana/docker-compose.yml

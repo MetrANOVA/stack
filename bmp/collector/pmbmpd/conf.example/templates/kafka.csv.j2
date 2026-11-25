@@ -1,0 +1,17 @@
+global,metadata.broker.list,{{ kafka_broker }}
+global,security.protocol,SASL_SSL
+global,sasl.mechanism,PLAIN
+global,sasl.username,collector
+global,sasl.password,{{ kafka_collector_password }}
+global,ssl.ca.location,/etc/pmacct_certificates/ca.crt
+global,ssl.endpoint.identification.algorithm,https
+topic,partitioner,random
+global,sticky.partitioning.linger.ms,0
+global,queue.buffering.max.messages,1000000000
+global,queue.buffering.max.kbytes,16777216
+global,queue.buffering.max.ms,500
+global,request.required.acks,1
+global,message.timeout.ms,3600000
+global,batch.num.messages,10000
+global,message.max.bytes,1000000
+global,compression.codec,lz4

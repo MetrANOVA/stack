@@ -24,4 +24,7 @@ helm/**/values.yaml
 */pipeline/caches/*
 !*/pipeline/caches/.placeholder
 /docker-compose.yml
+/shared/pipeline/docker-compose.yml
+/grafana/docker-compose.yml
+/clickhouse/docker-compose.yml
 .venv/

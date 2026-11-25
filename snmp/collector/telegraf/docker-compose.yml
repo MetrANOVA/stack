@@ -1,0 +1,28 @@
+services:
+
+  telegraf-init:
+    image: python:3.11-slim
+    container_name: telegraf-init
+    entrypoint:
+      - /bin/bash
+      - -lc
+      - >-
+        pip install --no-cache-dir jinja2 &&
+        python /scripts/render_configs.py
+    volumes:
+      - ./conf:/etc/telegraf
+      - ./scripts:/scripts:ro
+    restart: "no"
+
+  telegraf:
+    image: telegraf:1.40.3-alpine
+    restart: always
+    depends_on:
+      telegraf-init:
+        condition: service_completed_successfully
+    env_file:
+      - conf/telegraf.env
+    volumes:
+      - ./conf/telegraf.conf:/etc/telegraf/telegraf.conf:ro
+      - ./conf/telegraf.d:/etc/telegraf/telegraf.d:ro
+      - ./conf/kafka/ca.crt:/etc/telegraf_certs/kafka_ca.crt:ro
