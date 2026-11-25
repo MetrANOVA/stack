@@ -15,7 +15,7 @@ services:
     restart: "no"
 
   data_snmp:
-    image: ghcr.io/metranova/pipeline:andy-telegraf-cleanup
+    image: ghcr.io/metranova/pipeline:latest
     depends_on:
       snmp-pipeline-init:
         condition: service_completed_successfully

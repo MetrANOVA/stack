@@ -14,7 +14,7 @@ services:
     restart: "no"
 
   data_bmp:
-    image: ghcr.io/metranova/pipeline:andy-bmp-routemon
+    image: ghcr.io/metranova/pipeline:latest
     depends_on:
       bmp-pipeline-init:
         condition: service_completed_successfully
@@ -33,7 +33,7 @@ services:
       replicas: ${PIPELINE_REPLICAS:-1}
 
   cache_rootbeer:
-    image: ghcr.io/metranova/pipeline:andy-bmp-routemon
+    image: ghcr.io/metranova/pipeline:latest
     depends_on:
       bmp-pipeline-init:
         condition: service_completed_successfully
